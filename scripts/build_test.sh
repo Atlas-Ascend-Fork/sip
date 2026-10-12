@@ -36,39 +36,37 @@ function get_valid_pr_dir()
         VALID_TEST_DIRS=("base" "blas" "fft" "domain" "filter" "interpolation")
         return
     fi
-    
+
     cd $CODE_ROOT
 
     current_branch=$(git branch --show-current 2>/dev/null || echo "unknown")
     log_info "Current branch: $current_branch"
 
-    diff_cmd="git diff --no-commit-id --name-only origin/$current_branch"
-    log_info "Executing: $diff_cmd"
-    
-    diff_output=$(eval "$diff_cmd" 2>&1)
-    
+    # 直接调用并引用分支名参数，命令不做二次 shell 解析（与 oat_check.sh 的参数化改造同口径）
+    diff_output=$(git diff --no-commit-id --name-only "origin/${current_branch}" 2>&1)
+
     if [ $? -ne 0 ]; then
         log_error "git diff failed: $diff_output"
         VALID_TEST_DIRS=("base" "blas" "fft" "domain" "filter" "interpolation")
         cd - > /dev/null
         return
     fi
-    
+
     if [ -z "$diff_output" ]; then
         log_info "No file changes"
         VALID_TEST_DIRS=()
         cd - > /dev/null
         return
     fi
-    
+
     log_info "Detected $(echo "$diff_output" | wc -l) changed files"
     echo "$diff_output"
 
     VALID_TEST_DIRS=()
-    
+
     while IFS= read -r f; do
         [ -z "$f" ] && continue
-        
+
         case "${f,,}" in
             *.md)
                 continue
@@ -99,7 +97,7 @@ function get_valid_pr_dir()
                 ;;
         esac
     done <<< "$(echo "$diff_output" | xargs -n1)"
-    
+
     if [ ${#VALID_TEST_DIRS[@]} -eq 0 ]; then
         log_info "Only documentation changed, skipping tests"
         VALID_TEST_DIRS=()
@@ -107,29 +105,29 @@ function get_valid_pr_dir()
         VALID_TEST_DIRS=($(printf "%s\n" "${VALID_TEST_DIRS[@]}" | sort -u))
         log_info "Test directories: ${VALID_TEST_DIRS[*]}"
     fi
-    
+
     cd - > /dev/null
 }
 
 function fn_example_prepare()
 {
     [ -d "$EXAMPLE_DIR" ] || { log_fail "Example dir not found: $EXAMPLE_DIR"; return 1; }
-    
+
     source "$OUTPUT_DIR/set_env.sh"
-    
+
     [ -n "$ASDSIP_HOME_PATH" ] || { log_fail "ASDSIP_HOME_PATH is not set"; exit 1; }
-    
+
     if [ ! -d "$ASDSIP_HOME_PATH" ]; then
         new_path="${ASDSIP_HOME_PATH%latest/}"
         [ -d "$new_path" ] || { log_fail "ASDSIP_HOME_PATH not exist: $ASDSIP_HOME_PATH"; exit 1; }
         export ASDSIP_HOME_PATH="$new_path"
     fi
-    
+
     export LD_LIBRARY_PATH="$ASDSIP_HOME_PATH/lib:$LD_LIBRARY_PATH"
-    
+
     EX_TMP_DIR="$EXAMPLE_DIR/tmp_example_bin_$(date +%Y%m%d_%H%M%S)"
     mkdir -p "$EX_TMP_DIR" || return 1
-    
+
     log_info "Temp dir: $EX_TMP_DIR"
     trap 'fn_example_cleanup' EXIT
 }
@@ -210,9 +208,9 @@ function fn_example_test()
                 break
             }
         done
-        
+
         [ -z "$found_dir" ] && continue
-        
+
         # Find all example_*.cpp files in directory
         while IFS= read -r -d '' file; do
             example_files+=("$file")
@@ -247,7 +245,7 @@ function fn_example_test()
     echo "Total tests     : $TOTAL_EXAMPLES"
     echo "Passed          : $passed"
     echo "Failed          : $FAIL_COUNT"
-    
+
     [ $FAIL_COUNT -ne 0 ] && {
         log_subline
         log_fail "Failed cases: ${#FAILED_FILES[@]} file(s)"
@@ -257,6 +255,12 @@ function fn_example_test()
         done
     }
     log_line
+
+    # 任一示例编译/运行失败时以非零状态退出，供 smoke_pr 等 CI 目标感知失败（issue #224）
+    if [ $FAIL_COUNT -ne 0 ]; then
+        return 1
+    fi
+    return 0
 }
 
 function fn_main()

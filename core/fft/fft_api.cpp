@@ -670,12 +670,24 @@ void addFFTTransposeStep(FFTPlan& plan, int axis0, int axis1, const SVector<int6
     step.operation = std::unique_ptr<FftOperation>(std::make_unique<Transpose>(axis0, axis1, dims));
 }
 
-void addFFTSteps(FFTPlan& plan, int dim, int batchSize, asdFftType fftType)
+void addFFTSteps(FFTPlan& plan, int dim, int64_t batchSize, asdFftType fftType)
 {
     if (plan.fftSizes.size() <= static_cast<size_t>(dim) || plan.fftStrides.size() <= static_cast<size_t>(dim)) {
         throw std::runtime_error("Invalid dim.");
     }
-    int fftSize = plan.fftSizes[dim];
+    // 2D/3D 派生 batch 乘积（batchSize * fftSizeX[*fftSizeY]）以 int64 传入后，必须能
+    // 无损落入 getCore 的 unsigned 形参；超过 INT32_MAX 截断为负/错值会静默产出错误
+    // plan（issue #214，与 #175 的 1D 顶层 batchSize 入口守卫同口径）
+    if (batchSize > static_cast<int64_t>(std::numeric_limits<int32_t>::max())) {
+        ASDSIP_LOG(ERROR) << "derived batch size exceeds INT32_MAX.";
+        throw std::runtime_error("derived batch size exceeds INT32_MAX.");
+    }
+    // fftSizes 为 int64，窄化到 int 前先做范围校验（issue #214）
+    if (plan.fftSizes[dim] > static_cast<int64_t>(std::numeric_limits<int32_t>::max())) {
+        ASDSIP_LOG(ERROR) << "fft size exceeds INT32_MAX.";
+        throw std::runtime_error("fft size exceeds INT32_MAX.");
+    }
+    int fftSize = static_cast<int>(plan.fftSizes[dim]);
     int fftStride = plan.fftStrides[dim];
     std::vector<int64_t> factors = orderedFactorize(fftSize);
     std::vector<int64_t> uniques = deDuplicates(factors);
@@ -683,10 +695,12 @@ void addFFTSteps(FFTPlan& plan, int dim, int batchSize, asdFftType fftType)
     unsigned nLeft = 1;
     plan.steps.push_back(PlanStep{});
     PlanStep& step = plan.steps.back();
-    step.operation = getCore(uniques, 1, fftSize, nLeft, fftStride, batchSize, fftType, plan.isForward(), plan);
+    // 入口已校验 batchSize/fftSize <= INT32_MAX，窄化到 getCore 的 unsigned 形参无损
+    step.operation = getCore(uniques, 1, fftSize, nLeft, fftStride, static_cast<unsigned>(batchSize), fftType,
+                             plan.isForward(), plan);
 }
 
-inline void addFFTSteps(FFTPlan& plan, int dim, int batchSize) { addFFTSteps(plan, dim, batchSize, plan.fftType); }
+inline void addFFTSteps(FFTPlan& plan, int dim, int64_t batchSize) { addFFTSteps(plan, dim, batchSize, plan.fftType); }
 
 void addFFT2DStep(FFTPlan& plan, int radixX, int radixY)
 {
@@ -806,7 +820,7 @@ void init2DSteps(FFTPlan& plan)
     plan.markInitialized();
 }
 
-void addFFTC2CFirstTwoDimsStep(FFTPlan& plan, int batchSize, int64_t fftSizeX, int64_t fftSizeY, int64_t fftSizeZ)
+void addFFTC2CFirstTwoDimsStep(FFTPlan& plan, int64_t batchSize, int64_t fftSizeX, int64_t fftSizeY, int64_t fftSizeZ)
 {
     SVector<int64_t> dimsStepOne;
     SVector<int64_t> dimsStepTwo;
@@ -1509,6 +1523,12 @@ AsdSip::AspbStatus asdFftExecC2C(asdFftHandle handle, const aclTensor* input, co
     FFTPlan& plan = FFTPlanCache::getPlan(handle);
 
     ASDSIP_ECHECK(plan.isInitialized(), "plan is not initialized.", ErrorType::ACL_ERROR_INVALID_PARAM);
+    // 变体与 plan 类型一致性校验：match* 仅检查 dtype/形状，C2R plan 可经 C2C 入口
+    // 以错误核心静默执行并返回成功（issue #213）
+    if (plan.fftType != asdFftType::ASCEND_FFT_C2C) {
+        ASDSIP_LOG(ERROR) << "plan fftType does not match asdFftExecC2C.";
+        return ErrorType::ACL_ERROR_INVALID_PARAM;
+    }
     if (!matchC2C_(plan, input)) {
         ASDSIP_LOG(ERROR) << "input does not match plan.";
         return ErrorType::ACL_ERROR_INVALID_PARAM;
@@ -1532,6 +1552,11 @@ AspbStatus asdFftExecC2R(asdFftHandle handle, const aclTensor* input, const aclT
     FFTPlan& plan = FFTPlanCache::getPlan(handle);
 
     ASDSIP_ECHECK(plan.isInitialized(), "plan is not initialized.", ErrorType::ACL_ERROR_INVALID_PARAM);
+    // 变体与 plan 类型一致性校验（issue #213）
+    if (plan.fftType != asdFftType::ASCEND_FFT_C2R) {
+        ASDSIP_LOG(ERROR) << "plan fftType does not match asdFftExecC2R.";
+        return ErrorType::ACL_ERROR_INVALID_PARAM;
+    }
     if (!matchC2R_(plan, input)) {
         ASDSIP_LOG(ERROR) << "input does not match plan.";
         return ErrorType::ACL_ERROR_INVALID_PARAM;
@@ -1555,6 +1580,11 @@ AspbStatus asdFftExecR2C(asdFftHandle handle, const aclTensor* input, const aclT
     FFTPlan& plan = FFTPlanCache::getPlan(handle);
 
     ASDSIP_ECHECK(plan.isInitialized(), "plan is not initialized.", ErrorType::ACL_ERROR_INVALID_PARAM);
+    // 变体与 plan 类型一致性校验（issue #213）
+    if (plan.fftType != asdFftType::ASCEND_FFT_R2C) {
+        ASDSIP_LOG(ERROR) << "plan fftType does not match asdFftExecR2C.";
+        return ErrorType::ACL_ERROR_INVALID_PARAM;
+    }
     if (!matchR2C_(plan, input)) {
         ASDSIP_LOG(ERROR) << "input does not match plan.";
         return ErrorType::ACL_ERROR_INVALID_PARAM;

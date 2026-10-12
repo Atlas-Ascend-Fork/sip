@@ -109,6 +109,59 @@ static bool RunOnce(int n, int batch, const std::vector<c64>& input, std::vector
     return true;
 }
 
+// 探测当前安装包的 ops-fft 后端可用性: 建同参 plan 后做一次 exec,
+// 返回接口状态码(internal-only 构建下为 ACL_ERROR_API_NOT_SUPPORT)
+static AspbStatus ProbeOpsFftBackend(int n, int batch, const std::vector<c64>& input)
+{
+    asdFftHandle handle;
+    if (asdFftCreate(handle) != ErrorType::ACL_SUCCESS) {
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
+    AspbStatus status = asdFftMakePlan1D(handle, n, asdFftType::ASCEND_FFT_C2C, asdFftDirection::ASCEND_FFT_FORWARD,
+                                         batch);
+    if (status != ErrorType::ACL_SUCCESS) {
+        asdFftDestroy(handle);
+        return status;
+    }
+    size_t wsSize = 0;
+    asdFftGetWorkspaceSize(handle, wsSize);
+    void* wsDev = nullptr;
+    if (wsSize > 0) {
+        if (aclrtMalloc(&wsDev, (int64_t)wsSize, ACL_MEM_MALLOC_HUGE_FIRST) != ::ACL_SUCCESS) {
+            asdFftDestroy(handle);
+            return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+        }
+        asdFftSetWorkspace(handle, (uint8_t*)wsDev);
+    }
+    aclrtStream stream = nullptr;
+    aclrtCreateStream(&stream);
+    asdFftSetStream(handle, stream);
+
+    size_t bytes = input.size() * sizeof(c64);
+    const int64_t shape[2] = {batch, n};
+    const int64_t strides[2] = {n, 1};
+    void* inDev = nullptr;
+    void* outDev = nullptr;
+    aclrtMalloc(&inDev, (int64_t)bytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(&outDev, (int64_t)bytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclTensor* inT = aclCreateTensor(shape, 2, ACL_COMPLEX64, strides, 0, ACL_FORMAT_ND, shape, 2, inDev);
+    aclTensor* outT = aclCreateTensor(shape, 2, ACL_COMPLEX64, strides, 0, ACL_FORMAT_ND, shape, 2, outDev);
+
+    status = asdFftExecC2C(handle, inT, outT);
+    aclrtSynchronizeStream(stream);
+
+    aclDestroyTensor(inT);
+    aclDestroyTensor(outT);
+    aclrtFree(inDev);
+    aclrtFree(outDev);
+    if (wsDev != nullptr) {
+        aclrtFree(wsDev);
+    }
+    aclrtDestroyStream(stream);
+    asdFftDestroy(handle);
+    return status;
+}
+
 int main(int argc, char** argv)
 {
     int n = argc > 1 ? std::atoi(argv[1]) : 8192;
@@ -146,8 +199,19 @@ int main(int argc, char** argv)
         // 同进程切换到 ops-fft 后端(后端开关为进程级环境变量, 每次 exec 实时读取)
         AB_CHECK_MAIN(setenv("SIP_FFT_BACKEND", "ops-fft", 1) == 0, "setenv");
         AbLog("[AB] backend=ops-fft ...\n");
+        // internal-only 安装包(未链接 ops-fft 二进制包)按能力降级: 探测返回 API_NOT_SUPPORT
+        // 时输出 SKIP 并以 0 退出, 避免默认构建的示例门禁对"后端不存在"误报失败
+        AspbStatus probeStatus = ProbeOpsFftBackend(n, batch, input);
+        if (probeStatus == ErrorType::ACL_ERROR_API_NOT_SUPPORT) {
+            AbLog("[AB] SKIP: ops-fft backend unavailable (internal-only build), A/B compare skipped\n");
+            unsetenv("SIP_FFT_BACKEND");
+            aclrtResetDevice(deviceId);
+            aclFinalize();
+            return 0;
+        }
         if (!RunOnce(n, batch, input, outOpsFft, warmup, loops, msOpsFft)) {
-            AbLog("[AB][FAIL] ops-fft 后端不可用, asdFftExec 已报错中止(严格语义, 不回退):\n");
+            AbLog("[AB][FAIL] ops-fft 后端不可用, asdFftExec 已报错中止(严格语义, 不回退), status=%d:\n",
+                  static_cast<int>(probeStatus));
             AbLog("[AB]       当前形状未命中覆盖路径(见 README 路由表), 或本安装包为 internal-only 构建。\n");
             return -1;
         }

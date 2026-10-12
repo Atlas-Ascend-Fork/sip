@@ -260,3 +260,64 @@ TEST(TestFftPlanNegative, RepeatedInitRejected)
     TensorContext context;
     OpTestEnd(deviceId, context, stream);
 }
+
+// 2D 派生 batch 乘积（batchSize * fftSizeX）超过 INT32_MAX 时应返回参数错误，
+// 而非截断为负/错值静默产出错误 plan（issue #214）
+TEST(TestFftPlanNegative, MakePlan2DDerivedBatchOverflowRejected)
+{
+    int deviceId = 0;
+    MkiRtStream stream = OpTestInit(deviceId);
+
+    asdFftHandle handle;
+    ASSERT_EQ(asdFftCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    // batch(2^26) * fftSizeX(64) = 2^32 > INT32_MAX，batchSize 本身未超 1D 的 #175 上限；
+    // fftSizeY=256 超出 2D 融合核心上限(128)，确保走 addFFTSteps 的派生 batch 乘积路径
+    EXPECT_EQ(
+        asdFftMakePlan2D(handle, 64, 256, asdFftType::ASCEND_FFT_C2C, asdFftDirection::ASCEND_FFT_FORWARD, 67108864),
+        AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    asdFftDestroy(handle);
+
+    TensorContext context;
+    OpTestEnd(deviceId, context, stream);
+}
+
+// 跨变体误用：C2R plan 经 C2C/R2C 入口、C2C plan 经 C2R 入口均应返回参数错误，
+// 而非通过 match 检查后以错误核心静默执行（issue #213）
+TEST(TestFftPlanNegative, CrossVariantExecRejected)
+{
+    int deviceId = 0;
+    MkiRtStream stream = OpTestInit(deviceId);
+
+    // 与 C2C 入口 dtype/形状要求完全匹配的 complex64 张量：修复前可越过全部 match 检查
+    std::vector<std::complex<float>> inputHostData(16, std::complex<float>(1.0f, 0.0f));
+    std::vector<std::complex<float>> outputHostData(16, std::complex<float>(0.0f, 0.0f));
+    void* inputDeviceAddr = nullptr;
+    void* outputDeviceAddr = nullptr;
+    aclTensor* aclInput = nullptr;
+    aclTensor* aclOutput = nullptr;
+    ASSERT_EQ(CreateAclTensor(inputHostData, {1, 16}, &inputDeviceAddr, aclDataType::ACL_COMPLEX64, &aclInput), 0);
+    ASSERT_EQ(CreateAclTensor(outputHostData, {1, 16}, &outputDeviceAddr, aclDataType::ACL_COMPLEX64, &aclOutput), 0);
+
+    asdFftHandle c2rHandle;
+    ASSERT_EQ(asdFftCreate(c2rHandle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdFftMakePlan1D(c2rHandle, 16, asdFftType::ASCEND_FFT_C2R, asdFftDirection::ASCEND_FFT_FORWARD, 1),
+              AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdFftExecC2C(c2rHandle, aclInput, aclOutput), AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    EXPECT_EQ(asdFftExecR2C(c2rHandle, aclInput, aclOutput), AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    asdFftDestroy(c2rHandle);
+
+    asdFftHandle c2cHandle;
+    ASSERT_EQ(asdFftCreate(c2cHandle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdFftMakePlan1D(c2cHandle, 16, asdFftType::ASCEND_FFT_C2C, asdFftDirection::ASCEND_FFT_FORWARD, 1),
+              AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdFftExecC2R(c2cHandle, aclInput, aclOutput), AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    asdFftDestroy(c2cHandle);
+
+    aclDestroyTensor(aclInput);
+    aclDestroyTensor(aclOutput);
+    aclrtFree(inputDeviceAddr);
+    aclrtFree(outputDeviceAddr);
+
+    TensorContext context;
+    OpTestEnd(deviceId, context, stream);
+}

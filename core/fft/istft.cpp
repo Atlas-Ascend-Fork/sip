@@ -350,7 +350,7 @@ bool IstftParamsCheck(struct IstftDesc& istftAnyParms, const aclTensor* input)
         ASDSIP_LOG(WARN) << "warning: Currently, the supported returnComplex is only true.";
     }
 
-    // framee check
+    // frame check
     ASDSIP_CHECK(istftAnyParms.nFrames > 1, "Currently, the nFrames dim value of input should be more than 1",
                  return false);
 

@@ -282,11 +282,13 @@ size_t FFTCoreAny::EstimateWorkspaceSize()
 void FFTCoreAny::Run(Mki::Tensor& inTensor, Mki::Tensor& outTensor, void* stream, workspace::Workspace& workspace)
 {
     size_t bufferSize = 0;
+    // 与 EstimateWorkspaceSize 的 64 位口径对齐：nDoing/batch 为 unsigned 32 位，先连乘
+    // 会在 32 位域回绕，超大组合下算出过小 bufferSize 导致 workspace 越界（issue #212）
     if (problemDesc.fftType == asdFftType::ASCEND_FFT_C2R) {
-        bufferSize = problemDesc.nDoing * problemDesc.batch * K_SIZE_OF_COMPLEX_64 * DOUBLE_SIZE_OF_COMPLEX_64 *
-                     BUFFER_NUM;
+        bufferSize = static_cast<size_t>(problemDesc.nDoing) * problemDesc.batch * K_SIZE_OF_COMPLEX_64 *
+                     DOUBLE_SIZE_OF_COMPLEX_64 * BUFFER_NUM;
     } else {
-        bufferSize = problemDesc.nDoing * problemDesc.batch * K_SIZE_OF_COMPLEX_64 * BUFFER_NUM;
+        bufferSize = static_cast<size_t>(problemDesc.nDoing) * problemDesc.batch * K_SIZE_OF_COMPLEX_64 * BUFFER_NUM;
     }
 
     buffer = (uint8_t*)workspace.allocate(bufferSize);
@@ -438,9 +440,10 @@ void FFTCoreAny::Run(Mki::Tensor& inTensor, Mki::Tensor& outTensor, void* stream
     // fft iteration
     for (int64_t index = 0; index < factorsNum; index++) {
         auto& coefficientMatrix = *(coeffMatrices[index]);
+        // 数据完整性检查失败必须抛异常：裸 return 会使 asdFftExec 系列静默返回成功且输出未写（issue #211）
         if (coefficientMatrix.desc.dims[TENSOR_TWO_DIMENSION] == 0 || coefficientMatrix.desc.dims[0] == 0) {
             ASDSIP_LOG(ERROR) << "coefficientMatrix.desc.dims[2] == 0 || coefficientMatrix.desc.dims[0] == 0.";
-            return;
+            throw std::runtime_error("coefficientMatrix.desc.dims[2] == 0 || coefficientMatrix.desc.dims[0] == 0.");
         }
 
         collapsedSizes[0] = coefficientMatrix.desc.dims[0];
@@ -473,11 +476,11 @@ void FFTCoreAny::Run(Mki::Tensor& inTensor, Mki::Tensor& outTensor, void* stream
     reshapeSizes[factorsNum + TENSOR_TWO_DIMENSION] = batchTotal;
     if (factorsList.size() > reshapeSizes.size()) {
         ASDSIP_LOG(ERROR) << "factorsList size is larger than reshapeSizes!";
-        return;
+        throw std::runtime_error("factorsList size is larger than reshapeSizes!");
     }
     if (factorsList.size() == 0) {
         ASDSIP_LOG(ERROR) << "factorsList size is 0!";
-        return;
+        throw std::runtime_error("factorsList size is 0!");
     }
     std::copy(factorsList.cbegin(), factorsList.cend(), reshapeSizes.begin());
 
@@ -485,11 +488,11 @@ void FFTCoreAny::Run(Mki::Tensor& inTensor, Mki::Tensor& outTensor, void* stream
         // r2c change
         if (factorsList.back() == 0) {
             ASDSIP_LOG(ERROR) << "factorsList.back() == 0.";
-            return;
+            throw std::runtime_error("factorsList.back() == 0.");
         }
         if (factorsNum < 1) {
             ASDSIP_LOG(ERROR) << "factorsNum < 1.";
-            return;
+            throw std::runtime_error("factorsNum < 1.");
         }
         signalTotal /= factorsList.back();
         signalTotal *= (factorsList.back() / TENSOR_TWO_DIMENSION + 1);
@@ -534,7 +537,8 @@ void FFTCoreAny::Run(Mki::Tensor& inTensor, Mki::Tensor& outTensor, void* stream
         tmpOutSize.push_back(TENSOR_TWO_DIMENSION);
 
         if (tmpPingpong.at(pong).desc.dims[0] == 0) {
-            return;
+            ASDSIP_LOG(ERROR) << "tmpPingpong.at(pong).desc.dims[0] == 0.";
+            throw std::runtime_error("tmpPingpong.at(pong).desc.dims[0] == 0.");
         }
 
         SVector<int64_t> strideNew{CalNumel(tmpPingpong.at(pong).desc.dims, 0, tmpPingpong.at(pong).desc.dims.size()) /
@@ -550,7 +554,12 @@ void FFTCoreAny::Run(Mki::Tensor& inTensor, Mki::Tensor& outTensor, void* stream
         pong = 1 - pong;
     }
 
-    CopyDeviceToDeviceAsync(tmpPingpong.at(pong), outTensor, tmpPingpong.at(pong).Numel() * sizeof(float), stream);
+    // 拷贝失败必须抛异常：否则输出张量未写入仍向下返回成功（issue #215）
+    if (CopyDeviceToDeviceAsync(tmpPingpong.at(pong), outTensor, tmpPingpong.at(pong).Numel() * sizeof(float),
+                                stream) != AsdSip::ErrorType::ACL_SUCCESS) {
+        ASDSIP_LOG(ERROR) << "Fail to copy device to device async!";
+        throw std::runtime_error("Fail to copy device to device async!");
+    }
 
     if (mode != asdFftType::ASCEND_FFT_C2R) {
         // HackFloat32intoComplex64
@@ -576,9 +585,9 @@ void FFTCoreAny::Run(void* input, void* output, void* stream, workspace::Workspa
 
     if (problemDesc.fftType == asdFftType::ASCEND_FFT_R2C) {
         dtype = TENSOR_DTYPE_FLOAT;
-        inTensor.dataSize = problemDesc.batch * problemDesc.nDoing * sizeof(float);
+        inTensor.dataSize = static_cast<size_t>(problemDesc.nDoing) * problemDesc.batch * sizeof(float);
     } else {
-        inTensor.dataSize = problemDesc.batch * problemDesc.nDoing * sizeof(float) * 2;
+        inTensor.dataSize = static_cast<size_t>(problemDesc.nDoing) * problemDesc.batch * sizeof(float) * 2;
     }
     inTensor.desc = {dtype, TENSOR_FORMAT_ND, inShape, {}, 0};
     inTensor.data = input;

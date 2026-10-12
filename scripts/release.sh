@@ -145,7 +145,9 @@ EOF
     chmod 750 -R $CODE_ROOT/output
     chmod 750 -R $CODE_ROOT/opensource/makeself
 
-    ARCH=`uname -i`
+    # ARCH 已由函数开头 uname -a 严格校验（仅 x86_64/aarch64，非法即 exit 1），
+    # 不再用 uname -i 无条件覆盖——该命令在部分容器/精简发行版返回 unknown，
+    # 会污染包目录、包名与 install.sh 的 ASDSIPPKGARCH 占位符（issue #217）
 
     mkdir -p $OUTPUT_DIR/scripts
     mkdir -p $RELEASE_DIR/$ARCH
