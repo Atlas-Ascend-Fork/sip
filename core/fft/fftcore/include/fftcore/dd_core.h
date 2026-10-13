@@ -23,10 +23,13 @@ public:
     ~DdCore() override { DestroyInDevice(); }
     size_t EstimateWorkspaceSize() override;
     void Run(Tensor& input, Tensor& output, void* stream, workspace::Workspace& workspace) override;
+    void Run(void* input, void* output, void* stream, workspace::Workspace& workspace) override;
+    bool OpsFftBackendAdapted() const override { return true; }
+    bool OpsFftBackendStubReady() const override;
 
 private:
     bool PreAllocateInDevice() override;
-    void DestroyInDevice() const;
+    void DestroyInDevice();
 
     std::string opName{"DdOperation"};
     AsdSip::AspbStatus InitPMatrix();
@@ -34,6 +37,12 @@ private:
     AsdSip::AspbStatus InitTactic();
     std::shared_ptr<AsdSip::FFTensor> pMatrix;
     std::shared_ptr<AsdSip::FFTensor> qMatrix;
+    // ops-fft 直调后端
+    void RunViaOpsFft(void* input, void* output, void* stream, workspace::Workspace& workspace);
+    // 常量 device 缓存 (plan 级)
+    void* opsPMatrix = nullptr;
+    void* opsQMatrix = nullptr;
+    uint32_t opsCachedBlocks = 0;
 };
 
 #endif

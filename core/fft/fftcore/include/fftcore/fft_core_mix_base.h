@@ -19,31 +19,26 @@ class FftCoreMixBase : public FFTCoreBase {
 public:
     FftCoreMixBase(FFTCoreType coreType, unsigned nDone, unsigned nDoing, unsigned nLeft, unsigned batch,
                    AsdSip::asdFftType fftType, bool forward, int parity, unsigned nFftC2c)
-        : FFTCoreBase(coreType, nDone, nDoing, nLeft, batch, fftType, forward),
-          parity{parity},
-          nFftC2c{nFftC2c}
-    {
-    }
-    ~FftCoreMixBase() override
-    {
-        DestroyInDevice();
-    }
+        : FFTCoreBase(coreType, nDone, nDoing, nLeft, batch, fftType, forward), parity{parity}, nFftC2c{nFftC2c}
+    {}
+    ~FftCoreMixBase() override { DestroyInDevice(); }
     size_t EstimateWorkspaceSize() override;
-    void Run(Tensor &input, Tensor &output, void *stream, workspace::Workspace &workspace) override;
+    void Run(Tensor& input, Tensor& output, void* stream, workspace::Workspace& workspace) override;
+    void Run(void* input, void* output, void* stream, workspace::Workspace& workspace) override;
+    // ops-fft 后端适配: 混合基族 (kFftMix/kFftR2C/kFftC2R) 均可直调 ops-fft kernel
+    bool OpsFftBackendAdapted() const override { return true; }
+    bool OpsFftBackendStubReady() const override;
 
 protected:
     void InitRadix() override;
     AsdSip::AspbStatus InitTactic();
     bool PreAllocateC2CInDevice();
     bool PreAllocateX2XInDevice();
-    void DestroyInDevice() const;
+    void DestroyInDevice();
 
     virtual void InitParams();
     virtual std::string GetOpName() = 0;
-    bool PreAllocateInDevice() override
-    {
-        return true;
-    }
+    bool PreAllocateInDevice() override { return true; }
     virtual void InitLaunchParam() = 0;
 
     int aivSplitWay{0};
@@ -65,6 +60,20 @@ protected:
     std::shared_ptr<AsdSip::FFTensor> bTable;
 
     Mki::Any opParam;
+
+private:
+    // ops-fft 直调后端
+    void RunViaOpsFft(void* input, void* output, void* stream, workspace::Workspace& workspace);
+    // 常量 device 缓存 (plan 级)
+    void* opsDftMatrix = nullptr;
+    void* opsTwMatrix = nullptr;
+    void* opsRadixList = nullptr;
+    void* opsInputIndex = nullptr;
+    void* opsOutputIndex = nullptr;
+    void* opsATable = nullptr;
+    void* opsBTable = nullptr;
+    uint32_t opsCachedBlocks = 0;
+    bool opsConstUploaded = false;
 };
 
 #endif

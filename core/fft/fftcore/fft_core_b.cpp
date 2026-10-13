@@ -81,28 +81,17 @@ bool FFTCoreB::OpsFftBackendStubReady() const { return AsdSip::OpsFftBStubAvaila
 // ops-fft kernel 直调后端: 常量/tiling 复用 sip plan 期产物, exec 仅一次 stub 调用
 void FFTCoreB::RunViaOpsFft(void* input, void* output, void* stream, workspace::Workspace& workspace)
 {
-    // 常量一次性上传 device (plan 级缓存, 首次 Run 触发)
+    // 常量一次性拷贝至 device (plan 级缓存, 首次 Run 触发)
     if (opsWMatrix == nullptr || opsTMatrix == nullptr || opsIndex == nullptr) {
-        auto upload = [](void** dev, void* host, size_t size) -> bool {
-            if (dev == nullptr || host == nullptr || size == 0) {
-                return false;
-            }
-            int st = MkiRtMemMallocDevice(dev, size, MKIRT_MEM_DEFAULT);
-            if (st != MKIRT_SUCCESS) {
-                return false;
-            }
-            st = MkiRtMemCopy(*dev, size, host, size, MKIRT_MEMCOPY_HOST_TO_DEVICE);
-            return st == MKIRT_SUCCESS;
-        };
-        if (!upload(&opsWMatrix, wMatrix->hostData, wMatrix->dataSize)) {
+        if (!OpsFftUploadConst(&opsWMatrix, wMatrix->hostData, wMatrix->dataSize)) {
             ASDSIP_LOG(ERROR) << "ops-fft backend: wMatrix upload failed";
             return;
         }
-        if (!upload(&opsTMatrix, tMatrix->hostData, tMatrix->dataSize)) {
+        if (!OpsFftUploadConst(&opsTMatrix, tMatrix->hostData, tMatrix->dataSize)) {
             ASDSIP_LOG(ERROR) << "ops-fft backend: tMatrix upload failed";
             return;
         }
-        if (!upload(&opsIndex, index->hostData, index->dataSize)) {
+        if (!OpsFftUploadConst(&opsIndex, index->hostData, index->dataSize)) {
             ASDSIP_LOG(ERROR) << "ops-fft backend: index upload failed";
             return;
         }

@@ -10,6 +10,7 @@
 
 #include <vector>
 
+#include <mki/utils/platform/platform_info.h>
 #include <mki/utils/rt/rt.h>
 #include "log/log.h"
 #include "utils/assert.h"
@@ -17,6 +18,7 @@
 #include "fftcore/fft_core_common_func.h"
 #include "utils/aspb_status.h"
 #include "utils/ops_base.h"
+#include "fftcore/ops_fft_kernel_stub.h"
 
 #include "fftcore/fft_core_mix_base.h"
 
@@ -55,7 +57,7 @@ void FftCoreMixBase::Run(Tensor& input, Tensor& output, void* stream, workspace:
     return;
 }
 
-void FftCoreMixBase::DestroyInDevice() const
+void FftCoreMixBase::DestroyInDevice()
 {
     // destroy tiling data in device
     uint8_t* deviceLaunchBuffer = nullptr;
@@ -63,6 +65,189 @@ void FftCoreMixBase::DestroyInDevice() const
     if (deviceLaunchBuffer != nullptr) {
         MkiRtMemFreeDevice(deviceLaunchBuffer);
     }
+    if (opsDftMatrix != nullptr) {
+        MkiRtMemFreeDevice(opsDftMatrix);
+        opsDftMatrix = nullptr;
+    }
+    if (opsTwMatrix != nullptr) {
+        MkiRtMemFreeDevice(opsTwMatrix);
+        opsTwMatrix = nullptr;
+    }
+    if (opsRadixList != nullptr) {
+        MkiRtMemFreeDevice(opsRadixList);
+        opsRadixList = nullptr;
+    }
+    if (opsInputIndex != nullptr) {
+        MkiRtMemFreeDevice(opsInputIndex);
+        opsInputIndex = nullptr;
+    }
+    if (opsOutputIndex != nullptr) {
+        MkiRtMemFreeDevice(opsOutputIndex);
+        opsOutputIndex = nullptr;
+    }
+    if (opsATable != nullptr) {
+        MkiRtMemFreeDevice(opsATable);
+        opsATable = nullptr;
+    }
+    if (opsBTable != nullptr) {
+        MkiRtMemFreeDevice(opsBTable);
+        opsBTable = nullptr;
+    }
+}
+
+// stub 判空仅防护绕过统一拦截的直接调用(缺失走 internal)
+void FftCoreMixBase::Run(void* input, void* output, void* stream, workspace::Workspace& workspace)
+{
+    if (AsdSip::UseOpsFftKernelBackend() && OpsFftBackendStubReady()) {
+        RunViaOpsFft(input, output, stream, workspace);
+        return;
+    }
+    FftOperation::Run(input, output, stream, workspace);
+}
+
+bool FftCoreMixBase::OpsFftBackendStubReady() const
+{
+    switch (coreType) {
+        case FFTCoreType::kFftMix:
+            return AsdSip::OpsFftMixStubAvailable();
+        case FFTCoreType::kFftR2C:
+            return AsdSip::OpsFftR2CStubAvailable();
+        case FFTCoreType::kFftC2R:
+            return AsdSip::OpsFftC2RStubAvailable();
+        default:
+            return false;
+    }
+}
+
+// ops-fft 直调: 常量/tiling/workspace 复用 plan 期产物;
+// 变体选择对齐 ops-fft host: C2C 按 aivSplitWay(1-6), R2C/C2R 按 aivSplitWay(1-3) + 奇偶(parity)
+void FftCoreMixBase::RunViaOpsFft(void* input, void* output, void* stream, workspace::Workspace& workspace)
+{
+    // 常量首次 Run 拷贝至 device, plan 级缓存;
+    // C2C 无索引/A/B 表 (nullptr tensor 跳过), R2C/C2R 全量拷贝 (奇数 N 时 A/B 表为空)
+    if (!opsConstUploaded) {
+        // 空常量与 ops-fft host 行为对齐: tw 单基传 nullptr; A/B 表(奇数 N 为空)传 4 字节零缓冲
+        auto upload = [](void** dev, const std::shared_ptr<AsdSip::FFTensor>& tensor, bool dummyWhenEmpty) -> bool {
+            if (tensor == nullptr || tensor->hostData == nullptr || tensor->dataSize == 0) {
+                if (!dummyWhenEmpty) {
+                    *dev = nullptr;
+                    return true;
+                }
+                float zero = 0.0F;
+                return OpsFftUploadConst(dev, &zero, sizeof(float));
+            }
+            return OpsFftUploadConst(dev, tensor->hostData, tensor->dataSize);
+        };
+        constexpr bool K_ALLOW_NULL = false;
+        constexpr bool K_DUMMY_WHEN_EMPTY = true;
+        bool isX2X = (coreType == FFTCoreType::kFftR2C || coreType == FFTCoreType::kFftC2R);
+        if (!upload(&opsDftMatrix, dftMatrixArray, K_DUMMY_WHEN_EMPTY) ||
+            !upload(&opsRadixList, radixList, K_DUMMY_WHEN_EMPTY) ||
+            !upload(&opsTwMatrix, twMatrixArray, K_ALLOW_NULL)) {
+            ASDSIP_LOG(ERROR) << "ops-fft backend(mix): dft/tw/radix upload failed";
+            return;
+        }
+        if (isX2X &&
+            (!upload(&opsInputIndex, inputIndex, K_DUMMY_WHEN_EMPTY) ||
+             !upload(&opsOutputIndex, outputIndex, K_DUMMY_WHEN_EMPTY) ||
+             !upload(&opsATable, aTable, K_DUMMY_WHEN_EMPTY) || !upload(&opsBTable, bTable, K_DUMMY_WHEN_EMPTY))) {
+            ASDSIP_LOG(ERROR) << "ops-fft backend(mix): index/ab-table upload failed";
+            return;
+        }
+        opsConstUploaded = true;
+    }
+
+    // workspace: 与 sip kernel 同源同尺寸 (wsIn+wsOut+wsSync+wsC2c+wsAux)
+    const KernelInfo& kernelInfo = kernel->GetKernelInfo();
+    size_t bufferSize = kernelInfo.GetTotalScratchSize();
+    void* scratch = workspace.allocate(bufferSize);
+
+    // blocks=min(batch, min(coreNum, 20)), plan 级缓存
+    if (opsCachedBlocks == 0) {
+        uint32_t cubeCoreNum = Mki::PlatformInfo::Instance().GetCoreNum(Mki::CoreType::CORE_TYPE_CUBE);
+        opsCachedBlocks = AsdSip::OpsFftBatchCoreNum(problemDesc.batch, cubeCoreNum);
+    }
+    uint8_t* sync = nullptr;
+    if (aclrtGetHardwareSyncAddr(reinterpret_cast<void**>(&sync)) != 0 || sync == nullptr) {
+        ASDSIP_LOG(ERROR) << "ops-fft backend: get hardware sync addr failed";
+        workspace.recycleLast();
+        return;
+    }
+
+    uint32_t splitWay = static_cast<uint32_t>(aivSplitWay);
+    if (coreType == FFTCoreType::kFftMix) {
+        switch (splitWay) {
+            case 1:
+                fft_mix_1(opsCachedBlocks, nullptr, stream, sync, input, opsDftMatrix, opsTwMatrix, opsRadixList,
+                          output, scratch, runInfo.GetTilingDeviceAddr());
+                break;
+            case 2:
+                fft_mix_2(opsCachedBlocks, nullptr, stream, sync, input, opsDftMatrix, opsTwMatrix, opsRadixList,
+                          output, scratch, runInfo.GetTilingDeviceAddr());
+                break;
+            case 3:
+                fft_mix_3(opsCachedBlocks, nullptr, stream, sync, input, opsDftMatrix, opsTwMatrix, opsRadixList,
+                          output, scratch, runInfo.GetTilingDeviceAddr());
+                break;
+            case 4:
+                fft_mix_4(opsCachedBlocks, nullptr, stream, sync, input, opsDftMatrix, opsTwMatrix, opsRadixList,
+                          output, scratch, runInfo.GetTilingDeviceAddr());
+                break;
+            case 5:
+                fft_mix_5(opsCachedBlocks, nullptr, stream, sync, input, opsDftMatrix, opsTwMatrix, opsRadixList,
+                          output, scratch, runInfo.GetTilingDeviceAddr());
+                break;
+            case 6:
+                fft_mix_6(opsCachedBlocks, nullptr, stream, sync, input, opsDftMatrix, opsTwMatrix, opsRadixList,
+                          output, scratch, runInfo.GetTilingDeviceAddr());
+                break;
+            default:
+                fft_mix_1(opsCachedBlocks, nullptr, stream, sync, input, opsDftMatrix, opsTwMatrix, opsRadixList,
+                          output, scratch, runInfo.GetTilingDeviceAddr());
+                break;
+        }
+        ASDSIP_LOG(INFO) << "FftCoreMix run via ops-fft kernel (mix" << splitWay << ", blocks=" << opsCachedBlocks
+                         << ") success.";
+    } else {
+        // R2C/C2R: 偶数 N 用 _even 变体, 奇数 N 用 _odd 变体 (对齐 ops-fft host 变体选择)
+        bool odd = (parity == 1);
+        auto launchReal = [this, sync, input, output, scratch, stream](auto kernelFunc) {
+            kernelFunc(opsCachedBlocks, nullptr, stream, sync, input, opsInputIndex, opsATable, opsBTable,
+                       opsOutputIndex, opsDftMatrix, opsTwMatrix, opsRadixList, output, scratch,
+                       runInfo.GetTilingDeviceAddr());
+        };
+        if (coreType == FFTCoreType::kFftR2C) {
+            switch (splitWay) {
+                case 2:
+                    odd ? launchReal(fft_r2c_2_odd) : launchReal(fft_r2c_2_even);
+                    break;
+                case 3:
+                    odd ? launchReal(fft_r2c_3_odd) : launchReal(fft_r2c_3_even);
+                    break;
+                default:
+                    odd ? launchReal(fft_r2c_1_odd) : launchReal(fft_r2c_1_even);
+                    break;
+            }
+            ASDSIP_LOG(INFO) << "FftR2CCore run via ops-fft kernel (r2c" << splitWay << (odd ? "_odd" : "_even")
+                             << ", blocks=" << opsCachedBlocks << ") success.";
+        } else {
+            switch (splitWay) {
+                case 2:
+                    odd ? launchReal(fft_c2r_2_odd) : launchReal(fft_c2r_2_even);
+                    break;
+                case 3:
+                    odd ? launchReal(fft_c2r_3_odd) : launchReal(fft_c2r_3_even);
+                    break;
+                default:
+                    odd ? launchReal(fft_c2r_1_odd) : launchReal(fft_c2r_1_even);
+                    break;
+            }
+            ASDSIP_LOG(INFO) << "FftC2RCore run via ops-fft kernel (c2r" << splitWay << (odd ? "_odd" : "_even")
+                             << ", blocks=" << opsCachedBlocks << ") success.";
+        }
+    }
+
+    workspace.recycleLast();
 }
 
 void FftCoreMixBase::InitRadix()

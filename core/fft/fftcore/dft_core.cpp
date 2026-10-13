@@ -18,6 +18,7 @@
 #include "utils/ops_base.h"
 #include "utils/aspb_status.h"
 #include "fftcore/fft_core_common_func_utils.h"
+#include "fftcore/ops_fft_kernel_stub.h"
 #include "dft.h"
 #include "fftcore/dft_core.h"
 
@@ -26,6 +27,40 @@ constexpr double K_PI = 3.14159265358979323846;
 constexpr double K_2PI = 2 * K_PI;
 
 using namespace AsdSip;
+
+// dft stub 从 [sp+0] 裸读 60 字节 tiling, 与 AAPCS64 值传参约定(>16B 按引用, x7=地址)不符,
+// GCC 按值直调会错位读栈; 垫片将 tiling 落到 [sp+0..59] 后经 GOT 取弱符号 dft 跳转, x0..x6 透传。
+// 垫片仅对 aarch64 (910B 存件) 构建有意义; x86_64 链接 950 存件 (无 dft stub, 判空已拦截, 不可达),
+// #else 的 SysV 值传直调兜底仅保链接 (SysV >16B 结构体整体落栈, 无错位)。
+#if defined(__aarch64__)
+extern "C" void OpsFftCallDft(uint32_t blocks, void* unused, void* stream, void* gm_input, void* gm_dft_matrix,
+                              void* gm_output, void* gm_workspace, const OpsFftDftTilingData* tiling);
+asm(".text\n"
+    ".globl OpsFftCallDft\n"
+    "OpsFftCallDft:\n"
+    "   adrp x16, :got: dft\n"
+    "   ldr  x16, [x16, :got_lo12: dft]\n"
+    "   cbz  x16, 9f\n"
+    "   sub  sp, sp, #96\n"
+    "   stp  x29, x30, [sp, #80]\n"
+    "   ldp  x8, x9, [x7]\n        stp  x8, x9, [sp, #0]\n"
+    "   ldp  x8, x9, [x7, #16]\n   stp  x8, x9, [sp, #16]\n"
+    "   ldp  x8, x9, [x7, #32]\n   stp  x8, x9, [sp, #32]\n"
+    "   ldr  x8, [x7, #48]\n       str  x8, [sp, #48]\n"
+    "   ldr  w8, [x7, #56]\n       str  w8, [sp, #56]\n"
+    "   mov  x7, sp\n"
+    "   blr  x16\n"
+    "   ldp  x29, x30, [sp, #80]\n"
+    "   add  sp, sp, #96\n"
+    "   ret\n"
+    "9:  ret\n");
+#else
+extern "C" void OpsFftCallDft(uint32_t blocks, void* unused, void* stream, void* gm_input, void* gm_dft_matrix,
+                              void* gm_output, void* gm_workspace, const OpsFftDftTilingData* tiling)
+{
+    dft(blocks, unused, stream, gm_input, gm_dft_matrix, gm_output, gm_workspace, *tiling);
+}
+#endif
 
 size_t DFTCore::EstimateWorkspaceSize()
 {
@@ -53,13 +88,69 @@ void DFTCore::Run(Tensor& input, Tensor& output, void* stream, workspace::Worksp
     return;
 }
 
-void DFTCore::DestroyInDevice() const
+// stub 判空仅防护绕过统一拦截的直接调用(缺失走 internal)
+void DFTCore::Run(void* input, void* output, void* stream, workspace::Workspace& workspace)
+{
+    if (AsdSip::UseOpsFftKernelBackend() && AsdSip::OpsFftDftStubAvailable()) {
+        RunViaOpsFft(input, output, stream, workspace);
+        return;
+    }
+    FftOperation::Run(input, output, stream, workspace);
+}
+
+bool DFTCore::OpsFftBackendStubReady() const { return AsdSip::OpsFftDftStubAvailable(); }
+
+// ops-fft 直调: 常量/tiling 复用 plan 期产物 (tiling 值传)
+void DFTCore::RunViaOpsFft(void* input, void* output, void* stream, workspace::Workspace& workspace)
+{
+    if (opsTilingHost.size() < sizeof(OpsFftDftTilingData)) {
+        ASDSIP_LOG(ERROR) << "ops-fft backend: dft tiling host copy is missing";
+        return;
+    }
+
+    // 常量首次 Run 拷贝至 device, plan 级缓存
+    if (opsRotationMatrix == nullptr) {
+        if (rotationMatrix == nullptr || rotationMatrix->hostData == nullptr || rotationMatrix->dataSize == 0) {
+            ASDSIP_LOG(ERROR) << "ops-fft backend: rotationMatrix is empty";
+            return;
+        }
+        if (!OpsFftUploadConst(&opsRotationMatrix, rotationMatrix->hostData, rotationMatrix->dataSize)) {
+            ASDSIP_LOG(ERROR) << "ops-fft backend: rotationMatrix upload failed";
+            return;
+        }
+    }
+
+    // workspace: 与 sip kernel 同源同尺寸 (kernel 自身仅需极小 scratch)
+    const KernelInfo& kernelInfo = kernel->GetKernelInfo();
+    size_t bufferSize = kernelInfo.GetTotalScratchSize();
+    void* scratch = workspace.allocate(bufferSize);
+
+    // blocks: 全核 launch, plan 级缓存
+    if (opsCachedBlocks == 0) {
+        uint32_t coreNum = Mki::PlatformInfo::Instance().GetCoreNum(Mki::CoreType::CORE_TYPE_CUBE);
+        opsCachedBlocks = AsdSip::OpsFftAllCoreNum(coreNum);
+    }
+
+    OpsFftDftTilingData tiling;
+    std::memcpy(&tiling, opsTilingHost.data(), sizeof(tiling));
+    // 值传递 tiling 须经裸栈垫片调用(见 OpsFftCallDft 注释), 不能直接按 C 值参调 dft
+    OpsFftCallDft(opsCachedBlocks, nullptr, stream, input, opsRotationMatrix, output, scratch, &tiling);
+
+    workspace.recycleLast();
+    ASDSIP_LOG(INFO) << "DFTCore run via ops-fft kernel (blocks=" << opsCachedBlocks << ") success.";
+}
+
+void DFTCore::DestroyInDevice()
 {
     // destroy tiling data in device
     uint8_t* deviceLaunchBuffer = nullptr;
     deviceLaunchBuffer = runInfo.GetTilingDeviceAddr();
     if (deviceLaunchBuffer != nullptr) {
         MkiRtMemFreeDevice(deviceLaunchBuffer);
+    }
+    if (opsRotationMatrix != nullptr) {
+        MkiRtMemFreeDevice(opsRotationMatrix);
+        opsRotationMatrix = nullptr;
     }
 }
 
@@ -161,6 +252,8 @@ AspbStatus DFTCore::InitTactic()
     std::vector<uint8_t> hostLaunchBuffer(launchBufferSize);
     kernel->SetTilingHostAddr(hostLaunchBuffer.data(), launchBufferSize);
     kernel->Init(launchParam);
+    // ops-fft 后端 dft stub 的 tiling 为值传递, 保留 host 副本供 RunViaOpsFft 装载
+    opsTilingHost.assign(hostLaunchBuffer.begin(), hostLaunchBuffer.end());
     void* tempDevicePtr = nullptr;
     int st = MkiRtMemMallocDevice(&tempDevicePtr, launchBufferSize, MKIRT_MEM_DEFAULT);
     if (st != MKIRT_SUCCESS) {

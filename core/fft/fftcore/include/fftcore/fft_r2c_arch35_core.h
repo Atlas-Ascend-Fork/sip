@@ -32,28 +32,30 @@ struct FftR2CPlanStage {
 class FftR2CCoreArch35 : public FFTCoreBase {
 public:
     FftR2CCoreArch35(unsigned nDone, unsigned nDoing, unsigned nLeft, unsigned batch, AsdSip::asdFftType fftType,
-               bool forward)
+                     bool forward)
         : FFTCoreBase(FFTCoreType::kFftR2CArch35, nDone, nDoing, nLeft, batch, fftType, forward)
-    {
-    }
+    {}
     ~FftR2CCoreArch35() override { DestroyInDevice(); }
     size_t EstimateWorkspaceSize() override;
-    void Run(Tensor& input, Tensor& output, void *stream, workspace::Workspace& workspace) override {}
-    void Run(void *input, void *output, void *stream, workspace::Workspace &workspace) override;
+    void Run(Tensor& input, Tensor& output, void* stream, workspace::Workspace& workspace) override {}
+    void Run(void* input, void* output, void* stream, workspace::Workspace& workspace) override;
+    // ops-fft 后端已覆盖 950/arch35 混合基路径 (fft_r2c_multi_core 直调)
+    bool OpsFftBackendAdapted() const override { return true; }
+    bool OpsFftBackendStubReady() const override;
 
     static constexpr int64_t ALLOWED_RADICES[] = {2, 3, 5, 7};
 
 private:
     void InitRadix() override;
     bool PreAllocateInDevice() override;
-    void DestroyInDevice() const;
+    void DestroyInDevice();
 
     /**
      * Build the FFT execution plan for R2C.
      * Decomposes N/2 into prime factors from ALLOWED_RADICES and constructs
      * W_R and T matrices for each stage.
      * Also builds post-process twiddle tensor W_N^k for Phase 3.
-     * 
+     *
      * R2C uses N/2 for decomposition (packed complex FFT).
      * Matches Python: build_fft_plan(N, is_forward=True, is_r2c=True)
      */
@@ -61,12 +63,22 @@ private:
 
     AsdSip::AspbStatus InitTactic();
 
+    // ops-fft 直调后端 (950/arch35 混合基)
+    void RunViaOpsFft(void* input, void* output, void* stream, workspace::Workspace& workspace);
+
     std::vector<FftR2CPlanStage> plan;
 
     std::shared_ptr<AsdSip::FFTensor> radixListTensor;
     std::shared_ptr<AsdSip::FFTensor> dftMatrixArray;
     std::shared_ptr<AsdSip::FFTensor> twMatrixArray;
     std::shared_ptr<AsdSip::FFTensor> twPostProcess;
+
+    // 常量 device 缓存 (plan 级)
+    void* opsDftMatrix = nullptr;
+    void* opsTwMatrix = nullptr;
+    void* opsTwPostProcess = nullptr;
+    void* opsRadixList = nullptr;
+    uint32_t opsCachedBlocks = 0;
 
     std::string opName{"FftR2COperation"};
 };

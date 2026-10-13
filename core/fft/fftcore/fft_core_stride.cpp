@@ -10,11 +10,13 @@
 
 #include <cmath>
 #include <vector>
+#include <mki/utils/platform/platform_info.h>
 #include <mki/utils/rt/rt.h>
 #include "log/log.h"
 #include "utils/assert.h"
 #include "utils/aspb_status.h"
 #include "fftcore/fft_core_common_func.h"
+#include "fftcore/ops_fft_kernel_stub.h"
 #include "fft_stride.h"
 #include "ops.h"
 #include "fftcore/fft_core_stride.h"
@@ -55,6 +57,57 @@ void FFTCoreStride::Run(Tensor& input, Tensor& output, void* stream, workspace::
     workspace.recycleLast();
 
     return;
+}
+
+// stub 判空仅防护绕过统一拦截的直接调用(缺失走 internal)
+void FFTCoreStride::Run(void* input, void* output, void* stream, workspace::Workspace& workspace)
+{
+    if (AsdSip::UseOpsFftKernelBackend() && AsdSip::OpsFftStrideStubAvailable()) {
+        RunViaOpsFft(input, output, stream, workspace);
+        return;
+    }
+    FftOperation::Run(input, output, stream, workspace);
+}
+
+bool FFTCoreStride::OpsFftBackendStubReady() const { return AsdSip::OpsFftStrideStubAvailable(); }
+
+// ops-fft 直调: 常量/tiling 复用 plan 期产物
+void FFTCoreStride::RunViaOpsFft(void* input, void* output, void* stream, workspace::Workspace& workspace)
+{
+    // 常量首次 Run 拷贝至 device, plan 级缓存
+    if (opsSMatrix == nullptr) {
+        if (sMatrix == nullptr || sMatrix->hostData == nullptr || sMatrix->dataSize == 0) {
+            ASDSIP_LOG(ERROR) << "ops-fft backend: sMatrix is empty";
+            return;
+        }
+        if (!OpsFftUploadConst(&opsSMatrix, sMatrix->hostData, sMatrix->dataSize)) {
+            ASDSIP_LOG(ERROR) << "ops-fft backend: sMatrix upload failed";
+            return;
+        }
+    }
+
+    // workspace: 与 sip kernel 同源同尺寸 (n * s0 * sizeof(float) * 4)
+    const KernelInfo& kernelInfo = kernel->GetKernelInfo();
+    size_t bufferSize = kernelInfo.GetTotalScratchSize();
+    void* scratch = workspace.allocate(bufferSize);
+
+    // blocks/sync: 全核 launch, plan 级缓存
+    if (opsCachedBlocks == 0) {
+        uint32_t coreNum = Mki::PlatformInfo::Instance().GetCoreNum(Mki::CoreType::CORE_TYPE_CUBE);
+        opsCachedBlocks = AsdSip::OpsFftAllCoreNum(coreNum);
+    }
+    uint8_t* sync = nullptr;
+    if (aclrtGetHardwareSyncAddr(reinterpret_cast<void**>(&sync)) != 0 || sync == nullptr) {
+        ASDSIP_LOG(ERROR) << "ops-fft backend: get hardware sync addr failed";
+        workspace.recycleLast();
+        return;
+    }
+
+    fft_stride(opsCachedBlocks, nullptr, stream, sync, input, opsSMatrix, output, scratch,
+               runInfo.GetTilingDeviceAddr());
+
+    workspace.recycleLast();
+    ASDSIP_LOG(INFO) << "FFTCoreStride run via ops-fft kernel (blocks=" << opsCachedBlocks << ") success.";
 }
 
 AspbStatus FFTCoreStride::InitTactic()
@@ -179,10 +232,14 @@ bool FFTCoreStride::PreAllocateInDevice()
     return true;
 }
 
-void FFTCoreStride::DestroyInDevice() const
+void FFTCoreStride::DestroyInDevice()
 {
     uint8_t* deviceBuffer = runInfo.GetTilingDeviceAddr();
     if (deviceBuffer != nullptr) {
         MkiRtMemFreeDevice(deviceBuffer);
+    }
+    if (opsSMatrix != nullptr) {
+        MkiRtMemFreeDevice(opsSMatrix);
+        opsSMatrix = nullptr;
     }
 }

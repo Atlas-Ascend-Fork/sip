@@ -23,11 +23,14 @@ public:
     ~FFTCoreN() override { DestroyInDevice(); }
     size_t EstimateWorkspaceSize() override;
     void Run(Tensor& input, Tensor& output, void* stream, workspace::Workspace& workspace) override;
+    void Run(void* input, void* output, void* stream, workspace::Workspace& workspace) override;
+    bool OpsFftBackendAdapted() const override { return true; }
+    bool OpsFftBackendStubReady() const override;
 
 private:
     void InitRadix() override;
     bool PreAllocateInDevice() override;
-    void DestroyInDevice() const;
+    void DestroyInDevice();
 
     Mki::Any InitParam();
     AsdSip::AspbStatus InitIndex();
@@ -35,6 +38,8 @@ private:
     AsdSip::AspbStatus InitWMatrix();
     AsdSip::AspbStatus InitTMatrix();
     AsdSip::AspbStatus InitTactic();
+    // ops-fft 直调后端
+    void RunViaOpsFft(void* input, void* output, void* stream, workspace::Workspace& workspace);
     std::vector<size_t> aicInputAddr;
     std::vector<size_t> aivOutputAddr;
     std::vector<size_t> lessTCopy;
@@ -43,6 +48,11 @@ private:
     std::shared_ptr<AsdSip::FFTensor> tMatrix;
     std::shared_ptr<AsdSip::FFTensor> index;
     uint32_t repeatBatchSize{0};
+    // 常量 device 缓存 (plan 级)
+    void* opsWMatrix = nullptr;
+    void* opsTMatrix = nullptr;
+    void* opsIndex = nullptr;
+    uint32_t opsCachedBlocks = 0;
 };
 
 #endif

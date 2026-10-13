@@ -192,6 +192,8 @@ int main(int argc, char** argv)
     const int loops = 100;
 
     try {
+        // internal 侧须显式指定: 未设置时联合构建默认严格档(见 docs/ops_fft_joint_build.md 4.1)
+        AB_CHECK_MAIN(setenv("SIP_FFT_BACKEND", "internal", 1) == 0, "setenv");
         AbLog("[AB] backend=internal ...\n");
         AB_CHECK_MAIN(RunOnce(n, batch, input, outInternal, warmup, loops, msInternal), "internal run");
         AbLog("[AB] internal: %.3f ms/exec\n", msInternal);

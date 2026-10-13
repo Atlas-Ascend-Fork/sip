@@ -8,7 +8,6 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-
 #ifndef __DFT_C2R_CORE__
 #define __DFT_C2R_CORE__
 
@@ -18,22 +17,30 @@
 
 class DftC2RCore : public FftCoreHBase {
 public:
-    DftC2RCore(unsigned N_doing,
-        unsigned batch, AsdSip::asdFftType fft_type, bool forward)
-        : FftCoreHBase(FFTCoreType::kDftC2R, N_doing, batch, fft_type, forward) {}
-    ~DftC2RCore() override { DestroyInDevice();}
+    DftC2RCore(unsigned N_doing, unsigned batch, AsdSip::asdFftType fft_type, bool forward)
+        : FftCoreHBase(FFTCoreType::kDftC2R, N_doing, batch, fft_type, forward)
+    {}
+    ~DftC2RCore() override { DestroyInDevice(); }
     size_t EstimateWorkspaceSize() override;
-    void Run(Tensor& input, Tensor& output, void *stream, workspace::Workspace& workspace) override {}
-    void Run(void *input, void *output, void *stream, workspace::Workspace &workspace) override;
+    void Run(Tensor& input, Tensor& output, void* stream, workspace::Workspace& workspace) override {}
+    void Run(void* input, void* output, void* stream, workspace::Workspace& workspace) override;
+    bool OpsFftBackendAdapted() const override { return true; }
+    bool OpsFftBackendStubReady() const override;
+
 private:
     void InitRadix() override;
     bool PreAllocateInDevice() override;
-    void DestroyInDevice() const;
+    void DestroyInDevice();
     AsdSip::AspbStatus InitRotationMatrix();
     AsdSip::AspbStatus InitTactic();
- 
+    // ops-fft 直调后端: dft_c2r 的 tiling 为指针传递
+    void RunViaOpsFft(void* input, void* output, void* stream, workspace::Workspace& workspace);
+
     std::string opName{"DftC2ROperation"};
     std::shared_ptr<AsdSip::FFTensor> rotationMatrix;
+    // 常量 device 缓存 (plan 级)
+    void* opsRotationMatrix = nullptr;
+    uint32_t opsCachedBlocks = 0;
 };
 
 #endif

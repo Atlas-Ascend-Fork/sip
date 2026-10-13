@@ -1,121 +1,151 @@
 # ops-fft 联合构建
 
-## 概述
+## 1. 概述
 
-SiP 的 FFT 算子支持两种执行后端：
+联合构建为 SiP 的 FFT 算子提供第二种执行后端：直调 ops-fft 预编译库 `libcann_ops_fft.so` 导出的 device kernel，常量与 tiling 复用 SiP plan 期产物。
 
-- **internal（默认）**：使用 SiP 自带 kernel；
-- **ops-fft**：直接调用 ops-fft 预编译库 `libcann_ops_fft.so` 导出的 device kernel，常量与 tiling 复用 SiP plan 期产物，两种后端计算结果逐位一致。
+| 后端 | 说明 |
+| --- | --- |
+| internal | SiP 自带 kernel；纯 internal 构建的默认后端，联合构建下须显式 `SIP_FFT_BACKEND=internal` |
+| ops-fft | 直调存件 kernel，须以 `--use_ops_fft` 构建，联合构建下为默认后端（严格档） |
 
-联合构建指该能力的全链路：构建期以 `--use_ops_fft` 显式开启，将 ops-fft 二进制存件与 SiP 一起链接并打进安装包（默认构建为纯 internal，不依赖存件）；运行期通过环境变量强制启用 ops-fft 后端（未设置时使用 internal）。
+双后端的数值一致性分两档（成因见第 2 节）：
 
-## 使用范围
+| 路径 | 一致性 |
+| --- | --- |
+| Ascend910B 全部覆盖路径；Ascend950 混合基路径 | 逐位一致 |
+| Ascend950 radix-2 路径（直调存件旧版 kernel） | 数值等价：rel ~2.3e-07，以毒化 + rel err + CPU 锚点验收 |
 
-| SoC | 覆盖路径 | 直调 kernel |
+## 2. 存件版本背景
+
+存件移植自 2026-04 的 SiP 快照（97769d8），此后不再跟随 SiP 演进；SiP 于 2026-06（94ea107）完成 FFT 性能重写。存件 kernel 与 SiP 现行实现的对应关系：
+
+| 存件 kernel | SiP 现行实现 | 一致性 |
 | --- | --- | --- |
-| Ascend910B | `asdFftExecV2` 的 FFTCoreB 执行路径 | `fft_b` |
-| Ascend950 | FFT C2C 混合基（mixed-radix）路径 | `fft_c2c_arch35_mix_multi_core` |
+| Ascend910B 全部 kernel | 同名实现 | 同源未改，逐位一致 |
+| `fft_c2c_arch35_mix_multi_core`（混合基） | arch35 混合基 | 同源未改，逐位一致 |
+| `fft_c2c_arch35_multi_core`（radix-2） | butterfly 重写版 | 存件为旧版（先 DFT 后乘 twiddle），舍入顺序与 butterfly 不同，仅数值等价；性能低约 14 倍（n=2^21 batch=64：53.3 ms vs 732.8 ms） |
+| —（无对应符号） | RegBase/Packed/Gauss（950 纯 2 幂 n < 2^21）；Stockham/RegBase（950 实变换新调度） | 94ea107 新增，未移植进存件 |
 
-未覆盖的算子与路径不接入该后端：未设置环境变量时始终走 internal；请求 ops-fft 时直接报错中止（统一拦截）。
+命名辨析：`fft_c2c_arch35_`**`mix`**`_multi_core`（含 `mix`）为混合基 kernel；`fft_c2c_arch35_multi_core`（不含 `mix`）为 radix-2 旧版 kernel。
 
-## 构建说明
+由此得到两条路由事实（详见 4.2）：
 
-### 默认构建（纯 internal）
+1. 950 纯 2 幂 n < 2^21 由 `a5::Select` 调度至 RegBase/Packed/Gauss，存件无对应 kernel，不接入本后端；
+2. 950 R2C/C2R 的命中形状全部被 `a5::SelectReal` 优先调度至 Stockham/RegBase，arch35 R2C/C2R core 不会被实例化——直调适配已就位但当前不可达，internal 模式下同样不会走到。
 
-`bash build.sh` 默认**不构建** ops-fft 联合构建，产出纯 internal 的标准包；无需关心 `3rdparty/ops-fft/` 存件是否存在。
+存件 kernel `rfft1_d_fast_dft` 显式不接入：其 tiling（4 指针 + 140B 值传）与 SiP 侧 `DftR2CTilingData`（36B 指针传）不同源，无法安全直调。
 
-### 开启联合构建
+## 3. 构建
+
+### 3.1 默认构建
+
+`bash build.sh` 产出纯 internal 安装包，不依赖 `3rdparty/ops-fft/` 存件。
+
+### 3.2 联合构建
 
 ```sh
 bash build.sh --use_ops_fft
 ```
 
-开启后存件为强依赖：`build.sh` 会按 `lib/<soc>/manifest.info`（每个 SoC 一份，多 SoC 存件并存互不覆盖）逐项校验存件，**SoC / 存件架构**为硬门禁（存件架构由 readelf 直读 `libcann_ops_fft.so` 并与本机构建机比对，当前 910B 存件为 aarch64、950 存件为 x86_64，须在架构匹配的机器上构建）；`cann_version` 与 `abi` 仅作信息性记录不参与校验（`libcann_ops_fft.so` 链接 CANN 运行时，ABI 向后兼容，且对外为 `extern "C"` 纯 C 接口，`_GLIBCXX_USE_CXX11_ABI` 不影响二进制兼容）。存件缺失/失配或编译目标不含 910b/950 时直接报错终止。校验通过时 `libasdsip.so` 链接 `libcann_ops_fft.so`，并将其与头文件收编进安装包（已登记 `filelist.csv`，卸载不残留）；安装布局下 `libcann_ops_fft.so` 与 `libasdsip.so` 同目录，由 `set_env.sh` 的 `LD_LIBRARY_PATH` 定位。
+存件为强依赖，构建前按 `lib/<soc>/manifest.info` 逐项校验：
 
-### 目标 SoC 自动推导
+- 硬门禁：`soc` 与编译目标一致；存件架构与本机一致（用 binutils 工具直读 `libcann_ops_fft.so` 的 ELF 头比对，当前 Ascend910B 存件为 aarch64、Ascend950 存件为 x86_64）。
+- `cann_version`、`abi` 为信息性字段，不参与校验：接口为 `extern "C"` 纯 C，CANN ABI 向后兼容。
 
-ops-fft 存件的 SoC 选择无需手动指定，由构建系统自动推导：
+校验失败，或编译目标不含 Ascend910B/Ascend950 时，构建立即终止。校验通过后：`libasdsip.so` 以 `-Wl,--no-as-needed` 显式链接 `libcann_ops_fft.so`；存件与头文件收编进安装包（登记 `filelist.csv`，卸载不残留），运行期由 `set_env.sh` 设置的 `LD_LIBRARY_PATH` 定位。
 
-- `configs/build_config.json`（或 `BUILD_CONFIG_FILE` 指定的配置）仅启用 910b/950 之一时，跟随该目标；
-- 两者同时启用时，按构建机架构选取：aarch64 链接 910B 存件、x86_64 链接 950 存件（存件架构须与构建机匹配，见上文校验说明）。
+### 3.3 SoC 推导
 
-即：在匹配架构的机器上 `bash build.sh --use_ops_fft`，即可得到对应 SoC 的联合构建。
+- 仅启用 Ascend910B/Ascend950 之一：跟随该目标。
+- 两者同时启用：按构建机架构选取（aarch64 → Ascend910B 存件，x86_64 → Ascend950 存件）。
 
-### 存件缺失或失配时
+## 4. 运行
 
-`--use_ops_fft` 下存件为强依赖：存件缺失或校验失配（含架构不匹配）时直接报错终止构建，需更新存件（见文末"存件更新"）或换用架构匹配的构建机。
+### 4.1 后端开关
 
-## 运行说明
+进程级环境变量 `SIP_FFT_BACKEND`：
 
-通过进程级环境变量切换后端：
+| 取值 | 语义 |
+| --- | --- |
+| 未设置 | 联合构建默认严格档（等价 `ops-fft`，杜绝静默 internal）；纯 internal 构建为 internal |
+| `ops-fft` | 强制档：路径未适配或存件缺所需 kernel 时返回 `ACL_ERROR_API_NOT_SUPPORT`，不回退。适用于 A/B 验证等须显式生效或显式失败的场景。 |
+| `ops-fft-auto` | 自动档：适配且 stub 就绪的 step 走 ops-fft，其余自动回退 internal（各 core 的 Run 分支逐 step 判定）。适用于全量 UT 与存量业务。 |
+| `internal` | 显式 internal：联合构建下的逃生口，A/B 对比的 internal 侧使用。 |
+
+- 开关仅影响 kernel 选择，接口与计算结果不变。
+- 直调命中日志 `run via ops-fft kernel ... success` 为 INFO 级，须开启 `ASCEND_GLOBAL_LOG_LEVEL=1` 与 `ASCEND_SLOG_PRINT_TO_STDOUT=1`。
+- 自动档的回退提示为 ERROR 级（WARN 在默认日志级别下被过滤），默认可见。
+
+### 4.2 路由表
+
+多步 plan 须全部 step 适配才整体接入（如 2D 纵向分解的 `fft_stride`+`fft_b` 组合）；含 Transpose 的多步分解与 core-any 兜底路径不接入。
+
+**Ascend910B**——全部可达，全部逐位一致：
+
+| 命中条件 | 直调 kernel |
+| --- | --- |
+| C2C：纯 2 幂，256 < n < 32768（batch 任意） | `fft_b` |
+| C2C：纯 2 幂，n ≥ 32768 | `fft_n` |
+| C2C：纵向（stride > 1），纯 2 幂，2^8 ≤ n ≤ 2^18 | `fft_stride` |
+| C2C：n ≤ 256（DFT 路径） | `dft` |
+| C2C：混合基（质因子 ⊆ {2,3,5,7,11,13,17,19,23,29,31,37,41,43,47}），n > 256 | `fft_mix_1`~`6` |
+| R2C：n ≤ 1024 | `dft_r2c` |
+| R2C：混合基，n > 1024 | `fft_r2c_1`~`3`（含 `_even`/`_odd`） |
+| C2R：n ≤ 1024 | `dft_c2r` |
+| C2R：混合基，n > 1024 | `fft_c2r_1`~`3`（含 `_even`/`_odd`） |
+| 2D C2C 融合：{32,64,128}×{32,64,128} | `dd` |
+
+**Ascend950**：
+
+| 命中条件 | 直调 kernel | 一致性 |
+| --- | --- | --- |
+| C2C：非纯 2 幂，质因子 ⊆ {2,3,5,7,11,13,17,19}；纯 2 幂 n ≥ 2^21 且 batch ≤ 32 亦经 all-2s plan 命中 | `fft_c2c_arch35_mix_multi_core` | 逐位一致 |
+| C2C：纯 2 幂，n ≥ 2^21 且 batch > 32 | `fft_c2c_arch35_multi_core`（旧版） | 数值等价 |
+| R2C / C2R：非纯 2 幂，n > 1024，质因子 ⊆ {2,3,5,7} | `fft_r2c_multi_core` / `fft_c2r_multi_core` | 当前不可达 |
+
+补充说明：
+
+- **radix-2 可达域由双层路由决定**：`a5::Select` 仅在纯 2 幂 n ≥ 2^21 时回落 arch35；arch35 内部仅 batch > 32 时选 radix-2 kernel。n < 2^21 的纯 2 幂调度至 RegBase/Packed/Gauss（未接入，强制档请求时报错）。
+- **R2C/C2R 当前不可达**：命中形状全部被 `a5::SelectReal` 调度至 Stockham/RegBase（未接入本后端），arch35 R2C/C2R core 不会被实例化；适配就位以对齐存件导出，待调度演进后即生效。
+
+### 4.3 验证
+
+独立 A/B 样例 `example/A2/FFT/ops_fft_ab/`（自动编译 + 执行 + 双后端逐位比对 + 日志命中确认）：
 
 ```sh
-export SIP_FFT_BACKEND=ops-fft   # 强制启用 ops-fft 后端（未适配/缺件时报错中止）
-unset SIP_FFT_BACKEND            # 恢复 internal 后端（默认）
-```
-
-- 后端为强制请求：当前路径未适配（路由条件表之外）或 `libcann_ops_fft.so` 缺失/不包含所需 kernel 时，直接返回 `ACL_ERROR_API_NOT_SUPPORT` 并输出 ERROR 日志（默认日志级别即可见，需已开启日志输出：`ASCEND_SLOG_PRINT_TO_STDOUT=1` 或 `ASCEND_PROCESS_LOG_PATH`），不回退、不执行计算；
-- 后端切换只影响 kernel 选择，接口与计算结果不变；
-- 成功走 ops-fft 后端时日志包含 `run via ops-fft kernel ... success`，可据此确认后端生效。
-
-### 路由条件
-
-后端开关只对下表范围内的 C2C 1D 计算生效，范围外（如 n ≤ 256 的 DFT、910B 混合基、950 纯 2 幂）不接入该后端——未设置环境变量时走 internal，请求 ops-fft 时报错中止：
-
-| SoC | 命中条件 | 示例 Nfft | 直调 kernel |
-| --- | --- | --- | --- |
-| Ascend910B | n 为纯 2 幂且 256 < n < 32768（batch 任意） | 8192 | `fft_b` |
-| Ascend950 | n 非纯 2 幂，且质因子均在 {2, 3, 5, 7, 11, 13, 17, 19} 内 | 15000 | `fft_c2c_arch35_mix_multi_core` |
-
-### 快速验证
-
-仓库提供独立样例 `example/A2/FFT/ops_fft_ab/`（不依赖、不修改任何现有样例），一条命令完成 internal 与 ops-fft 双后端 A/B 对比（自动编译 + 执行 + 逐位比对 + 日志命中确认）：
-
-1. 配置环境（安装包布局）：
-
-```sh
-source <CANN安装路径>/set_env.sh
-export ASDSIP_HOME_PATH=<SiP安装路径>
-```
-
-2. 运行（参数为 n 与 batch，默认 8192 4）：
-
-```sh
+source <CANN 安装路径>/set_env.sh
+export ASDSIP_HOME_PATH=<SiP 安装路径>
 cd example/A2/FFT/ops_fft_ab
-bash build.sh            # Ascend910B: n=8192 命中 fft_b 路径
-bash build.sh 15000 4    # Ascend950: 混合基 n=15000 命中 arch35 mix 路径
+bash build.sh            # Ascend910B：n=8192 命中 fft_b
+bash build.sh 15000 4    # Ascend950：混合基 n=15000 命中 arch35 mix
 ```
 
-3. 结果判读：
+通过标准：输出 `[AB] 双后端输出逐位一致`，且日志出现 `run via ops-fft kernel ... success`。未命中路由或使用 internal-only 安装包时，样例在 ops-fft 阶段直接报错（严格语义）。
 
-```text
-[AB] 双后端输出逐位一致 (internal 0.055 ms/exec, ops-fft 0.050 ms/exec)
-[2026-09-16 16:25:47.812341] [asdsip] [INFO] ... FFTCoreB run via ops-fft kernel (blocks=4) success.
-```
+联合构建下 UT 不设置开关即为严格档，未适配形状会报错；全量执行请使用自动档（未适配 step 回退 internal，ERROR 日志可辨）；纯 internal 构建不受影响。联合构建安装包上运行未适配形状的既有业务（如 2D/3D 分解、istft）须显式 `SIP_FFT_BACKEND=internal` 或 `ops-fft-auto`。
 
-第一行说明双后端计算结果一致——能执行到对比阶段即表示 ops-fft 已生效；第二行是直调命中的日志证据（Ascend950 上对应 `FftC2CCoreArch35 run via ops-fft kernel (arch35 mix, ...)`）。样例已自动开启 `ASCEND_GLOBAL_LOG_LEVEL=1` 与 `ASCEND_SLOG_PRINT_TO_STDOUT=1`（默认日志级别为 ERROR，看不到 INFO 级后端日志）；若形状未命中覆盖路径或安装包为 internal-only 构建，样例会在 ops-fft 阶段直接报错中止（严格语义）。
+## 5. 存件维护
 
-单元测试默认在 internal 后端下运行；ops-fft 后端请使用上述 A/B 样例验证（UT 用例包含大量未适配形状，整体设置 `SIP_FFT_BACKEND=ops-fft` 会因严格语义报错）。
-
-## 存件更新（维护者）
-
-存件为 ops-fft 侧产出的成品，本仓库只收编、不从源码构建。更新存件（升级 ops-fft / 新增 SoC）时，将对应产物按下述布局放入并提交：
+存件由 ops-fft 仓产出，本仓只收编、不从源码构建。布局：
 
 ```text
 3rdparty/ops-fft/
 ├── include/cann_ops_fft.h            # ops-fft 对外头文件
-└── lib/<soc>/                        # 如 Ascend910B、Ascend950
-    ├── libcann_ops_fft.so            # soname 链: .so -> .so.1 -> .so.x.y.z 三件套
-    └── manifest.info                 # 见下
+└── lib/<soc>/                        # Ascend910B / Ascend950
+    ├── libcann_ops_fft.so            # soname 链：.so -> .so.1 -> .so.x.y.z 三件套
+    └── manifest.info
 ```
 
-`manifest.info` 字段（`build.sh` 按 `soc` 校验，其余为溯源信息）：
+`manifest.info` 字段（`build.sh` 仅校验 `soc`，其余为溯源信息）：
 
 ```text
 soc=<Ascend910B|Ascend950>            # 须与所在目录名一致
-abi=<ON|OFF>                          # 信息性: 接口为 extern "C", 不影响兼容
-cann_version=<x.y.z>                  # 信息性: 制作环境的 CANN 版本
-cann_path=<路径>                      # 信息性: 制作环境的 CANN 路径
-source_head=<commit>                  # 信息性: ops-fft 源码 commit
-so_md5=<md5>                          # md5sum libcann_ops_fft.so 的结果
+abi=<ON|OFF>                          # 信息性
+cann_version=<x.y.z>                  # 信息性：制作环境 CANN 版本
+cann_path=<路径>                      # 信息性：制作环境 CANN 路径
+source_head=<commit>                  # 信息性：ops-fft 源码 commit
+so_md5sum=<md5sum>                    # md5sum libcann_ops_fft.so
 ```
+
+升级注意：若存件后续同步 94ea107 优化版 kernel，radix-2 直调可升级为逐位一致，但 tiling/常量契约会变（butterfly 不含 per-stage DFT 矩阵），`RunViaOpsFftRadix2` 需按新契约重写。

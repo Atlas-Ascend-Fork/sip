@@ -21,6 +21,7 @@
 #include "fftcore/fft_c2c_arch35_core.h"
 #include "fftcore/ops_fft_kernel_stub.h"
 #include "params/fft_c2c_arch35.h"
+#include "../../../ops/fft/common/include/tiling/fft_all_mix_tiling_data.h"
 
 constexpr double K_PI = 3.14159265358979323846;
 constexpr double K_2PI = 2 * K_PI;
@@ -45,6 +46,22 @@ bool ShouldUseMixedRadixKernel(bool radix2Only, int64_t fftN, int64_t batchSize)
 {
     return !radix2Only || fftN < MIXED_RADIX_THRESHOLD || batchSize <= MULTI_CORE_BATCH_THRESHOLD;
 }
+
+// 旧版 C2C radix-2 kernel 的 tiling 契约, 逐字段同源 ops-fft Fft1DC2CTilingData:
+// 头部 24B + 5 个 workspace offset + 内嵌 plan 数组, 共 1216B
+struct OpsFftC2CRadix2TilingData {
+    int64_t batchSize;
+    int64_t fftN;
+    int32_t radixListLen;
+    int32_t isInverse;
+    int64_t workspaceOffsets[5];
+    int32_t radixArr[32];
+    int64_t mArr[32];
+    int64_t dftOffsetArr[32];
+    int64_t twOffsetArr[32];
+    int64_t currentBatchArr[32];
+};
+static_assert(sizeof(OpsFftC2CRadix2TilingData) == 1216, "ops-fft radix2 tiling layout mismatch");
 } // namespace
 
 size_t FftC2CCoreArch35::EstimateWorkspaceSize()
@@ -103,6 +120,12 @@ void FftC2CCoreArch35::Run(void* input, void* output, void* stream, workspace::W
         int32_t cntStages = Log2PowerOfTwo(n);
         int32_t logNhalf = Log2PowerOfTwo(nHalf);
         int32_t isInverse = 1 - int(problemDesc.forward);
+
+        // stub 判空防护绕过统一拦截的直接调用(缺失走 internal); radix-2 直调存件旧版 kernel
+        if (AsdSip::UseOpsFftKernelBackend() && AsdSip::OpsFftArch35Radix2StubAvailable()) {
+            RunViaOpsFftRadix2(input, output, stream, workspace);
+            return;
+        }
 
         int64_t fullComplexFloats = batch * n * 2;
         int64_t workspaceBytes = 2 * fullComplexFloats * static_cast<int64_t>(sizeof(float));
@@ -185,13 +208,14 @@ void FftC2CCoreArch35::DestroyInDevice()
                 MkiRtMemFreeDevice(deviceLaunchBuffer);
             }
         }
-        return;
+        stageTilingDeviceAddrs.clear();
+    } else {
+        uint8_t* deviceLaunchBuffer = runInfo.GetTilingDeviceAddr();
+        if (deviceLaunchBuffer != nullptr) {
+            MkiRtMemFreeDevice(deviceLaunchBuffer);
+        }
     }
 
-    uint8_t* deviceLaunchBuffer = runInfo.GetTilingDeviceAddr();
-    if (deviceLaunchBuffer != nullptr) {
-        MkiRtMemFreeDevice(deviceLaunchBuffer);
-    }
     if (opsDftMatrix != nullptr) {
         MkiRtMemFreeDevice(opsDftMatrix);
         opsDftMatrix = nullptr;
@@ -204,39 +228,46 @@ void FftC2CCoreArch35::DestroyInDevice()
         MkiRtMemFreeDevice(opsRadixList);
         opsRadixList = nullptr;
     }
+    if (opsTilingDeviceAddr != nullptr) {
+        MkiRtMemFreeDevice(opsTilingDeviceAddr);
+        opsTilingDeviceAddr = nullptr;
+    }
 }
 
-bool FftC2CCoreArch35::OpsFftBackendStubReady() const { return AsdSip::OpsFftArch35MixStubAvailable(); }
+bool FftC2CCoreArch35::OpsFftBackendStubReady() const
+{
+    // mixed-radix 经 mix 内核直调, radix-2 直调旧版 kernel; 两 stub 同源于一份存件
+    return AsdSip::OpsFftArch35MixStubAvailable() || AsdSip::OpsFftArch35Radix2StubAvailable();
+}
+
+// ops-fft 直调公共步骤: 常量首次 Run 拷贝至 device, plan 级缓存
+bool FftC2CCoreArch35::UploadOpsFftConstants()
+{
+    if (opsDftMatrix != nullptr && opsTwMatrix != nullptr && opsRadixList != nullptr) {
+        return true;
+    }
+    if (!OpsFftUploadConst(&opsDftMatrix, dftMatrixArray->hostData, dftMatrixArray->dataSize)) {
+        ASDSIP_LOG(ERROR) << "ops-fft backend(arch35): dftMatrix upload failed";
+        return false;
+    }
+    if (!OpsFftUploadConst(&opsTwMatrix, twMatrixArray->hostData, twMatrixArray->dataSize)) {
+        ASDSIP_LOG(ERROR) << "ops-fft backend(arch35): twMatrix upload failed";
+        return false;
+    }
+    if (!OpsFftUploadConst(&opsRadixList, radixListTensor->hostData, radixListTensor->dataSize)) {
+        ASDSIP_LOG(ERROR) << "ops-fft backend(arch35): radixList upload failed";
+        return false;
+    }
+    return true;
+}
 
 // ops-fft 直调路径 (950/arch35 mixed-radix): 常量/tiling/workspace 均复用 sip 产物,
 // tiling 为 InitTactic 上传的 FftAllMixTilingData device buffer, 与 ops-fft 逐字段同源
 void FftC2CCoreArch35::RunViaOpsFft(void* input, void* output, void* stream, workspace::Workspace& workspace)
 {
-    // 常量一次性上传 device (plan 级缓存, 首次 Run 触发)
-    if (opsDftMatrix == nullptr || opsTwMatrix == nullptr || opsRadixList == nullptr) {
-        auto upload = [](void** dev, void* host, size_t size) -> bool {
-            if (dev == nullptr || host == nullptr || size == 0) {
-                return false;
-            }
-            int st = MkiRtMemMallocDevice(dev, size, MKIRT_MEM_DEFAULT);
-            if (st != MKIRT_SUCCESS) {
-                return false;
-            }
-            st = MkiRtMemCopy(*dev, size, host, size, MKIRT_MEMCOPY_HOST_TO_DEVICE);
-            return st == MKIRT_SUCCESS;
-        };
-        if (!upload(&opsDftMatrix, dftMatrixArray->hostData, dftMatrixArray->dataSize)) {
-            ASDSIP_LOG(ERROR) << "ops-fft backend(arch35): dftMatrix upload failed";
-            return;
-        }
-        if (!upload(&opsTwMatrix, twMatrixArray->hostData, twMatrixArray->dataSize)) {
-            ASDSIP_LOG(ERROR) << "ops-fft backend(arch35): twMatrix upload failed";
-            return;
-        }
-        if (!upload(&opsRadixList, radixListTensor->hostData, radixListTensor->dataSize)) {
-            ASDSIP_LOG(ERROR) << "ops-fft backend(arch35): radixList upload failed";
-            return;
-        }
+    // 常量首次 Run 拷贝至 device, plan 级缓存
+    if (!UploadOpsFftConstants()) {
+        return;
     }
 
     // workspace: 与 internal mixed-radix 路径同源同尺寸 (2 * batch * n * complex * float)
@@ -245,7 +276,7 @@ void FftC2CCoreArch35::RunViaOpsFft(void* input, void* output, void* stream, wor
     int64_t workspaceBytes = 2 * (batch * n * 2) * static_cast<int64_t>(sizeof(float));
     void* scratch = workspace.allocate(static_cast<size_t>(workspaceBytes));
 
-    // blocks 一次性缓存: arch35 mix 为 __vector__ kernel, 取 AIV 核数 (对齐 ops-fft GetCoreNumAiv)
+    // blocks: arch35 mix 为 __vector__ kernel, 取 AIV 核数
     if (opsCachedBlocks == 0) {
         uint32_t coreNum = Mki::PlatformInfo::Instance().GetCoreNum(Mki::CoreType::CORE_TYPE_VECTOR);
         opsCachedBlocks = coreNum > 0 ? coreNum : 1;
@@ -257,6 +288,200 @@ void FftC2CCoreArch35::RunViaOpsFft(void* input, void* output, void* stream, wor
     workspace.recycleLast();
     ASDSIP_LOG(INFO) << "FftC2CCoreArch35 run via ops-fft kernel (arch35 mix, blocks=" << opsCachedBlocks
                      << ") success.";
+}
+
+// ops-fft radix-2 直调常量 (plan 级缓存), 生成公式同旧版 BuildFftPlan / ops-fft host:
+//   dft: 各 stage DFT 矩阵级联, 每 stage 2*r*r floats, 行分离存放
+//        host[off + (2*u)*r + v] = cos(sign*2π*u*v/r), sin 在下一行
+//   tw : 各 stage twiddle 级联, 每 stage 2*r*M floats (M 为该 stage 收缩后的子 FFT 长度)
+//        host[off + (2*k1)*M + n2] = cos(sign*2π*k1*n2/(r*M)), sin 在下一行
+// radixList: float 数组 (kernel 不消费, 对齐 ops-fft host 的拷贝行为)
+AspbStatus FftC2CCoreArch35::BuildOpsFftRadix2Coeffs()
+{
+    if (opsRadix2DftMatrix != nullptr && opsRadix2TwMatrix != nullptr && opsRadix2RadixList != nullptr) {
+        return AsdSip::ErrorType::ACL_SUCCESS;
+    }
+    double sign = problemDesc.forward ? (-1.0) : (1.0);
+    size_t planLen = plan.size();
+
+    size_t totalDftFloats = 0;
+    size_t totalTwFloats = 0;
+    for (const auto& stage : plan) {
+        totalDftFloats += static_cast<size_t>(2 * stage.radix * stage.radix);
+        totalTwFloats += static_cast<size_t>(2 * stage.radix * stage.M);
+    }
+
+    auto dftFunc = [=]() -> AsdSip::FFTensor* {
+        AsdSip::FFTensor* t = new AsdSip::FFTensor;
+        float* host = new float[totalDftFloats]();
+        size_t offset = 0;
+        for (const auto& stage : plan) {
+            int64_t radix = stage.radix;
+            for (int64_t u = 0; u < radix; u++) {
+                for (int64_t v = 0; v < radix; v++) {
+                    double angle = sign * K_2PI * u * v / radix;
+                    host[offset + (2 * u) * radix + v] = static_cast<float>(std::cos(angle));
+                    host[offset + (2 * u + 1) * radix + v] = static_cast<float>(std::sin(angle));
+                }
+            }
+            offset += static_cast<size_t>(2 * radix * radix);
+        }
+        t->desc = {Mki::TensorDType::TENSOR_DTYPE_FLOAT,
+                   Mki::TensorFormat::TENSOR_FORMAT_ND,
+                   {static_cast<int64_t>(totalDftFloats)},
+                   {},
+                   0};
+        t->hostData = host;
+        t->dataSize = totalDftFloats * sizeof(float);
+        return t;
+    };
+
+    auto twFunc = [=]() -> AsdSip::FFTensor* {
+        AsdSip::FFTensor* t = new AsdSip::FFTensor;
+        float* host = nullptr;
+        try {
+            host = new float[totalTwFloats]();
+        } catch (std::bad_alloc& e) {
+            delete t;
+            ASDSIP_LOG(ERROR) << "ops-fft radix2 twMatrix host malloc failed";
+            throw std::runtime_error("ops-fft radix2 twMatrix host malloc failed.");
+        }
+        size_t offset = 0;
+        for (const auto& stage : plan) {
+            int64_t radix = stage.radix;
+            int64_t m = stage.M;
+            int64_t stageN = radix * m;
+            for (int64_t k1 = 0; k1 < radix; k1++) {
+                for (int64_t n2 = 0; n2 < m; n2++) {
+                    double angle = sign * K_2PI * k1 * n2 / stageN;
+                    host[offset + (2 * k1) * m + n2] = static_cast<float>(std::cos(angle));
+                    host[offset + (2 * k1 + 1) * m + n2] = static_cast<float>(std::sin(angle));
+                }
+            }
+            offset += static_cast<size_t>(2 * radix * m);
+        }
+        t->desc = {Mki::TensorDType::TENSOR_DTYPE_FLOAT,
+                   Mki::TensorFormat::TENSOR_FORMAT_ND,
+                   {static_cast<int64_t>(totalTwFloats)},
+                   {},
+                   0};
+        t->hostData = host;
+        t->dataSize = totalTwFloats * sizeof(float);
+        return t;
+    };
+
+    auto radixFunc = [=]() -> AsdSip::FFTensor* {
+        AsdSip::FFTensor* t = new AsdSip::FFTensor;
+        float* host = new float[planLen];
+        for (size_t s = 0; s < planLen; s++) {
+            host[s] = static_cast<float>(plan[s].radix);
+        }
+        t->desc = {Mki::TensorDType::TENSOR_DTYPE_FLOAT,
+                   Mki::TensorFormat::TENSOR_FORMAT_ND,
+                   {static_cast<int64_t>(planLen)},
+                   {},
+                   0};
+        t->hostData = host;
+        t->dataSize = planLen * sizeof(float);
+        return t;
+    };
+
+    // 独立 key 段 (115/116/117): 旧版契约常量, 与 mix 模式 111/112 key 隔离避免耦合
+    AsdSip::CoeffKey dftKey = {coreType, 115U, {static_cast<int64_t>(problemDesc.nDoing)}, problemDesc.forward};
+    opsRadix2DftMatrix = FFTensorCache::getCoeff(dftKey, dftFunc);
+    AsdSip::CoeffKey twKey = {coreType, 116U, {static_cast<int64_t>(problemDesc.nDoing)}, problemDesc.forward};
+    opsRadix2TwMatrix = FFTensorCache::getCoeff(twKey, twFunc);
+    AsdSip::CoeffKey radixKey = {coreType, 117U, {static_cast<int64_t>(problemDesc.nDoing)}, problemDesc.forward};
+    opsRadix2RadixList = FFTensorCache::getCoeff(radixKey, radixFunc);
+
+    ASDSIP_LOG(INFO) << "FftC2CCoreArch35 build ops-fft radix2 (direct) coeffs success. planLen=" << planLen
+                     << ", dftFloats=" << totalDftFloats << ", twFloats=" << totalTwFloats;
+    return AsdSip::ErrorType::ACL_SUCCESS;
+}
+
+// ops-fft 直调路径 (950/arch35 radix-2 纯 2 幂): 直调存件 fft_c2c_arch35_multi_core,
+// 即 sip 97769d8 旧版 C2C kernel (94ea107 性能重写前) 的移植, 契约同旧版 BuildFftPlan /
+// ops-fft host fft1_d_c2c.cpp: 整 FFT 单 launch, tiling 1216B (头部 + 5 workspace offset +
+// 内嵌 plan 数组), 常量为 per-stage DFT 矩阵与收缩式 twiddle 级联。
+// 算术顺序为"先 DFT 求和后乘 twiddle", 与 internal butterfly (先乘后加减) 舍入路径不同,
+// 结果数学等价但存在 ULP 级差异——验收判据为数值等价 (毒化 + rel err + CPU 锚点), 不逐位比对。
+void FftC2CCoreArch35::RunViaOpsFftRadix2(void* input, void* output, void* stream, workspace::Workspace& workspace)
+{
+    if (BuildOpsFftRadix2Coeffs() != AsdSip::ErrorType::ACL_SUCCESS) {
+        return;
+    }
+
+    // 常量与 tiling 首次 Run 拷贝至 device, plan 级缓存
+    if (opsDftMatrix == nullptr) {
+        if (!OpsFftUploadConst(&opsDftMatrix, opsRadix2DftMatrix->hostData, opsRadix2DftMatrix->dataSize)) {
+            ASDSIP_LOG(ERROR) << "ops-fft backend(arch35 radix2): dftMatrix upload failed";
+            return;
+        }
+    }
+    if (opsTwMatrix == nullptr) {
+        if (!OpsFftUploadConst(&opsTwMatrix, opsRadix2TwMatrix->hostData, opsRadix2TwMatrix->dataSize)) {
+            ASDSIP_LOG(ERROR) << "ops-fft backend(arch35 radix2): twMatrix upload failed";
+            return;
+        }
+    }
+    if (opsRadixList == nullptr) {
+        if (!OpsFftUploadConst(&opsRadixList, opsRadix2RadixList->hostData, opsRadix2RadixList->dataSize)) {
+            ASDSIP_LOG(ERROR) << "ops-fft backend(arch35 radix2): radixList upload failed";
+            return;
+        }
+    }
+    if (opsTilingDeviceAddr == nullptr) {
+        int64_t batch = static_cast<int64_t>(problemDesc.batch);
+        int64_t n = static_cast<int64_t>(problemDesc.nDoing);
+        OpsFftC2CRadix2TilingData opsTiling = {};
+        opsTiling.batchSize = batch;
+        opsTiling.fftN = n;
+        opsTiling.radixListLen = static_cast<int32_t>(plan.size());
+        opsTiling.isInverse = 1 - int(problemDesc.forward);
+        int64_t singleBufferSize = batch * n * 2 * static_cast<int64_t>(sizeof(float));
+        opsTiling.workspaceOffsets[0] = 0;
+        opsTiling.workspaceOffsets[1] = singleBufferSize;
+        int64_t tempN = n;
+        int64_t tempBatch = batch;
+        int64_t dftOff = 0;
+        int64_t twOff = 0;
+        for (size_t s = 0; s < plan.size(); s++) {
+            int64_t radix = plan[s].radix;
+            int64_t m = tempN / radix;
+            opsTiling.radixArr[s] = static_cast<int32_t>(radix);
+            opsTiling.mArr[s] = m;
+            opsTiling.currentBatchArr[s] = tempBatch;
+            opsTiling.dftOffsetArr[s] = dftOff;
+            opsTiling.twOffsetArr[s] = twOff;
+            tempBatch *= radix;
+            dftOff += 2 * radix * radix;
+            twOff += 2 * radix * m;
+            tempN = m;
+        }
+        if (!OpsFftUploadConst(&opsTilingDeviceAddr, &opsTiling, sizeof(opsTiling))) {
+            ASDSIP_LOG(ERROR) << "ops-fft backend(arch35 radix2): tiling upload failed";
+            return;
+        }
+    }
+
+    // workspace: 与 kernel 契约同源 (ws0 + ws1 ping-pong, 见 workspaceOffsets)
+    int64_t batch = static_cast<int64_t>(problemDesc.batch);
+    int64_t n = static_cast<int64_t>(problemDesc.nDoing);
+    int64_t workspaceBytes = 2 * (batch * n * 2) * static_cast<int64_t>(sizeof(float));
+    void* scratch = workspace.allocate(static_cast<size_t>(workspaceBytes));
+
+    // blocks: 旧版 kernel 为 AIV __aicore__, 取 AIV 核数
+    if (opsCachedBlocks == 0) {
+        uint32_t coreNum = Mki::PlatformInfo::Instance().GetCoreNum(Mki::CoreType::CORE_TYPE_VECTOR);
+        opsCachedBlocks = coreNum > 0 ? coreNum : 1;
+    }
+
+    fft_c2c_arch35_multi_core(opsCachedBlocks, nullptr, stream, input, opsDftMatrix, opsTwMatrix, opsRadixList, output,
+                              scratch, opsTilingDeviceAddr);
+
+    workspace.recycleLast();
+    ASDSIP_LOG(INFO) << "FftC2CCoreArch35 run via ops-fft kernel (arch35 radix2 direct, single launch, blocks="
+                     << opsCachedBlocks << ") success.";
 }
 
 void FftC2CCoreArch35::InitRadix()

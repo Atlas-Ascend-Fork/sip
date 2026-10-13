@@ -18,6 +18,7 @@
 #include "utils/ops_base.h"
 #include "base_inner_api.h"
 #include "dft_c2r.h"
+#include "fftcore/ops_fft_kernel_stub.h"
 
 #include "fftcore/dft_c2r_core.h"
 
@@ -41,6 +42,10 @@ size_t DftC2RCore::EstimateWorkspaceSize()
 
 void DftC2RCore::Run(void* input, void* output, void* stream, workspace::Workspace& workspace)
 {
+    if (AsdSip::UseOpsFftKernelBackend() && AsdSip::OpsFftDftC2RStubAvailable()) {
+        RunViaOpsFft(input, output, stream, workspace);
+        return;
+    }
     if (Mki::PlatformInfo::Instance().GetPlatformType() == Mki::PlatformType::ASCEND_910B) {
         FftOperation::Run(input, output, stream, workspace);
         ASDSIP_LOG(INFO) << "ASCEND_910B DftC2RCore run success.";
@@ -50,13 +55,51 @@ void DftC2RCore::Run(void* input, void* output, void* stream, workspace::Workspa
     }
 }
 
-void DftC2RCore::DestroyInDevice() const
+bool DftC2RCore::OpsFftBackendStubReady() const { return AsdSip::OpsFftDftC2RStubAvailable(); }
+
+// ops-fft 直调: 常量/tiling 复用 plan 期产物 (tiling 指针传)
+void DftC2RCore::RunViaOpsFft(void* input, void* output, void* stream, workspace::Workspace& workspace)
+{
+    // 常量首次 Run 拷贝至 device, plan 级缓存
+    if (opsRotationMatrix == nullptr) {
+        if (rotationMatrix == nullptr || rotationMatrix->hostData == nullptr || rotationMatrix->dataSize == 0) {
+            ASDSIP_LOG(ERROR) << "ops-fft backend: rotationMatrix is empty";
+            return;
+        }
+        if (!OpsFftUploadConst(&opsRotationMatrix, rotationMatrix->hostData, rotationMatrix->dataSize)) {
+            ASDSIP_LOG(ERROR) << "ops-fft backend: rotationMatrix upload failed";
+            return;
+        }
+    }
+
+    // workspace: 与 sip kernel 同源同尺寸 (kernel 自身仅需极小 scratch)
+    const KernelInfo& kernelInfo = kernel->GetKernelInfo();
+    size_t bufferSize = kernelInfo.GetTotalScratchSize();
+    void* scratch = workspace.allocate(bufferSize);
+
+    // blocks: 全核 launch, plan 级缓存
+    if (opsCachedBlocks == 0) {
+        uint32_t coreNum = Mki::PlatformInfo::Instance().GetCoreNum(Mki::CoreType::CORE_TYPE_CUBE);
+        opsCachedBlocks = AsdSip::OpsFftAllCoreNum(coreNum);
+    }
+
+    dft_c2r(opsCachedBlocks, nullptr, stream, input, opsRotationMatrix, output, scratch, runInfo.GetTilingDeviceAddr());
+
+    workspace.recycleLast();
+    ASDSIP_LOG(INFO) << "DftC2RCore run via ops-fft kernel (blocks=" << opsCachedBlocks << ") success.";
+}
+
+void DftC2RCore::DestroyInDevice()
 {
     // destroy tiling data in device
     uint8_t* deviceLaunchBuffer = nullptr;
     deviceLaunchBuffer = runInfo.GetTilingDeviceAddr();
     if (deviceLaunchBuffer != nullptr) {
         MkiRtMemFreeDevice(deviceLaunchBuffer);
+    }
+    if (opsRotationMatrix != nullptr) {
+        MkiRtMemFreeDevice(opsRotationMatrix);
+        opsRotationMatrix = nullptr;
     }
 }
 

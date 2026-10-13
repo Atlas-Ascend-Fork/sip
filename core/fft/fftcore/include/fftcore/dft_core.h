@@ -22,17 +22,26 @@ public:
     {}
     ~DFTCore() override { DestroyInDevice(); }
     void Run(Tensor& input, Tensor& output, void* stream, workspace::Workspace& workspace) override;
+    void Run(void* input, void* output, void* stream, workspace::Workspace& workspace) override;
     size_t EstimateWorkspaceSize() override;
+    bool OpsFftBackendAdapted() const override { return true; }
+    bool OpsFftBackendStubReady() const override;
 
 private:
     void InitRadix() override;
     bool PreAllocateInDevice() override;
-    void DestroyInDevice() const;
+    void DestroyInDevice();
     AsdSip::AspbStatus InitRotationMatrix();
     AsdSip::AspbStatus InitTactic();
+    // ops-fft 直调后端: dft 的 tiling 为值传递, 需保留 host 副本
+    void RunViaOpsFft(void* input, void* output, void* stream, workspace::Workspace& workspace);
 
     std::string opName{"DftOperation"};
     std::shared_ptr<AsdSip::FFTensor> rotationMatrix;
+    // 常量 device 缓存 + tiling host 副本 (plan 级)
+    void* opsRotationMatrix = nullptr;
+    std::vector<uint8_t> opsTilingHost;
+    uint32_t opsCachedBlocks = 0;
 };
 
 #endif

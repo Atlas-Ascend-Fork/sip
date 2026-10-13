@@ -24,16 +24,24 @@ public:
     ~FFTCoreStride() override { DestroyInDevice(); }
     size_t EstimateWorkspaceSize() override;
     void Run(Tensor& input, Tensor& output, void* stream, workspace::Workspace& workspace) override;
+    void Run(void* input, void* output, void* stream, workspace::Workspace& workspace) override;
+    bool OpsFftBackendAdapted() const override { return true; }
+    bool OpsFftBackendStubReady() const override;
 
 private:
     void InitRadix() override;
     bool PreAllocateInDevice() override;
-    void DestroyInDevice() const;
+    void DestroyInDevice();
 
     Mki::Any InitParam();
     AsdSip::AspbStatus InitSMatrix();
     AsdSip::AspbStatus InitTactic();
+    // ops-fft 直调后端
+    void RunViaOpsFft(void* input, void* output, void* stream, workspace::Workspace& workspace);
     std::shared_ptr<AsdSip::FFTensor> sMatrix;
+    // 常量 device 缓存 (plan 级)
+    void* opsSMatrix = nullptr;
+    uint32_t opsCachedBlocks = 0;
 };
 
 #endif

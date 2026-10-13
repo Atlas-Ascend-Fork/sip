@@ -1292,22 +1292,28 @@ std::vector<void*> allocInterCachesV2(FFTPlan& plan, workspace::Workspace& wkspa
 }
 
 // ops-fft 后端统一拦截: 请求 ops-fft 时校验 plan 各 step 的适配性与 stub 可用性,
-// 任一不满足即返回 ACL_ERROR_API_NOT_SUPPORT, 不回退 internal
+// 严格档 (ops-fft): 任一不满足即返回 ACL_ERROR_API_NOT_SUPPORT, 不回退 internal;
+// 自动档 (ops-fft-auto): 不满足的 step 打 ERROR 日志后放行, 由各 core Run 内的
+// 逐 step 分支 (backend 开启且 stub 就绪才走 RunViaOpsFft) 自动回退 internal
 AspbStatus OpsFftBackendUnifyIntercept(const FFTPlan& plan)
 {
     if (!UseOpsFftKernelBackend()) {
         return ErrorType::ACL_SUCCESS;
     }
+    const bool autoFallback = UseOpsFftAutoFallback();
     for (const auto& step : plan.steps) {
         const bool adapted = step.operation->OpsFftBackendAdapted();
         if (adapted && step.operation->OpsFftBackendStubReady()) {
             continue;
         }
-        ASDSIP_LOG(ERROR) << "SIP_FFT_BACKEND=ops-fft: "
+        // 回退提示用 ERROR 级: 默认日志级别下 WARN 会被完全过滤, 静默回退不可见
+        ASDSIP_LOG(ERROR) << "SIP_FFT_BACKEND=" << (autoFallback ? "ops-fft-auto" : "ops-fft") << ": "
                           << (adapted ? "ops-fft kernel stub unavailable (binary package missing/mismatched)" :
                                         "current FFT path is not adapted to ops-fft kernel")
-                          << ", aborting.";
-        return ErrorType::ACL_ERROR_API_NOT_SUPPORT;
+                          << (autoFallback ? ", auto fallback to internal kernel." : ", aborting.");
+        if (!autoFallback) {
+            return ErrorType::ACL_ERROR_API_NOT_SUPPORT;
+        }
     }
     return ErrorType::ACL_SUCCESS;
 }

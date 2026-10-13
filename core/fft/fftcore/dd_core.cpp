@@ -11,12 +11,14 @@
 #include <cmath>
 #include <vector>
 
+#include <mki/utils/platform/platform_info.h>
 #include <mki/utils/rt/rt.h>
 #include "utils/assert.h"
 #include "log/log.h"
 #include "ops.h"
 #include "utils/aspb_status.h"
 #include "fftcore/fft_core_common_func.h"
+#include "fftcore/ops_fft_kernel_stub.h"
 #include "dd.h"
 
 #include "fftcore/dd_core.h"
@@ -46,6 +48,57 @@ void DdCore::Run(Tensor& input, Tensor& output, void* stream, workspace::Workspa
 
     ASDSIP_LOG(INFO) << "DdCore run success.";
     return;
+}
+
+// stub 判空仅防护绕过统一拦截的直接调用(缺失走 internal)
+void DdCore::Run(void* input, void* output, void* stream, workspace::Workspace& workspace)
+{
+    if (AsdSip::UseOpsFftKernelBackend() && AsdSip::OpsFftDdStubAvailable()) {
+        RunViaOpsFft(input, output, stream, workspace);
+        return;
+    }
+    FftOperation::Run(input, output, stream, workspace);
+}
+
+bool DdCore::OpsFftBackendStubReady() const { return AsdSip::OpsFftDdStubAvailable(); }
+
+// ops-fft 直调: 常量/tiling 复用 plan 期产物
+void DdCore::RunViaOpsFft(void* input, void* output, void* stream, workspace::Workspace& workspace)
+{
+    // 常量首次 Run 拷贝至 device, plan 级缓存
+    if (opsPMatrix == nullptr || opsQMatrix == nullptr) {
+        if (!OpsFftUploadConst(&opsPMatrix, pMatrix->hostData, pMatrix->dataSize)) {
+            ASDSIP_LOG(ERROR) << "ops-fft backend: pMatrix upload failed";
+            return;
+        }
+        if (!OpsFftUploadConst(&opsQMatrix, qMatrix->hostData, qMatrix->dataSize)) {
+            ASDSIP_LOG(ERROR) << "ops-fft backend: qMatrix upload failed";
+            return;
+        }
+    }
+
+    // workspace: 与 sip kernel 同源同尺寸 (batch * fftX * fftY * complex64)
+    const KernelInfo& kernelInfo = kernel->GetKernelInfo();
+    size_t bufferSize = kernelInfo.GetTotalScratchSize();
+    void* scratch = workspace.allocate(bufferSize);
+
+    // blocks/sync: 全核 launch, plan 级缓存
+    if (opsCachedBlocks == 0) {
+        uint32_t coreNum = Mki::PlatformInfo::Instance().GetCoreNum(Mki::CoreType::CORE_TYPE_CUBE);
+        opsCachedBlocks = AsdSip::OpsFftAllCoreNum(coreNum);
+    }
+    uint8_t* sync = nullptr;
+    if (aclrtGetHardwareSyncAddr(reinterpret_cast<void**>(&sync)) != 0 || sync == nullptr) {
+        ASDSIP_LOG(ERROR) << "ops-fft backend: get hardware sync addr failed";
+        workspace.recycleLast();
+        return;
+    }
+
+    dd(opsCachedBlocks, nullptr, stream, sync, input, opsPMatrix, opsQMatrix, output, scratch,
+       runInfo.GetTilingDeviceAddr());
+
+    workspace.recycleLast();
+    ASDSIP_LOG(INFO) << "DdCore run via ops-fft kernel (blocks=" << opsCachedBlocks << ") success.";
 }
 
 AspbStatus DdCore::InitTactic()
@@ -132,10 +185,18 @@ bool DdCore::PreAllocateInDevice()
     return true;
 }
 
-void DdCore::DestroyInDevice() const
+void DdCore::DestroyInDevice()
 {
     uint8_t* deviceBuffer = runInfo.GetTilingDeviceAddr();
     if (deviceBuffer != nullptr) {
         MkiRtMemFreeDevice(deviceBuffer);
+    }
+    if (opsPMatrix != nullptr) {
+        MkiRtMemFreeDevice(opsPMatrix);
+        opsPMatrix = nullptr;
+    }
+    if (opsQMatrix != nullptr) {
+        MkiRtMemFreeDevice(opsQMatrix);
+        opsQMatrix = nullptr;
     }
 }

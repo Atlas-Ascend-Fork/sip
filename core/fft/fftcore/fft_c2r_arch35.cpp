@@ -19,6 +19,7 @@
 #include "fft_c2r_arch35.h"
 
 #include "fftcore/fft_c2r_arch35_core.h"
+#include "fftcore/ops_fft_kernel_stub.h"
 
 constexpr double K_PI = 3.14159265358979323846;
 constexpr double K_2PI = 2 * K_PI;
@@ -52,20 +53,80 @@ void FftC2RCoreArch35::Run(void* input, void* output, void* stream, workspace::W
         FftOperation::Run(input, output, stream, workspace);
         ASDSIP_LOG(INFO) << "ASCEND_910B FftC2RCoreArch35 run success.";
     } else if (Mki::PlatformInfo::Instance().GetPlatformType() == Mki::PlatformType::ASCEND_950) {
+        // stub 判空仅防护绕过 exec 的直接调用(缺失时走 internal)
+        if (AsdSip::UseOpsFftKernelBackend() && AsdSip::OpsFftArch35C2RStubAvailable()) {
+            RunViaOpsFft(input, output, stream, workspace);
+            return;
+        }
         FftOperation::Run(input, output, stream, workspace);
         ASDSIP_LOG(INFO) << "ASCEND_950 FftC2RCoreArch35 run success.";
     }
 }
 
-// ============================================================================
-// DestroyInDevice
-// ============================================================================
-void FftC2RCoreArch35::DestroyInDevice() const
+bool FftC2RCoreArch35::OpsFftBackendStubReady() const { return AsdSip::OpsFftArch35C2RStubAvailable(); }
+
+void FftC2RCoreArch35::DestroyInDevice()
 {
     uint8_t* deviceLaunchBuffer = runInfo.GetTilingDeviceAddr();
     if (deviceLaunchBuffer != nullptr) {
         MkiRtMemFreeDevice(deviceLaunchBuffer);
     }
+    if (opsDftMatrix != nullptr) {
+        MkiRtMemFreeDevice(opsDftMatrix);
+        opsDftMatrix = nullptr;
+    }
+    if (opsTwMatrix != nullptr) {
+        MkiRtMemFreeDevice(opsTwMatrix);
+        opsTwMatrix = nullptr;
+    }
+    if (opsRadixList != nullptr) {
+        MkiRtMemFreeDevice(opsRadixList);
+        opsRadixList = nullptr;
+    }
+}
+
+// ops-fft 直调路径 (950/arch35 C2R 混合基): 常量/tiling/workspace 均复用 sip 产物,
+// tiling 为 InitTactic 拷贝至 device 的 FftAllMixTilingData buffer, 与 ops-fft 逐字段同源
+void FftC2RCoreArch35::RunViaOpsFft(void* input, void* output, void* stream, workspace::Workspace& workspace)
+{
+    // 常量首次 Run 拷贝至 device, plan 级缓存
+    if (opsDftMatrix == nullptr) {
+        if (!OpsFftUploadConst(&opsDftMatrix, dftMatrixArray->hostData, dftMatrixArray->dataSize)) {
+            ASDSIP_LOG(ERROR) << "ops-fft backend(arch35 c2r): dftMatrix upload failed";
+            return;
+        }
+    }
+    if (opsTwMatrix == nullptr) {
+        if (!OpsFftUploadConst(&opsTwMatrix, twMatrixArray->hostData, twMatrixArray->dataSize)) {
+            ASDSIP_LOG(ERROR) << "ops-fft backend(arch35 c2r): twMatrix upload failed";
+            return;
+        }
+    }
+    if (opsRadixList == nullptr) {
+        if (!OpsFftUploadConst(&opsRadixList, radixListTensor->hostData, radixListTensor->dataSize)) {
+            ASDSIP_LOG(ERROR) << "ops-fft backend(arch35 c2r): radixList upload failed";
+            return;
+        }
+    }
+
+    // workspace: 与 internal 路径同源同尺寸 (2 * batch * n * complex * float)
+    int64_t batch = static_cast<int64_t>(problemDesc.batch);
+    int64_t n = static_cast<int64_t>(problemDesc.nDoing);
+    int64_t workspaceBytes = 2 * (batch * n * 2) * static_cast<int64_t>(sizeof(float));
+    void* scratch = workspace.allocate(static_cast<size_t>(workspaceBytes));
+
+    // blocks: arch35 c2r 为 __aicore__ kernel, 取 AIV 核数
+    if (opsCachedBlocks == 0) {
+        uint32_t coreNum = Mki::PlatformInfo::Instance().GetCoreNum(Mki::CoreType::CORE_TYPE_VECTOR);
+        opsCachedBlocks = coreNum > 0 ? coreNum : 1;
+    }
+
+    fft_c2r_multi_core(opsCachedBlocks, nullptr, stream, input, opsDftMatrix, opsTwMatrix, opsRadixList, output,
+                       scratch, runInfo.GetTilingDeviceAddr());
+
+    workspace.recycleLast();
+    ASDSIP_LOG(INFO) << "FftC2RCoreArch35 run via ops-fft kernel (arch35 c2r, blocks=" << opsCachedBlocks
+                     << ") success.";
 }
 
 // ============================================================================
