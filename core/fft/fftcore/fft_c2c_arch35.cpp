@@ -313,7 +313,16 @@ AspbStatus FftC2CCoreArch35::BuildOpsFftRadix2Coeffs()
 
     auto dftFunc = [=]() -> AsdSip::FFTensor* {
         AsdSip::FFTensor* t = new AsdSip::FFTensor;
-        float* host = new float[totalDftFloats]();
+        // 防护对齐同文件 twFunc（issue #238）：host 分配失败时释放 t 再抛出，
+        // 避免已分配的 FFTensor 随 bad_alloc 泄漏
+        float* host = nullptr;
+        try {
+            host = new float[totalDftFloats]();
+        } catch (std::bad_alloc& e) {
+            delete t;
+            ASDSIP_LOG(ERROR) << "ops-fft radix2 dftMatrix host malloc failed";
+            throw std::runtime_error("ops-fft radix2 dftMatrix host malloc failed.");
+        }
         size_t offset = 0;
         for (const auto& stage : plan) {
             int64_t radix = stage.radix;
@@ -372,7 +381,15 @@ AspbStatus FftC2CCoreArch35::BuildOpsFftRadix2Coeffs()
 
     auto radixFunc = [=]() -> AsdSip::FFTensor* {
         AsdSip::FFTensor* t = new AsdSip::FFTensor;
-        float* host = new float[planLen];
+        // 防护对齐同文件 twFunc（issue #238）：host 分配失败时释放 t 再抛出
+        float* host = nullptr;
+        try {
+            host = new float[planLen];
+        } catch (std::bad_alloc& e) {
+            delete t;
+            ASDSIP_LOG(ERROR) << "ops-fft radix2 radixMatrix host malloc failed";
+            throw std::runtime_error("ops-fft radix2 radixMatrix host malloc failed.");
+        }
         for (size_t s = 0; s < planLen; s++) {
             host[s] = static_cast<float>(plan[s].radix);
         }
@@ -415,19 +432,19 @@ void FftC2CCoreArch35::RunViaOpsFftRadix2(void* input, void* output, void* strea
     if (opsDftMatrix == nullptr) {
         if (!OpsFftUploadConst(&opsDftMatrix, opsRadix2DftMatrix->hostData, opsRadix2DftMatrix->dataSize)) {
             ASDSIP_LOG(ERROR) << "ops-fft backend(arch35 radix2): dftMatrix upload failed";
-            return;
+            throw std::runtime_error("ops-fft backend(arch35 radix2): dftMatrix upload failed");
         }
     }
     if (opsTwMatrix == nullptr) {
         if (!OpsFftUploadConst(&opsTwMatrix, opsRadix2TwMatrix->hostData, opsRadix2TwMatrix->dataSize)) {
             ASDSIP_LOG(ERROR) << "ops-fft backend(arch35 radix2): twMatrix upload failed";
-            return;
+            throw std::runtime_error("ops-fft backend(arch35 radix2): twMatrix upload failed");
         }
     }
     if (opsRadixList == nullptr) {
         if (!OpsFftUploadConst(&opsRadixList, opsRadix2RadixList->hostData, opsRadix2RadixList->dataSize)) {
             ASDSIP_LOG(ERROR) << "ops-fft backend(arch35 radix2): radixList upload failed";
-            return;
+            throw std::runtime_error("ops-fft backend(arch35 radix2): radixList upload failed");
         }
     }
     if (opsTilingDeviceAddr == nullptr) {
@@ -460,7 +477,7 @@ void FftC2CCoreArch35::RunViaOpsFftRadix2(void* input, void* output, void* strea
         }
         if (!OpsFftUploadConst(&opsTilingDeviceAddr, &opsTiling, sizeof(opsTiling))) {
             ASDSIP_LOG(ERROR) << "ops-fft backend(arch35 radix2): tiling upload failed";
-            return;
+            throw std::runtime_error("ops-fft backend(arch35 radix2): tiling upload failed");
         }
     }
 
@@ -537,7 +554,15 @@ AspbStatus FftC2CCoreArch35::BuildFftPlan()
 
     auto radixListFunc = [=]() -> AsdSip::FFTensor* {
         AsdSip::FFTensor* t = new AsdSip::FFTensor;
-        int32_t* host = new int32_t[planLen];
+        // 防护对齐同文件 twFunc（issue #238）：host 分配失败时释放 t 再抛出
+        int32_t* host = nullptr;
+        try {
+            host = new int32_t[planLen];
+        } catch (std::bad_alloc& e) {
+            delete t;
+            ASDSIP_LOG(ERROR) << "radix list host malloc failed";
+            throw std::runtime_error("radix list host malloc failed.");
+        }
         for (size_t s = 0; s < planLen; s++) {
             host[s] = static_cast<int32_t>(plan[s].radix);
         }
@@ -580,7 +605,15 @@ AspbStatus FftC2CCoreArch35::BuildFftPlan()
 
     auto dftFunc = [=]() -> AsdSip::FFTensor* {
         AsdSip::FFTensor* t = new AsdSip::FFTensor;
-        float* host = new float[totalDftFloats]();
+        // 防护对齐同文件 twFunc（issue #238）：host 分配失败时释放 t 再抛出
+        float* host = nullptr;
+        try {
+            host = new float[totalDftFloats]();
+        } catch (std::bad_alloc& e) {
+            delete t;
+            ASDSIP_LOG(ERROR) << "mixed radix dftMatrix host malloc failed";
+            throw std::runtime_error("mixed radix dftMatrix host malloc failed.");
+        }
 
         if (mixedRadixMode) {
             size_t offset = 0;

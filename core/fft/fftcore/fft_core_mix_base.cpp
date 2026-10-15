@@ -145,14 +145,14 @@ void FftCoreMixBase::RunViaOpsFft(void* input, void* output, void* stream, works
             !upload(&opsRadixList, radixList, K_DUMMY_WHEN_EMPTY) ||
             !upload(&opsTwMatrix, twMatrixArray, K_ALLOW_NULL)) {
             ASDSIP_LOG(ERROR) << "ops-fft backend(mix): dft/tw/radix upload failed";
-            return;
+            throw std::runtime_error("ops-fft backend(mix): dft/tw/radix upload failed");
         }
         if (isX2X &&
             (!upload(&opsInputIndex, inputIndex, K_DUMMY_WHEN_EMPTY) ||
              !upload(&opsOutputIndex, outputIndex, K_DUMMY_WHEN_EMPTY) ||
              !upload(&opsATable, aTable, K_DUMMY_WHEN_EMPTY) || !upload(&opsBTable, bTable, K_DUMMY_WHEN_EMPTY))) {
             ASDSIP_LOG(ERROR) << "ops-fft backend(mix): index/ab-table upload failed";
-            return;
+            throw std::runtime_error("ops-fft backend(mix): index/ab-table upload failed");
         }
         opsConstUploaded = true;
     }
@@ -171,7 +171,7 @@ void FftCoreMixBase::RunViaOpsFft(void* input, void* output, void* stream, works
     if (aclrtGetHardwareSyncAddr(reinterpret_cast<void**>(&sync)) != 0 || sync == nullptr) {
         ASDSIP_LOG(ERROR) << "ops-fft backend: get hardware sync addr failed";
         workspace.recycleLast();
-        return;
+        throw std::runtime_error("ops-fft backend: get hardware sync addr failed");
     }
 
     uint32_t splitWay = static_cast<uint32_t>(aivSplitWay);

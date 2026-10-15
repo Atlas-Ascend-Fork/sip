@@ -56,8 +56,12 @@ int64_t GetAllWMatrixSizeForSep(std::vector<int64_t>& radixVec)
     int64_t tempN;
     for (std::vector<int64_t>::iterator it = radixVec.begin(); it != radixVec.end(); ++it) {
         tempN = *it;
-        size += tempN * tempN * 3; // contains real part, imag part and neg imag part
-        if (size > INT64_MAX) {
+        // contains real part, imag part and neg imag part
+        // 溢出防护（issue #231）：原恒假死检查改用 __builtin_*_overflow 在真实溢出点
+        // 拦截，与 fft_core_common_func.cpp（issue #230）口径一致
+        int64_t inc;
+        if (__builtin_mul_overflow(tempN, tempN, &inc) || __builtin_mul_overflow(inc, 3, &inc) ||
+            __builtin_add_overflow(size, inc, &size)) {
             throw std::runtime_error("WMatrixSize large than INT64_MAX.");
         }
     }
@@ -72,8 +76,11 @@ int64_t GetAllTMatrixSizeForSep(std::vector<int64_t>& radixVec)
     for (int64_t it = 0; it < static_cast<int64_t>(radixVec.size()); ++it) {
         tempRow = radixVec[it];
         tempCol = GetTMatrixColForSep(radixVec, it);
-        size += tempRow * tempCol * 2; // contains real part and imag part
-        if (size > INT64_MAX) {
+        // contains real part and imag part
+        // 溢出防护（issue #231，同 GetAllWMatrixSizeForSep）：原恒假死检查改在真实溢出点拦截
+        int64_t inc;
+        if (__builtin_mul_overflow(tempRow, tempCol, &inc) || __builtin_mul_overflow(inc, 2, &inc) ||
+            __builtin_add_overflow(size, inc, &size)) {
             throw std::runtime_error("TMatrixSize large than INT64_MAX.");
         }
     }

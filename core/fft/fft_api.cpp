@@ -646,22 +646,9 @@ std::unique_ptr<FftOperation> GetCore3D(int64_t fftSizeX, int64_t fftSizeY, int6
     return InitFft3DOpPtr(coreTypeOpt, fftSizeX, fftSizeY, fftSizeZ, batchSize, fftType, forward, plan);
 }
 
-bool commonMatchFunc(const FFTPlan& plan, const Tensor& inData)
-{
-    int64_t last = static_cast<int64_t>(inData.desc.dims.size()) - 1;
-    int64_t i = last;
-    if (static_cast<int64_t>(plan.fftSizes.size()) > last + 1) {
-        return false;
-    }
-    for (auto rit = plan.fftSizes.rbegin(); rit != plan.fftSizes.rend(); rit++, i--) {
-        int64_t dim = inData.desc.dims[i];
-        if (dim != *rit) {
-            return false;
-        }
-    }
-
-    return true;
-}
+// commonMatchFunc 已删除（issue #232）：全仓零调用的死代码，无头文件声明；
+// 其"plan 与输入张量尾维匹配"逻辑未来需要时应在有消费方的前提下重新实现，
+// 避免随 Tensor/FFTPlan 结构演进而悄然失配
 
 void addFFTTransposeStep(FFTPlan& plan, int axis0, int axis1, const SVector<int64_t>& dims)
 {
@@ -1070,53 +1057,9 @@ AspbStatus commonParamCheck3D(asdFftHandle handle, int64_t fftSizeX, int64_t fft
     return AsdSip::ErrorType::ACL_SUCCESS;
 }
 
-AspbStatus asdFftMakePlan1D(asdFftHandle handle, int64_t fftSizeX, int64_t fftSizeY, asdFftType fftType,
-                            asdFftDirection direction, int64_t batchSize, int32_t dim)
-{
-    std::lock_guard<std::mutex> lock(fft_mtx);
-    AspbStatus checkStatus = commonParamCheck(handle, fftSizeX, fftSizeY, batchSize);
-    if (checkStatus != AsdSip::ErrorType::ACL_SUCCESS) {
-        return checkStatus;
-    }
-
-    // 支持 dim 负索引语义: -1 归一化为 0(1D plan 的 fftSizes 仅一维), 更小的负数视为非法
-    if (dim < 0) {
-        dim = dim + 1;
-    }
-    if (dim < 0) {
-        ASDSIP_LOG(ERROR) << "dim is invalid.";
-        return ErrorType::ACL_ERROR_INVALID_PARAM;
-    }
-    FFTPlan& plan = FFTPlanCache::getPlan(handle);
-
-    // 重复初始化守卫：与头文件"Any given handle can only be initialized once"契约对齐（issue #137）
-    if (plan.isInitialized()) {
-        ASDSIP_LOG(ERROR) << "plan is already initialized, repeated initialization is not allowed.";
-        return ErrorType::ACL_ERROR_INVALID_PARAM;
-    }
-
-    plan.fftType = fftType;
-    plan.direction = direction;
-    plan.batchSize = batchSize;
-    plan.fftSizes = {fftSizeX};
-    plan.fftStrides = {1};
-    if (dim == 1) {
-        plan.fftStrides = {fftSizeY};
-    }
-
-    // 内部初始化路径可能抛出异常（如不支持的长度），在 API 边界统一翻译为错误码（issue #131）
-    try {
-        addFFTSteps(plan, 0, batchSize);
-    } catch (const std::exception& e) {
-        plan.steps.clear();
-        ASDSIP_LOG(ERROR) << "asdFftMakePlan1D failed: " << e.what();
-        return ErrorType::ACL_ERROR_INVALID_PARAM;
-    }
-    plan.markInitialized();
-
-    return AsdSip::ErrorType::ACL_SUCCESS;
-}
-
+// 双尺寸 asdFftMakePlan1D 重载已删除（issue #233）：无头文件声明、全仓零调用的
+// 死代码；且其 fftSizeY 仅在 dim==1 时被消费、dim>=2 时被静默忽略（无校验无告
+// 警），一旦未来被暴露 dim>=2 的调用会静默产出与预期不符的 plan。
 AspbStatus asdFftDestroy(asdFftHandle handle)
 {
     std::lock_guard<std::mutex> lock(fft_mtx);

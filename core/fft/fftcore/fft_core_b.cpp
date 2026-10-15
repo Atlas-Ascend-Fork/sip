@@ -85,15 +85,15 @@ void FFTCoreB::RunViaOpsFft(void* input, void* output, void* stream, workspace::
     if (opsWMatrix == nullptr || opsTMatrix == nullptr || opsIndex == nullptr) {
         if (!OpsFftUploadConst(&opsWMatrix, wMatrix->hostData, wMatrix->dataSize)) {
             ASDSIP_LOG(ERROR) << "ops-fft backend: wMatrix upload failed";
-            return;
+            throw std::runtime_error("ops-fft backend: wMatrix upload failed");
         }
         if (!OpsFftUploadConst(&opsTMatrix, tMatrix->hostData, tMatrix->dataSize)) {
             ASDSIP_LOG(ERROR) << "ops-fft backend: tMatrix upload failed";
-            return;
+            throw std::runtime_error("ops-fft backend: tMatrix upload failed");
         }
         if (!OpsFftUploadConst(&opsIndex, index->hostData, index->dataSize)) {
             ASDSIP_LOG(ERROR) << "ops-fft backend: index upload failed";
-            return;
+            throw std::runtime_error("ops-fft backend: index upload failed");
         }
     }
 
@@ -114,7 +114,7 @@ void FFTCoreB::RunViaOpsFft(void* input, void* output, void* stream, workspace::
         opsCachedBlocks = needCoreNum;
         if (aclrtGetHardwareSyncAddr(reinterpret_cast<void**>(&opsCachedSync)) != 0 || opsCachedSync == nullptr) {
             ASDSIP_LOG(ERROR) << "ops-fft backend: get hardware sync addr failed";
-            return;
+            throw std::runtime_error("ops-fft backend: get hardware sync addr failed");
         }
     }
 

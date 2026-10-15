@@ -93,19 +93,19 @@ void FftC2RCoreArch35::RunViaOpsFft(void* input, void* output, void* stream, wor
     if (opsDftMatrix == nullptr) {
         if (!OpsFftUploadConst(&opsDftMatrix, dftMatrixArray->hostData, dftMatrixArray->dataSize)) {
             ASDSIP_LOG(ERROR) << "ops-fft backend(arch35 c2r): dftMatrix upload failed";
-            return;
+            throw std::runtime_error("ops-fft backend(arch35 c2r): dftMatrix upload failed");
         }
     }
     if (opsTwMatrix == nullptr) {
         if (!OpsFftUploadConst(&opsTwMatrix, twMatrixArray->hostData, twMatrixArray->dataSize)) {
             ASDSIP_LOG(ERROR) << "ops-fft backend(arch35 c2r): twMatrix upload failed";
-            return;
+            throw std::runtime_error("ops-fft backend(arch35 c2r): twMatrix upload failed");
         }
     }
     if (opsRadixList == nullptr) {
         if (!OpsFftUploadConst(&opsRadixList, radixListTensor->hostData, radixListTensor->dataSize)) {
             ASDSIP_LOG(ERROR) << "ops-fft backend(arch35 c2r): radixList upload failed";
-            return;
+            throw std::runtime_error("ops-fft backend(arch35 c2r): radixList upload failed");
         }
     }
 

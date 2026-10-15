@@ -58,8 +58,12 @@ int64_t GetAllWMatrixSize(std::vector<int64_t>& radixVec)
     int64_t tempN;
     for (std::vector<int64_t>::iterator it = radixVec.begin(); it != radixVec.end(); ++it) {
         tempN = *it;
-        size += TWO_MUL * tempN * TWO_MUL * tempN;
-        if (size > INT64_MAX) {
+        // 溢出防护（issue #230）：原 `size > INT64_MAX` 对 int64_t 恒假，检查为死代码
+        // 而真实溢出发生在累加处（有符号溢出 UB）。改用 __builtin_*_overflow 在
+        // 溢出真实发生点拦截，正常域内数值与行为不变
+        int64_t inc;
+        if (__builtin_mul_overflow(TWO_MUL * tempN, TWO_MUL * tempN, &inc) ||
+            __builtin_add_overflow(size, inc, &size)) {
             throw std::runtime_error("WMatrixSize large than INT64_MAX.");
         }
     }
@@ -84,8 +88,9 @@ int64_t GetAllTMatrixSize(std::vector<int64_t>& radixVec)
     for (int64_t it = 0; it < static_cast<int64_t>(radixVec.size()) - 1; ++it) {
         tempRow = radixVec[it] * TWO_MUL;
         tempCol = GetTMatrixCol(radixVec, it);
-        size += tempRow * tempCol;
-        if (size > INT64_MAX) {
+        // 溢出防护（issue #230，同 GetAllWMatrixSize）：原恒假死检查改在真实溢出点拦截
+        int64_t inc;
+        if (__builtin_mul_overflow(tempRow, tempCol, &inc) || __builtin_add_overflow(size, inc, &size)) {
             throw std::runtime_error("TMatrixSize large than INT64_MAX.");
         }
     }
@@ -100,8 +105,10 @@ int64_t GetAllSMatrixSize(std::vector<int64_t>& radixVec)
     int64_t pre = 1;
     for (std::vector<int64_t>::iterator it = radixVec.begin(); it != radixVec.end(); ++it) {
         tempN = *it;
-        size += pre * TWO_MUL * tempN * TWO_MUL * tempN;
-        if (size > INT64_MAX) {
+        // 溢出防护（issue #230，同 GetAllWMatrixSize）：原恒假死检查改在真实溢出点拦截
+        int64_t inc;
+        if (__builtin_mul_overflow(pre * TWO_MUL, TWO_MUL * tempN, &inc) || __builtin_mul_overflow(inc, tempN, &inc) ||
+            __builtin_add_overflow(size, inc, &size)) {
             throw std::runtime_error("SMatrixSize large than INT64_MAX.");
         }
         pre *= tempN;

@@ -69,11 +69,11 @@ void DdCore::RunViaOpsFft(void* input, void* output, void* stream, workspace::Wo
     if (opsPMatrix == nullptr || opsQMatrix == nullptr) {
         if (!OpsFftUploadConst(&opsPMatrix, pMatrix->hostData, pMatrix->dataSize)) {
             ASDSIP_LOG(ERROR) << "ops-fft backend: pMatrix upload failed";
-            return;
+            throw std::runtime_error("ops-fft backend: pMatrix upload failed");
         }
         if (!OpsFftUploadConst(&opsQMatrix, qMatrix->hostData, qMatrix->dataSize)) {
             ASDSIP_LOG(ERROR) << "ops-fft backend: qMatrix upload failed";
-            return;
+            throw std::runtime_error("ops-fft backend: qMatrix upload failed");
         }
     }
 
@@ -91,7 +91,7 @@ void DdCore::RunViaOpsFft(void* input, void* output, void* stream, workspace::Wo
     if (aclrtGetHardwareSyncAddr(reinterpret_cast<void**>(&sync)) != 0 || sync == nullptr) {
         ASDSIP_LOG(ERROR) << "ops-fft backend: get hardware sync addr failed";
         workspace.recycleLast();
-        return;
+        throw std::runtime_error("ops-fft backend: get hardware sync addr failed");
     }
 
     dd(opsCachedBlocks, nullptr, stream, sync, input, opsPMatrix, opsQMatrix, output, scratch,

@@ -94,25 +94,25 @@ void FftR2CCoreArch35::RunViaOpsFft(void* input, void* output, void* stream, wor
     if (opsDftMatrix == nullptr) {
         if (!OpsFftUploadConst(&opsDftMatrix, dftMatrixArray->hostData, dftMatrixArray->dataSize)) {
             ASDSIP_LOG(ERROR) << "ops-fft backend(arch35 r2c): dftMatrix upload failed";
-            return;
+            throw std::runtime_error("ops-fft backend(arch35 r2c): dftMatrix upload failed");
         }
     }
     if (opsTwMatrix == nullptr) {
         if (!OpsFftUploadConst(&opsTwMatrix, twMatrixArray->hostData, twMatrixArray->dataSize)) {
             ASDSIP_LOG(ERROR) << "ops-fft backend(arch35 r2c): twMatrix upload failed";
-            return;
+            throw std::runtime_error("ops-fft backend(arch35 r2c): twMatrix upload failed");
         }
     }
     if (opsTwPostProcess == nullptr) {
         if (!OpsFftUploadConst(&opsTwPostProcess, twPostProcess->hostData, twPostProcess->dataSize)) {
             ASDSIP_LOG(ERROR) << "ops-fft backend(arch35 r2c): twPostProcess upload failed";
-            return;
+            throw std::runtime_error("ops-fft backend(arch35 r2c): twPostProcess upload failed");
         }
     }
     if (opsRadixList == nullptr) {
         if (!OpsFftUploadConst(&opsRadixList, radixListTensor->hostData, radixListTensor->dataSize)) {
             ASDSIP_LOG(ERROR) << "ops-fft backend(arch35 r2c): radixList upload failed";
-            return;
+            throw std::runtime_error("ops-fft backend(arch35 r2c): radixList upload failed");
         }
     }
 

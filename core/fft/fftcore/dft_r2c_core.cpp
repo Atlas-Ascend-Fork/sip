@@ -64,11 +64,11 @@ void DftR2CCore::RunViaOpsFft(void* input, void* output, void* stream, workspace
     if (opsRotationMatrix == nullptr) {
         if (rotationMatrix == nullptr || rotationMatrix->hostData == nullptr || rotationMatrix->dataSize == 0) {
             ASDSIP_LOG(ERROR) << "ops-fft backend: rotationMatrix is empty";
-            return;
+            throw std::runtime_error("ops-fft backend: rotationMatrix is empty");
         }
         if (!OpsFftUploadConst(&opsRotationMatrix, rotationMatrix->hostData, rotationMatrix->dataSize)) {
             ASDSIP_LOG(ERROR) << "ops-fft backend: rotationMatrix upload failed";
-            return;
+            throw std::runtime_error("ops-fft backend: rotationMatrix upload failed");
         }
     }
 

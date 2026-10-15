@@ -78,11 +78,11 @@ void FFTCoreStride::RunViaOpsFft(void* input, void* output, void* stream, worksp
     if (opsSMatrix == nullptr) {
         if (sMatrix == nullptr || sMatrix->hostData == nullptr || sMatrix->dataSize == 0) {
             ASDSIP_LOG(ERROR) << "ops-fft backend: sMatrix is empty";
-            return;
+            throw std::runtime_error("ops-fft backend: sMatrix is empty");
         }
         if (!OpsFftUploadConst(&opsSMatrix, sMatrix->hostData, sMatrix->dataSize)) {
             ASDSIP_LOG(ERROR) << "ops-fft backend: sMatrix upload failed";
-            return;
+            throw std::runtime_error("ops-fft backend: sMatrix upload failed");
         }
     }
 
@@ -100,7 +100,7 @@ void FFTCoreStride::RunViaOpsFft(void* input, void* output, void* stream, worksp
     if (aclrtGetHardwareSyncAddr(reinterpret_cast<void**>(&sync)) != 0 || sync == nullptr) {
         ASDSIP_LOG(ERROR) << "ops-fft backend: get hardware sync addr failed";
         workspace.recycleLast();
-        return;
+        throw std::runtime_error("ops-fft backend: get hardware sync addr failed");
     }
 
     fft_stride(opsCachedBlocks, nullptr, stream, sync, input, opsSMatrix, output, scratch,

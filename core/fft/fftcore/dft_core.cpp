@@ -105,18 +105,18 @@ void DFTCore::RunViaOpsFft(void* input, void* output, void* stream, workspace::W
 {
     if (opsTilingHost.size() < sizeof(OpsFftDftTilingData)) {
         ASDSIP_LOG(ERROR) << "ops-fft backend: dft tiling host copy is missing";
-        return;
+        throw std::runtime_error("ops-fft backend: dft tiling host copy is missing");
     }
 
     // 常量首次 Run 拷贝至 device, plan 级缓存
     if (opsRotationMatrix == nullptr) {
         if (rotationMatrix == nullptr || rotationMatrix->hostData == nullptr || rotationMatrix->dataSize == 0) {
             ASDSIP_LOG(ERROR) << "ops-fft backend: rotationMatrix is empty";
-            return;
+            throw std::runtime_error("ops-fft backend: rotationMatrix is empty");
         }
         if (!OpsFftUploadConst(&opsRotationMatrix, rotationMatrix->hostData, rotationMatrix->dataSize)) {
             ASDSIP_LOG(ERROR) << "ops-fft backend: rotationMatrix upload failed";
-            return;
+            throw std::runtime_error("ops-fft backend: rotationMatrix upload failed");
         }
     }
 
