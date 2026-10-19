@@ -127,12 +127,17 @@ source /usr/local/Ascend/cann/set_env.sh
     bash build.sh
     ```
 
-    编译前请根据目标硬件修改[`configs/build_config.json`](configs/build_config.json)中的芯片架构配置，将不支持的芯片架构设置为`false`。默认配置同时启用`ascend910b`和`ascend950`，若运行环境仅支持其中一种芯片，需关闭不支持的架构，否则编译会失败。也可通过环境变量`BUILD_CONFIG_FILE`指定自定义配置文件路径：
+    编译前请根据目标硬件关闭不支持的芯片架构，否则编译会失败。内核编译目标的请求由构建期拉取的`mki`组件（位于`3rdparty/mki/`）读取的配置决定：`mki`默认配置会请求`ascend910b`和`ascend950`（实际构建目标还受本仓CANN版本兼容过滤影响，以编译日志中的requested/effective device targets为准）；若运行环境仅支持其中一种芯片，可通过环境变量`BUILD_CONFIG_DIR`指定一个包含`build_config.json`的目录，将不支持的架构设置为`false`。例如在仓库根目录复用主仓配置文件（构建过程会切换工作目录，故用`realpath configs`在设置时将配置目录解析为绝对路径）：
 
     ```sh
-    export BUILD_CONFIG_FILE=/path/to/your/build_config.json
+    cd "${sip_root_path:?Set the repository root path first}" || exit 1
+    BUILD_CONFIG_DIR="$(realpath configs)" || exit 1
+    BUILD_CONFIG_FILE="$(realpath configs/build_config.json)" || exit 1
+    export BUILD_CONFIG_DIR BUILD_CONFIG_FILE
     bash build.sh
     ```
+
+    其中`BUILD_CONFIG_DIR`是目录变量，`mki`据此读取`<BUILD_CONFIG_DIR>/build_config.json`（格式与[`configs/build_config.json`](configs/build_config.json)一致，需完整列出`ascend910b`、`ascend950`等架构键，将不编译的目标设为`false`）；`BUILD_CONFIG_FILE`是文件变量，主仓`scripts/build_util.py`据此选择架构（如启用`--use_ops_fft`联合编译时的ops-fft SoC选择与`scripts/update_tbe_tactic_json.py`）。仅设置`BUILD_CONFIG_DIR`即可控制内核编译目标的默认配置，但不会改变主仓脚本读取的配置；如需同时调整，建议两处保持一致。详见[编译与构建](./docs/compilation_build.md)。
 
     特别说明：
     - `Ascend-cann-SIP_${version}_linux_${arch}.run`是编译后通过makeself打包的包含算子执行所需文件的可执行产物，用户可以通过以下命令执行run包将包含算子信息的文件安装到指定目录。

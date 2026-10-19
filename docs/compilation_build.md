@@ -53,7 +53,7 @@ CANN 9.1.0 及以上版本按原配置编译 A5 内核。这是 SiP 的构建兼
 请求 A5 但无法确定版本，或过滤后没有兼容的设备目标时，配置会报错。
 构建前请加载对应的 CANN 环境；构建过程不会改写源配置或第三方安装。
 
-SiP库支持多种Ascend芯片架构，编译时通过[`configs/build_config.json`](../configs/build_config.json)配置需要编译的目标芯片。该文件内容如下：
+SiP库支持多种Ascend芯片架构，通过`build_config.json`的`targets`字段配置需要编译的目标芯片。项目自带的[`configs/build_config.json`](../configs/build_config.json)内容如下（该文件由主仓脚本读取，内核编译目标实际读取的配置见下文「自定义编译配置文件」一节）：
 
 ```json
 {
@@ -81,14 +81,19 @@ SiP库支持多种Ascend芯片架构，编译时通过[`configs/build_config.jso
 
 #### 自定义编译配置文件
 
-除修改项目自带的[`configs/build_config.json`](../configs/build_config.json)外，还可通过环境变量`BUILD_CONFIG_FILE`指定自定义的配置文件路径，使项目在编译时读取该文件而非默认配置。例如：
+内核编译目标的请求（即`mki`组件为哪些芯片架构生成内核编译开关）由构建期拉取的`mki`组件（位于`3rdparty/mki/`，来自`ascend-boost-comm`）读取的配置决定。未设置`BUILD_CONFIG_DIR`时，`mki`使用其内置的`configs/build_config.json`（全架构启用，对SiP而言会请求`ascend910b`和`ascend950`）；需要关闭不支持的架构时，通过环境变量`BUILD_CONFIG_DIR`指定一个包含`build_config.json`的目录即可，无需修改`3rdparty/mki/`下的文件。目录中的`build_config.json`格式与上文[`configs/build_config.json`](../configs/build_config.json)一致，需完整列出内核涉及的架构键（至少包含`ascend910b`与`ascend950`），将不编译的目标设置为`false`。例如在仓库根目录复用主仓配置文件（构建过程会切换工作目录，故用`realpath configs`在设置时将配置目录解析为绝对路径）：
 
 ```sh
-export BUILD_CONFIG_FILE=/path/to/your/build_config.json
+cd "${SiP_root_path:?Set the repository root path first}" || exit 1
+BUILD_CONFIG_DIR="$(realpath configs)" || exit 1
+BUILD_CONFIG_FILE="$(realpath configs/build_config.json)" || exit 1
+export BUILD_CONFIG_DIR BUILD_CONFIG_FILE
 bash build.sh
 ```
 
-> **说明**：编译系统实际读取的配置文件由[`scripts/build_util.py`](../scripts/build_util.py)中的`get_build_target_list()`函数决定。当未设置`BUILD_CONFIG_FILE`环境变量时，默认读取项目根目录下的`configs/build_config.json`；设置该环境变量后，则读取指定路径的配置文件。项目依赖的`mki`组件（位于`3rdparty/mki/`）虽也带有`configs/build_config.json`，但SiP编译流程以项目自身的配置文件为准，无需修改`3rdparty/mki/`下的配置。
+上例同时导出两个变量，使主仓脚本与`mki`读取同一份配置：`BUILD_CONFIG_DIR`是目录变量，`mki`据此读取`<BUILD_CONFIG_DIR>/build_config.json`；`BUILD_CONFIG_FILE`是文件变量，主仓[`scripts/build_util.py`](../scripts/build_util.py)据此选择架构（如启用`--use_ops_fft`联合编译时的ops-fft SoC选择与`scripts/update_tbe_tactic_json.py`）。仅设置`BUILD_CONFIG_DIR`即可控制内核编译目标的默认配置，但不会改变主仓脚本读取的配置；如需同时调整，建议两处保持一致。
+
+> **说明**：`mki`组件实际读取的配置由其`scripts/build_util.py`中的`get_build_target_list()`函数决定——未设置`BUILD_CONFIG_DIR`时读取`3rdparty/mki/configs/build_config.json`，设置后读取`<BUILD_CONFIG_DIR>/build_config.json`。`mki`配置请求的目标仍会经过本仓的CANN版本兼容过滤（见上文说明）：CANN版本低于9.1.0时自动跳过全部`ascend950`内核，实际构建的目标以编译日志中的`requested device targets`与`effective device targets`为准。
 
 ### SiP关键文件介绍
 

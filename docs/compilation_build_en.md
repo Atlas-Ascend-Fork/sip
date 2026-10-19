@@ -55,7 +55,7 @@ An unknown version with A5 requested, or no compatible device targets remaining,
 stops configuration with an error. Source the appropriate CANN environment
 before building. No source configuration or third-party installation is rewritten.
 
-The SiP library supports multiple Ascend chip architectures. During compilation, configure the target chips to compile through [`configs/build_config.json`](../configs/build_config.json). The file content is as follows:
+The SiP library supports multiple Ascend chip architectures. Target chips to compile are configured through the `targets` field of `build_config.json`. The project's built-in [`configs/build_config.json`](../configs/build_config.json) has the following content (this file is read by the repository's own scripts; for the configuration actually read for kernel compilation targets, see the "Custom Compilation Configuration File" section below):
 
 ```json
 {
@@ -83,14 +83,19 @@ Set the targets that need compilation to `true`, and set the targets that do not
 
 #### Custom Compilation Configuration File
 
-In addition to modifying the project's built-in [`configs/build_config.json`](../configs/build_config.json), you can also specify a custom configuration file path through the environment variable `BUILD_CONFIG_FILE`, so that the project reads that file instead of the default configuration during compilation. For example:
+The device kernel targets requested (i.e., the architectures for which the `mki` component generates kernel build switches) are determined by the configuration read by the `mki` component (located at `3rdparty/mki/`, pulled from `ascend-boost-comm` during the build). When `BUILD_CONFIG_DIR` is not set, the `mki` component uses its built-in `configs/build_config.json` (all architectures enabled; for SiP this requests `ascend910b` and `ascend950`). To disable unsupported architectures, specify a directory containing a `build_config.json` through the environment variable `BUILD_CONFIG_DIR`; no file under `3rdparty/mki/` needs to be modified. The `build_config.json` in that directory follows the same format as [`configs/build_config.json`](../configs/build_config.json) above and must list all architecture keys involved in kernel building (at least `ascend910b` and `ascend950`); set the targets you do not want to build to `false`. For example, reuse the repository configuration from the repository root (the build process changes working directories, so `realpath configs` resolves the configuration directory to an absolute path at export time):
 
 ```sh
-export BUILD_CONFIG_FILE=/path/to/your/build_config.json
+cd "${SiP_root_path:?Set the repository root path first}" || exit 1
+BUILD_CONFIG_DIR="$(realpath configs)" || exit 1
+BUILD_CONFIG_FILE="$(realpath configs/build_config.json)" || exit 1
+export BUILD_CONFIG_DIR BUILD_CONFIG_FILE
 bash build.sh
 ```
 
-> **Note**: The configuration file actually read by the compilation system is determined by the `get_build_target_list()` function in [`scripts/build_util.py`](../scripts/build_util.py). When the `BUILD_CONFIG_FILE` environment variable is not set, the system reads `configs/build_config.json` in the project root directory by default. When the environment variable is set, the system reads the configuration file at the specified path. Although the `mki` component (located in `3rdparty/mki/`) that the project depends on also has a `configs/build_config.json`, the SiP compilation process uses the project's own configuration file as the standard. No modification to the configuration under `3rdparty/mki/` is required.
+The example above exports both variables so that the repository's own scripts and the `mki` component read the same file: `BUILD_CONFIG_DIR` is a directory variable, from which `mki` reads `<BUILD_CONFIG_DIR>/build_config.json`; `BUILD_CONFIG_FILE` is a file variable used by the repository's own [`scripts/build_util.py`](../scripts/build_util.py) for target selection (e.g., SoC selection for the ops-fft joint build with `--use_ops_fft` enabled, and `scripts/update_tbe_tactic_json.py`). Setting `BUILD_CONFIG_DIR` alone already controls the default kernel compilation targets, but it does not change the configuration read by the repository's own scripts; if you adjust both sides, keep them consistent.
+
+> **Note**: The configuration actually read by the `mki` component is determined by the `get_build_target_list()` function in its `scripts/build_util.py`: when `BUILD_CONFIG_DIR` is not set, `3rdparty/mki/configs/build_config.json` is read; when it is set, `<BUILD_CONFIG_DIR>/build_config.json` is read. Targets requested through the `mki` configuration are still subject to the CANN version compatibility filtering of this repository (see the notes above): with CANN versions older than 9.1.0, all `ascend950` kernels are skipped automatically. The actually built targets are shown in the build log as `requested device targets` and `effective device targets`.
 
 ### SiP Key File Introduction
 
