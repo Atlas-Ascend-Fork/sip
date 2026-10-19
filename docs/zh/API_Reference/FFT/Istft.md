@@ -96,7 +96,7 @@ AspbStatus asdFftExecIstft(
     <tr>
       <td>input（aclTensor *）</td>
       <td>输入</td>
-      <td><ul><li>对应公式中的'x'。</li><li>数据格式支持ND，格式预期与stft输出相同。</li><li>数据类型仅支持COMPLEX64。</li><li>shape为(B, N, T)<ul><li>'B'是批处理维度。</li><li>N是频率样本的数量，当前版本仅支持onesidedOpt为false，此时N为nFft（onesidedOpt为true时N为 (nFft // 2) + 1，暂不支持）。</li><li>T是帧的数量，对于中心填充的STFT，取值为“1 + lengthOpt // hopLengthOpt”，其他场景取值为 “1 + (lengthOpt - nFft) // hopLengthOpt”。</li></ul></li></ul></td>
+      <td><ul><li>对应公式中的'x'。</li><li>数据格式支持ND，格式预期与stft输出相同。</li><li>数据类型仅支持COMPLEX64。</li><li>shape为(B, N, T)<ul><li>'B'是批处理维度。</li><li>N是频率样本的数量，当前版本仅支持onesidedOpt为false，此时N为nFft（onesidedOpt为true时N为 (nFft // 2) + 1，暂不支持）。</li><li>T是输入STFT频谱的帧数，由input的第3维提供，当前版本要求T大于1；不通过lengthOpt计算T。</li></ul></li></ul></td>
     </tr>
     <tr>
       <td>nFft（int64_t）</td>
@@ -168,7 +168,7 @@ AspbStatus asdFftExecIstft(
     <tr>
       <td>input（aclTensor *）</td>
       <td>输入</td>
-      <td><ul><li>对应公式中的'x'。</li><li>数据格式支持ND，格式预期与stft输出相同。</li><li>数据类型仅支持COMPLEX64。</li><li>shape为(B, N, T)<ul><li>'B'是批处理维度。</li><li>N 是频率样本的数量，当前版本仅支持onesidedOpt为false，此时N为nFft（onesidedOpt为true时N为 (nFft // 2) + 1，暂不支持）。</li><li>T是帧的数量，对于中心填充的stft为 1 + length // hopLengthOpt，否则为 1 + (length - nFft) // hopLengthOpt。</li></ul></li></ul></td>
+      <td><ul><li>对应公式中的'x'。</li><li>数据格式支持ND，格式预期与stft输出相同。</li><li>数据类型仅支持COMPLEX64。</li><li>shape为(B, N, T)<ul><li>'B'是批处理维度。</li><li>N 是频率样本的数量，当前版本仅支持onesidedOpt为false，此时N为nFft（onesidedOpt为true时N为 (nFft // 2) + 1，暂不支持）。</li><li>T是输入STFT频谱的帧数，必须与计划中记录的input第3维相同且大于1。</li></ul></li></ul></td>
     </tr>
     <tr>
       <td>windowOpt（aclTensor *）</td>
@@ -178,7 +178,7 @@ AspbStatus asdFftExecIstft(
     <tr>
       <td>output（aclTensor *）</td>
       <td>输出</td>
-      <td><ul><li>数据格式支持ND。</li><li>数据类型仅支持COMPLEX64。</li><li>shape为（B, length）。</li></ul></td>
+      <td><ul><li>数据格式支持ND。</li><li>数据类型仅支持COMPLEX64。</li><li>shape为（B, length）。当前支持center=true、lengthOpt=0，length = nFft + hopLengthOpt * (T - 1) - 2 * (nFft // 2)，其中T是input的帧数。</li></ul></td>
     </tr>
   </tbody>
     </table>

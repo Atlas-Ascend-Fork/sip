@@ -83,7 +83,7 @@ AspbStatus asdFftExecIstft(
     <tr>
       <td>input (aclTensor *)</td>
       <td>Input</td>
-      <td><ul><li>Corresponds to "x" in the formula.</li><li>Data format: <code>ND</code>. The format is expected to be the same as the STFT output.</li><li>Only <code>COMPLEX64</code> is supported.</li><li>shape: (B, N, T)<ul><li>"B" is the batch dimension.</li><li>N is the number of frequency samples. When <code>onesidedOpt</code> is true, it is (nFft // 2) + 1; when <code>onesidedOpt</code> is false, it is <code>nFft</code>.</li><li>T is the number of frames. For center-padded STFT, the value is "1 + lengthOpt // hopLengthOpt"; in other scenarios, the value is "1 + (lengthOpt - nFft) // hopLengthOpt".</li></ul></li></ul></td>
+      <td><ul><li>Corresponds to "x" in the formula.</li><li>Data format: <code>ND</code>. The format is expected to be the same as the STFT output.</li><li>Only <code>COMPLEX64</code> is supported.</li><li>shape: (B, N, T)<ul><li>"B" is the batch dimension.</li><li>N is the number of frequency samples. When <code>onesidedOpt</code> is true, it is (nFft // 2) + 1; when <code>onesidedOpt</code> is false, it is <code>nFft</code>.</li><li>T is the frame count of the input STFT spectrum, taken from the third dimension of input. The current version requires T greater than 1; T is not calculated from lengthOpt.</li></ul></li></ul></td>
     </tr>
     <tr>
       <td>nFft (int64_t)</td>
@@ -155,7 +155,7 @@ AspbStatus asdFftExecIstft(
     <tr>
       <td>input (aclTensor *)</td>
       <td>Input</td>
-      <td><ul><li>Corresponds to "x" in the formula.</li><li>Data format: <code>ND</code>. The format is expected to be the same as the STFT output.</li><li>Only <code>COMPLEX64</code> is supported.</li><li>shape: (B, N, T)<ul><li>"B" is the batch dimension.</li><li>N is the number of frequency samples. For onesidedOpt set to true, the input is (nFft // 2) + 1; otherwise, it is <code>nFft</code>.</li><li>T is the number of frames. For center-padded STFT, it is 1 + length // <code>hopLengthOpt</code>; otherwise, it is 1 + (length - nFft) // <code>hopLengthOpt</code>.</li></ul></li></ul></td>
+      <td><ul><li>Corresponds to "x" in the formula.</li><li>Data format: <code>ND</code>. The format is expected to be the same as the STFT output.</li><li>Only <code>COMPLEX64</code> is supported.</li><li>shape: (B, N, T)<ul><li>"B" is the batch dimension.</li><li>N is the number of frequency samples. For onesidedOpt set to true, the input is (nFft // 2) + 1; otherwise, it is <code>nFft</code>.</li><li>T is the frame count of the input STFT spectrum. It must match the third dimension of input recorded in the plan and be greater than 1.</li></ul></li></ul></td>
     </tr>
     <tr>
       <td>windowOpt (aclTensor *)</td>
@@ -165,7 +165,7 @@ AspbStatus asdFftExecIstft(
     <tr>
       <td>output (aclTensor *)</td>
       <td>Output</td>
-      <td><ul><li>Data format: <code>ND</code>.</li><li>Only <code>COMPLEX64</code> is supported.</li><li>shape: (B, length).</li></ul></td>
+      <td><ul><li>Data format: <code>ND</code>.</li><li>Only <code>COMPLEX64</code> is supported.</li><li>shape: (B, length). With the currently supported center=true and lengthOpt=0, length = nFft + hopLengthOpt * (T - 1) - 2 * (nFft // 2), where T is the input frame count.</li></ul></td>
     </tr>
   </tbody>
     </table>
