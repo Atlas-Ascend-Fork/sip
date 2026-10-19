@@ -34,7 +34,11 @@ output/
 
 oat_reports/
 
+# OAT 钩子(scripts/oat_check.sh)要求存在未锚定的 log/ 条目, 缺失时会自动改写
+# 本文件导致 pre-commit "files were modified by this hook" 失败, 故保留 log/;
+# 同时用例外放行在册日志模块头文件目录, 保持锚定 PR 的修复意图。
 log/
+!core/utils/include/log/
 
 # coverage tool and lint caches
 lcov/
