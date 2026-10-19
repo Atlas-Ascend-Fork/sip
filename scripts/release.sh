@@ -309,11 +309,25 @@ LOG_PATH="/var/log/cann_asdsip_log/"
 LOG_NAME="cann_asdsip_install.log"
 
 # CANN 工具包安装路径探测链：优先复用已导出的 ASCEND_HOME_PATH（剥去 /latest 后缀），
-# 其次使用可外部覆盖的 CANN_INSTALL_PATH，缺省回落通用安装路径 /usr/local/Ascend/ascend-toolkit
+# 其次使用可外部覆盖的 CANN_INSTALL_PATH，缺省回落通用安装路径 /usr/local/Ascend/ascend-toolkit；
+# 该目录不存在时，依次探测常见构建机目录 /home/slave1/Ascend/ascend-toolkit、
+# /home/jenkins/Ascend/ascend-toolkit，按顺序取第一个存在的路径（issue #204 探测链增强）。
+# 全部候选均不存在时保留通用默认值，由后续安装步骤给出明确的失败路径
 if [[ -n ${ASCEND_HOME_PATH:-} ]]; then
     CANN_INSTALL_PATH=${ASCEND_HOME_PATH%/latest}
 else
-    CANN_INSTALL_PATH=${CANN_INSTALL_PATH:-/usr/local/Ascend/ascend-toolkit}
+    CANN_INSTALL_PATH=${CANN_INSTALL_PATH:-}
+    if [[ -z ${CANN_INSTALL_PATH} ]]; then
+        for cann_path_candidate in /usr/local/Ascend/ascend-toolkit \
+                                   /home/slave1/Ascend/ascend-toolkit \
+                                   /home/jenkins/Ascend/ascend-toolkit; do
+            if [[ -d ${cann_path_candidate} ]]; then
+                CANN_INSTALL_PATH=${cann_path_candidate}
+                break
+            fi
+        done
+        CANN_INSTALL_PATH=${CANN_INSTALL_PATH:-/usr/local/Ascend/ascend-toolkit}
+    fi
 fi
 
 bep_env_init
