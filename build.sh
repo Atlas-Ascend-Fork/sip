@@ -721,7 +721,7 @@ function help_info() {
     echo "--ut                           编译执行单元测试用例."
     echo
     echo "options:"
-    echo "--output=<dir>               指定编译输出目录，默认为${repo}/output目录."
+    echo "--output=<dir>               指定编译输出目录，默认为sip/output目录."
     echo "--use_cxx11_abi=0            设置-D_GLIBCXX_USE_CXX11_ABI=0 (默认选项)."
     echo "--use_cxx11_abi=1            设置-D_GLIBCXX_USE_CXX11_ABI=1."
     echo "--use_ops_fft                开启 ops-fft 联合构建(默认不构建; 开启后存件缺失/失配时报错终止)."
