@@ -118,7 +118,7 @@ using namespace AsdSip;
 #define ASD_STATUS_CHECK(err)                                                \
     do {                                                                     \
         AsdSip::AspbStatus err_ = (err);                                     \
-        if (err_ != AsdSip::NO_ERROR) {                                      \
+        if (err_ != AsdSip::ErrorType::ACL_SUCCESS) {                                      \
             std::cout << "Execute failed." << std::endl; \
             exit(-1);                                                        \
         } else {                                                             \
@@ -154,11 +154,11 @@ int Init(int32_t deviceId, aclrtStream *stream)
 {
     // Boilerplate: Initialize ACL.
     auto ret = aclInit(nullptr);
-    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclInit failed. ERROR: %d\n", ret); return ret);
+    CHECK_RET(ret == ::ACL_SUCCESS, LOG_PRINT("aclInit failed. ERROR: %d\n", ret); return ret);
     ret = aclrtSetDevice(deviceId);
-    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtSetDevice failed. ERROR: %d\n", ret); return ret);
+    CHECK_RET(ret == ::ACL_SUCCESS, LOG_PRINT("aclrtSetDevice failed. ERROR: %d\n", ret); return ret);
     ret = aclrtCreateStream(stream);
-    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtCreateStream failed. ERROR: %d\n", ret); return ret);
+    CHECK_RET(ret == ::ACL_SUCCESS, LOG_PRINT("aclrtCreateStream failed. ERROR: %d\n", ret); return ret);
     return 0;
 }
 template <typename T>
@@ -168,10 +168,10 @@ int CreateAclTensor(const std::vector<T> &hostData, const std::vector<int64_t> &
     auto size = GetShapeSize(shape) * sizeof(T);
     // Call aclrtMalloc to allocate device-side memory.
     auto ret = aclrtMalloc(deviceAddr, size, ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", ret); return ret);
+    CHECK_RET(ret == ::ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", ret); return ret);
     // Call aclrtMemcpy to copy host-side data to device-side memory.
     ret = aclrtMemcpy(*deviceAddr, size, hostData.data(), size, ACL_MEMCPY_HOST_TO_DEVICE);
-    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", ret); return ret);
+    CHECK_RET(ret == ::ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", ret); return ret);
     // Compute the strides of the contiguous tensor.
     std::vector<int64_t> strides(shape.size(), 1);
     for (int64_t i = shape.size() - 2; i >= 0; i--) {
@@ -201,7 +201,7 @@ int main(int argc, char **argv)
     int deviceId = 0;
     aclrtStream stream;
     auto ret = Init(deviceId, &stream);
-    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("Init acl failed. ERROR: %d\n", ret); return ret);
+    CHECK_RET(ret == ::ACL_SUCCESS, LOG_PRINT("Init acl failed. ERROR: %d\n", ret); return ret);
     int64_t n = 8;
     int64_t xSize = 8;
     int64_t ySize = 8;
@@ -232,21 +232,21 @@ int main(int argc, char **argv)
     void *inputYDeviceAddr = nullptr;
     void *resultDeviceAddr = nullptr;
     ret = CreateAclTensor(tensorInXData, xShape, &inputXDeviceAddr, aclDataType::ACL_COMPLEX64, &inputX);
-    CHECK_RET(ret == ACL_SUCCESS, return ret);
+    CHECK_RET(ret == ::ACL_SUCCESS, return ret);
     ret = CreateAclTensor(tensorInYData, yShape, &inputYDeviceAddr, aclDataType::ACL_COMPLEX64, &inputY);
-    CHECK_RET(ret == ACL_SUCCESS, return ret);
+    CHECK_RET(ret == ::ACL_SUCCESS, return ret);
     ret = CreateAclTensor(resultData, resultShape, &resultDeviceAddr, aclDataType::ACL_COMPLEX64, &result);
-    CHECK_RET(ret == ACL_SUCCESS, return ret);
+    CHECK_RET(ret == ::ACL_SUCCESS, return ret);
     asdBlasHandle handle;
     asdBlasCreate(handle);
     size_t lwork = 0;
     void *buffer = nullptr;
     asdBlasMakeDotPlan(handle);
-    asdBlasGetWorkspaceSize(handle, &lwork);
+    asdBlasGetWorkspaceSize(handle, lwork);
     std::cout << "lwork = " << lwork << std::endl;
     if (lwork > 0) {
         ret = aclrtMalloc(&buffer, static_cast<int64_t>(lwork), ACL_MEM_MALLOC_HUGE_FIRST);
-        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("allocate workspace failed. ERROR: %d\n", ret); return ret);
+        CHECK_RET(ret == ::ACL_SUCCESS, LOG_PRINT("allocate workspace failed. ERROR: %d\n", ret); return ret);
     }
     asdBlasSetWorkspace(handle, buffer);
     asdBlasSetStream(handle, stream);
@@ -258,7 +258,7 @@ int main(int argc, char **argv)
         resultDeviceAddr,
         resultSize * sizeof(std::complex<float>),
         ACL_MEMCPY_DEVICE_TO_HOST);
-    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("copy result from device to host failed. ERROR: %d\n", ret); return ret);
+    CHECK_RET(ret == ::ACL_SUCCESS, LOG_PRINT("copy result from device to host failed. ERROR: %d\n", ret); return ret);
     std::cout << "------- result -------" << std::endl;
     printTensor(resultData.data(), resultSize);
     std::ofstream file("result.bin", std::ios::binary | std::ios::out);
