@@ -95,6 +95,8 @@ AspbStatus asdBlasCgemv(asdBlasHandle handle, asdBlasOperation_t trans, const in
             gTrans = TWO;
         }
 
+        // 非法枚举显式拒绝（issue #265）：原哨兵 -1 透传内核按 OP_C 静默计算
+        ASDSIP_ECHECK(gTrans != -1, "blas asdBlasCgemv get invalid trans enum.", ErrorType::ACL_ERROR_INVALID_PARAM);
         param = {gTrans, m, n, lda, incx, incy, alpha, beta};
         opDesc.specificParam = param;
         ASDSIP_LOG(DEBUG) << "OpDesc: " << opDesc.opName << "; OpDesc info: " << param.ToString();

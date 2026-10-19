@@ -18,15 +18,15 @@ using namespace Mki;
 using namespace AsdSip;
 
 namespace AsdSip {
-AspbStatus Reverse(const Tensor &inTensor, Tensor &outTensor, SVector<int64_t> axis, void *stream,
-                   uint8_t *deviceBuffer)
+AspbStatus Reverse(const Tensor& inTensor, Tensor& outTensor, SVector<int64_t> axis, void* stream,
+                   uint8_t* deviceBuffer)
 {
     outTensor.desc = inTensor.desc;
 
     uint64_t workspaceSize = 0;
     aclOpExecutor* executor = nullptr;
-    aclTensor *inAclTensor = nullptr;
-    aclTensor *outAclTensor = nullptr;
+    aclTensor* inAclTensor = nullptr;
+    aclTensor* outAclTensor = nullptr;
     toAclTensor(inTensor, inAclTensor);
     if (inAclTensor == nullptr) {
         ASDSIP_LOG(ERROR) << "Fail to convert in mki tensor to aclTensor.";
@@ -55,6 +55,7 @@ AspbStatus Reverse(const Tensor &inTensor, Tensor &outTensor, SVector<int64_t> a
 
     ret = aclnnFlip(deviceBuffer, workspaceSize, executor, stream);
     if (ret != ::ACL_SUCCESS) {
+        aclDestroyAclOpExecutor(executor);
         ASDSIP_LOG(ERROR) << "aclnnFlip failed. ERROR: " << ret;
         aclDestroyTensor(inAclTensor);
         aclDestroyTensor(outAclTensor);
@@ -62,10 +63,11 @@ AspbStatus Reverse(const Tensor &inTensor, Tensor &outTensor, SVector<int64_t> a
         return ErrorType::ACL_ERROR_INTERNAL_ERROR;
     }
 
+    aclDestroyAclOpExecutor(executor);
     aclDestroyTensor(inAclTensor);
     aclDestroyTensor(outAclTensor);
     aclDestroyIntArray(dims);
     ASDSIP_LOG(INFO) << "Execute Reverse success.";
     return ErrorType::ACL_SUCCESS;
 }
-}
+} // namespace AsdSip

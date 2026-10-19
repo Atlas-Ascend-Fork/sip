@@ -27,13 +27,20 @@ constexpr uint64_t BASE_COL_BLOCK = 128;
 AsdSip::AspbStatus asdConvolve(const aclTensor* signal, const aclTensor* kernel, aclTensor* output,
                                asdConvolveMode_t mode, void* stream, void* workspace)
 {
-    (void)mode;
+    // mode 值域校验（issue #246）：头文件定义 FULL/VALID/SAME 三种模式，文档声明
+    // 当前仅支持 SAME；原 (void)mode 丢弃使 FULL/VALID 静默按 SAME 计算并返回成功
+    if (mode != asdConvolveMode_t::ASD_CONVOLVE_SAME) {
+        ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM)
+            << "asdConvolve only supports ASD_CONVOLVE_SAME in current version.";
+        return AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM;
+    }
     int64_t* storageDims = nullptr;
     uint64_t storageDimsNum = 0;
     CHECK_STATUS_WITH_ACL_RETURN(
         aclGetStorageShape(static_cast<const aclTensor*>(signal), &storageDims, &storageDimsNum),
         "asdConvolve: aclGetStorageShape");
-    if (*storageDims <= 0 || storageDimsNum != DIMS_TWO) {
+    // 先判空再解引用（issue #245）：0 维张量 dims 为空指针
+    if (storageDims == nullptr || storageDimsNum < 1 || *storageDims <= 0 || storageDimsNum != DIMS_TWO) {
         delete[] storageDims;
         storageDims = nullptr;
         ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH) << "asdConvolve get wrong inputs.";
@@ -49,7 +56,8 @@ AsdSip::AspbStatus asdConvolve(const aclTensor* signal, const aclTensor* kernel,
     CHECK_STATUS_WITH_ACL_RETURN(
         aclGetStorageShape(static_cast<const aclTensor*>(kernel), &storageDims, &storageDimsNum),
         "asdConvolve: aclGetStorageShape");
-    if (*storageDims <= 0 || storageDimsNum > DIMS_TWO) {
+    // 先判空再解引用（issue #245，同 signal 侧口径）
+    if (storageDims == nullptr || storageDimsNum < 1 || *storageDims <= 0 || storageDimsNum > DIMS_TWO) {
         delete[] storageDims;
         storageDims = nullptr;
         ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH) << "asdConvolve get wrong inputs.";
@@ -109,8 +117,7 @@ AspbStatus asdConvolveGetWorkspaceSize(int64_t signalLen, int64_t kernelLen, siz
     size_t kernelSize = static_cast<size_t>(kernelLen);
     size_t workspaceColNum = BASE_COL_BLOCK + kernelSize * DIMS_TWO - DIMS_TWO;
     size_t workspaceRowNum = workspaceColNum + kernelSize * DIMS_TWO - DIMS_TWO;
-    if (workspaceRowNum > SIZE_MAX / workspaceColNum ||
-        workspaceColNum * workspaceRowNum > SIZE_MAX / sizeof(float)) {
+    if (workspaceRowNum > SIZE_MAX / workspaceColNum || workspaceColNum * workspaceRowNum > SIZE_MAX / sizeof(float)) {
         ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM)
             << "asdConvolveGetWorkspaceSize overflow, kernelLen: " << kernelLen;
         return ErrorType::ACL_ERROR_INVALID_PARAM;

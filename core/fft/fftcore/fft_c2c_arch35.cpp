@@ -265,9 +265,11 @@ bool FftC2CCoreArch35::UploadOpsFftConstants()
 // tiling 为 InitTactic 上传的 FftAllMixTilingData device buffer, 与 ops-fft 逐字段同源
 void FftC2CCoreArch35::RunViaOpsFft(void* input, void* output, void* stream, workspace::Workspace& workspace)
 {
-    // 常量首次 Run 拷贝至 device, plan 级缓存
+    // 常量首次 Run 拷贝至 device, plan 级缓存；上传失败时抛出异常由
+    // asdFftExecV2 的 catch 统一转错误码（issue #242，对齐 RunViaOpsFftRadix2
+    // 口径）：静默 return 会让外层返回 ACL_SUCCESS 而输出缓冲完全未写入
     if (!UploadOpsFftConstants()) {
-        return;
+        throw std::runtime_error("ops-fft backend(arch35 mix): constants upload failed");
     }
 
     // workspace: 与 internal mixed-radix 路径同源同尺寸 (2 * batch * n * complex * float)
@@ -424,8 +426,10 @@ AspbStatus FftC2CCoreArch35::BuildOpsFftRadix2Coeffs()
 // 结果数学等价但存在 ULP 级差异——验收判据为数值等价 (毒化 + rel err + CPU 锚点), 不逐位比对。
 void FftC2CCoreArch35::RunViaOpsFftRadix2(void* input, void* output, void* stream, workspace::Workspace& workspace)
 {
+    // 修复后 BuildOpsFftRadix2Coeffs 失败路径已在内部 throw（issue #242 核实），
+    // 此处保留返回码检查作为防御，失败时同样抛出而非静默 return
     if (BuildOpsFftRadix2Coeffs() != AsdSip::ErrorType::ACL_SUCCESS) {
-        return;
+        throw std::runtime_error("ops-fft backend(arch35 radix2): coeff build failed");
     }
 
     // 常量与 tiling 首次 Run 拷贝至 device, plan 级缓存

@@ -8,11 +8,15 @@ THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, E
 INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 See LICENSE in the root of the software repository for the full text of the License.
 """
+
 __version__ = "0.1.0"
 
 from typing import Tuple, Union
 import torch
-import sip_custom_ops_lib
+
+# 副作用导入：加载 C++ 扩展以注册 torch.ops.torch_sip 算子族（issue #257 连带：
+# 修改本文件触发 ruff F401，noqa 保留必要的副作用导入语义）
+import sip_custom_ops_lib  # noqa: F401
 
 
 def asd_mul(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
@@ -36,7 +40,7 @@ def asd_blas_cal(x: torch.Tensor, alpha: Union[float, complex, int]) -> torch.Te
 
 
 def asd_blas_caxpy(
-        x: torch.Tensor, y: torch.Tensor, alpha: Union[float, complex, int]
+    x: torch.Tensor, y: torch.Tensor, alpha: Union[float, complex, int]
 ) -> torch.Tensor:
     if not isinstance(alpha, complex):
         alpha = complex(alpha)
@@ -53,13 +57,13 @@ def _get_trans_enum(trans: str) -> int:
 
 
 def asd_blas_cgemm(
-        mat_a: torch.Tensor,
-        mat_b: torch.Tensor,
-        mat_c: torch.Tensor,
-        alpha: Union[float, complex] = 1.0,
-        beta: Union[float, complex] = 0.0,
-        trans_a: str = "N",
-        trans_b: str = "N",
+    mat_a: torch.Tensor,
+    mat_b: torch.Tensor,
+    mat_c: torch.Tensor,
+    alpha: Union[float, complex] = 1.0,
+    beta: Union[float, complex] = 0.0,
+    trans_a: str = "N",
+    trans_b: str = "N",
 ) -> torch.Tensor:
     """
     复数矩阵乘加算子 (CGEMM): C = alpha * op(A) * op(B) + beta * C
@@ -79,13 +83,13 @@ def asd_blas_cgemm(
 
 
 def asd_blas_cgemm_batched(
-        mat_a: torch.Tensor,
-        mat_b: torch.Tensor,
-        mat_c: torch.Tensor,
-        alpha: Union[float, complex] = 1.0,
-        beta: Union[float, complex] = 0.0,
-        trans_a: str = "N",
-        trans_b: str = "N",
+    mat_a: torch.Tensor,
+    mat_b: torch.Tensor,
+    mat_c: torch.Tensor,
+    alpha: Union[float, complex] = 1.0,
+    beta: Union[float, complex] = 0.0,
+    trans_a: str = "N",
+    trans_b: str = "N",
 ) -> torch.Tensor:
     """
     复数矩阵乘加算子 (Batched CGEMM): C[i] = alpha * op(A[i]) * op(B[i]) + beta * C[i]
@@ -150,9 +154,11 @@ def asd_blas_ctrmv(mat_a, vec_x, uplo="L", trans="N", diag="N"):
     trans_map = {"N": 0, "T": 1, "C": 2}
     diag_map = {"N": 0, "U": 1}
 
-    u_val = uplo_map.get(uplo.upper(), 0)
-    t_val = trans_map.get(trans.upper(), 0)
-    d_val = diag_map.get(diag.upper(), 0)
+    # 非法选项显式报错（issue #257，对齐 strmm/strmv 的 _char_to_enum 口径）：
+    # 原 dict.get(key, 0) 把拼错的 uplo/trans/diag 静默映射为默认值按错误语义执行
+    u_val = _char_to_enum(uplo, uplo_map)
+    t_val = _char_to_enum(trans, trans_map)
+    d_val = _char_to_enum(diag, diag_map)
 
     return torch.ops.torch_sip.asd_blas_ctrmv(mat_a, vec_x, u_val, t_val, d_val)
 
@@ -250,7 +256,7 @@ def asd_blas_csrot(vec_x: torch.Tensor, vec_y: torch.Tensor, c: float, s: float)
 
 
 def asd_blas_ssyr(
-        mat_a: torch.Tensor, vec_x: torch.Tensor, alpha: float = 1.0, uplo: str = "L"
+    mat_a: torch.Tensor, vec_x: torch.Tensor, alpha: float = 1.0, uplo: str = "L"
 ):
     """
     公式:
@@ -265,17 +271,18 @@ def asd_blas_ssyr(
     """
     # 映射枚举值
     uplo_map = {"L": 0, "U": 1}
-    u_val = uplo_map.get(uplo.upper(), 0)
+    # 非法选项显式报错（issue #257，对齐 strmm/strmv 口径）
+    u_val = _char_to_enum(uplo, uplo_map)
 
     return torch.ops.torch_sip.asd_blas_ssyr(mat_a, vec_x, alpha, u_val)
 
 
 def asd_blas_ssyr2(
-        mat_a: torch.Tensor,
-        vec_x: torch.Tensor,
-        vec_y: torch.Tensor,
-        alpha: float = 1.0,
-        uplo: str = "L",
+    mat_a: torch.Tensor,
+    vec_x: torch.Tensor,
+    vec_y: torch.Tensor,
+    alpha: float = 1.0,
+    uplo: str = "L",
 ):
     """
     公式:
@@ -291,7 +298,8 @@ def asd_blas_ssyr2(
     """
     # 构建枚举值映射字典
     uplo_map = {"L": 0, "U": 1}
-    u_val = uplo_map.get(uplo.upper(), 0)
+    # 非法选项显式报错（issue #257，对齐 strmm/strmv 口径）
+    u_val = _char_to_enum(uplo, uplo_map)
     return torch.ops.torch_sip.asd_blas_ssyr2(mat_a, vec_x, vec_y, alpha, u_val)
 
 
@@ -350,7 +358,9 @@ def asd_convolve(signal, kernel):
     return torch.ops.torch_sip.asd_convolve(signal, kernel)
 
 
-def rs_interpolation_by_sinc(input_tensor, sinc_tab, pos_floor, pos_to_tab_index, interp_num=16, quant_num=32):
+def rs_interpolation_by_sinc(
+    input_tensor, sinc_tab, pos_floor, pos_to_tab_index, interp_num=16, quant_num=32
+):
     """
     批量一维复数向量 Sinc 插值算子
     :param input_tensor: 原始信号，Complex64, 形状 [batch, signal_length]
@@ -371,7 +381,7 @@ def asd_fft_c2c(input_tensor: torch.Tensor, is_forward: bool = True) -> torch.Te
 
 
 def asd_fft_c2c_sep(
-        in_real: torch.Tensor, in_imag: torch.Tensor, is_forward: bool = True
+    in_real: torch.Tensor, in_imag: torch.Tensor, is_forward: bool = True
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     return torch.ops.torch_sip.asd_fft_c2c_sep(in_real, in_imag, is_forward)
 

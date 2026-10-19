@@ -44,10 +44,21 @@ AspbStatus asdBlasCgemvBatchedShapeCheck(CgemvBatchedImplParam implParam)
     uint64_t xstorageDimsNum = 0;
     CHECK_STATUS_WITH_ACL_RETURN(aclGetStorageShape(implParam.x, &xstorageDims, &xstorageDimsNum),
                                  "asdBlasCgemvBatched: aclGetStorageShape");
-    if (xstorageDimsNum > DIM_3 || *xstorageDims <= 0) {
+    // 判空防 0 维张量崩溃 + 元素总数校验（issue #264）：内核按批偏移访问
+    // x[startMatId * n * 2]，元素总数 < batchCount*n 时设备越界读写
+    int64_t xTotalElems = 1;
+    bool xShapeOk = (xstorageDims != nullptr && xstorageDimsNum >= 1 && xstorageDimsNum <= DIM_3);
+    if (xShapeOk) {
+        for (uint64_t d = 0; d < xstorageDimsNum; ++d) {
+            xTotalElems *= xstorageDims[d];
+        }
+        xShapeOk = xTotalElems >= implParam.batchCount * implParam.n;
+    }
+    if (!xShapeOk) {
         delete[] xstorageDims;
         xstorageDims = nullptr;
-        ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH) << "blas asdBlasCgemvBatched get wrong x tensor num.";
+        ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH)
+            << "blas asdBlasCgemvBatched get wrong x tensor num (need >= batchCount*n elements).";
         return ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH;
     }
 
@@ -60,10 +71,21 @@ AspbStatus asdBlasCgemvBatchedShapeCheck(CgemvBatchedImplParam implParam)
     uint64_t ystorageDimsNum = 0;
     CHECK_STATUS_WITH_ACL_RETURN(aclGetStorageShape(implParam.y, &ystorageDims, &ystorageDimsNum),
                                  "asdBlasCgemvBatched: aclGetStorageShape");
-    if (ystorageDimsNum > DIM_3 || *ystorageDims <= 0) {
+    // 判空 + 元素总数校验（issue #264）：y 侧内核按 outOffset = startMatId*m*2
+    // 逐批写入，元素总数不足 batchCount*m 时越界写
+    int64_t yTotalElems = 1;
+    bool yShapeOk = (ystorageDims != nullptr && ystorageDimsNum >= 1 && ystorageDimsNum <= DIM_3);
+    if (yShapeOk) {
+        for (uint64_t d = 0; d < ystorageDimsNum; ++d) {
+            yTotalElems *= ystorageDims[d];
+        }
+        yShapeOk = yTotalElems >= implParam.batchCount * implParam.m;
+    }
+    if (!yShapeOk) {
         delete[] ystorageDims;
         ystorageDims = nullptr;
-        ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH) << "blas asdBlasCgemvBatched get wrong y tensor num.";
+        ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH)
+            << "blas asdBlasCgemvBatched get wrong y tensor num (need >= batchCount*m elements).";
         return ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH;
     }
 
@@ -208,7 +230,8 @@ AspbStatus asdBlasMakeCgemvBatchedPlanImpl(asdBlasHandle handle, asdBlasOperatio
         plan = new AsdSip::BlasCgemvBatchedPlan(trans, dtype, m);
         if (!BlasPlanCache::MakePlan(handle, plan)) {
             delete plan;
-            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM) << "blas handle already bound to a plan, repeated initialization is not allowed.";
+            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM)
+                << "blas handle already bound to a plan, repeated initialization is not allowed.";
             return ErrorType::ACL_ERROR_INVALID_PARAM;
         }
     } catch (const std::exception& e) {

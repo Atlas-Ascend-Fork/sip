@@ -118,6 +118,11 @@ AspbStatus asdBlasCgemm(asdBlasHandle handle, asdBlasOperation_t transa, asdBlas
 
         int64_t gTransA = GetTrans(transa);
         int64_t gTransB = GetTrans(transb);
+        // 非法枚举显式拒绝（issue #265，对齐 gemm_batched 的 trans 校验口径）：
+        // 原哨兵 -1 透传到内核后被按非 0/1 即 OP_C 的三分支解释，静默按共轭
+        // 转置计算并返回成功
+        ASDSIP_ECHECK(gTransA != -1 && gTransB != -1, "blas asdBlasCgemm get invalid transa/transb enum.",
+                      ErrorType::ACL_ERROR_INVALID_PARAM);
         int64_t ldaPad = (transa == asdBlasOperation_t::ASDBLAS_OP_N) ? ((m + PADNUM - 1) / PADNUM * PADNUM) :
                                                                         ((k + PADNUM - 1) / PADNUM * PADNUM);
         int64_t ldbPad = (transb == asdBlasOperation_t::ASDBLAS_OP_N) ? ((k + PADNUM - 1) / PADNUM * PADNUM) :

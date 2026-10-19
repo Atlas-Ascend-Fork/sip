@@ -32,7 +32,7 @@ function get_valid_pr_dir()
     log_info "Getting PR changed file list..."
 
     if ! command -v git &> /dev/null; then
-        log_error "git not available"
+        log_fail "git not available"
         VALID_TEST_DIRS=("base" "blas" "fft" "domain" "filter" "interpolation")
         return
     fi
@@ -46,7 +46,7 @@ function get_valid_pr_dir()
     diff_output=$(git diff --no-commit-id --name-only "origin/${current_branch}" 2>&1)
 
     if [ $? -ne 0 ]; then
-        log_error "git diff failed: $diff_output"
+        log_fail "git diff failed: $diff_output"
         VALID_TEST_DIRS=("base" "blas" "fft" "domain" "filter" "interpolation")
         cd - > /dev/null
         return

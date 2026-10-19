@@ -38,7 +38,9 @@ AsdSip::AspbStatus BlasIamaxPlan::CreateTensor()
         return ErrorType::ACL_ERROR_INTERNAL_ERROR;
     }
 
-    zeroData[0] = static_cast<int32_t>(1);
+    // 值修正（issue #254）：名为 zero 的张量原写入 1，与语义/BLAS n<=0 返回 0
+    // 约定不符；当前执行路径已改为拒绝非法输入，本张量仅作占位保留
+    zeroData[0] = static_cast<int32_t>(0);
 
     zeroTensor.desc = {TENSOR_DTYPE_INT32, TENSOR_FORMAT_ND, {1}, {}, 0};
     zeroTensor.hostData = zeroData;

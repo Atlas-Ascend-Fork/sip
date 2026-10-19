@@ -19,15 +19,14 @@ using namespace Mki;
 using namespace AsdSip;
 
 namespace AsdSip {
-AspbStatus Concat(const Tensor &inTensorA, const Tensor &inTensorB, Tensor &outTensor, int concatDim, void *stream,
-                  uint8_t *deviceBuffer)
+AspbStatus Concat(const Tensor& inTensorA, const Tensor& inTensorB, Tensor& outTensor, int concatDim, void* stream,
+                  uint8_t* deviceBuffer)
 {
     SVector<int64_t> dims = inTensorA.desc.dims;
-    const SVector<int64_t> &dimsB = inTensorB.desc.dims;
+    const SVector<int64_t>& dimsB = inTensorB.desc.dims;
 
-    ASDSIP_ECHECK(dims.size() == dimsB.size(),
-        "Input tensors A and B must have the same number of dimensions",
-        ErrorType::ACL_ERROR_INTERNAL_ERROR);
+    ASDSIP_ECHECK(dims.size() == dimsB.size(), "Input tensors A and B must have the same number of dimensions",
+                  ErrorType::ACL_ERROR_INTERNAL_ERROR);
 
     int32_t dimSize = static_cast<int32_t>(dims.size());
     for (int32_t i = 0; i < dimSize; i++) {
@@ -41,9 +40,9 @@ AspbStatus Concat(const Tensor &inTensorA, const Tensor &inTensorB, Tensor &outT
 
     uint64_t workspaceSize = 0;
     aclOpExecutor* executor = nullptr;
-    aclTensor *inAclTensorA = nullptr;
-    aclTensor *inAclTensorB = nullptr;
-    aclTensor *outAclTensor = nullptr;
+    aclTensor* inAclTensorA = nullptr;
+    aclTensor* inAclTensorB = nullptr;
+    aclTensor* outAclTensor = nullptr;
     toAclTensor(inTensorA, inAclTensorA);
     toAclTensor(inTensorB, inAclTensorB);
     std::vector<aclTensor*> tmp{inAclTensorA, inAclTensorB};
@@ -59,15 +58,17 @@ AspbStatus Concat(const Tensor &inTensorA, const Tensor &inTensorB, Tensor &outT
     }
     ret = aclnnCat(deviceBuffer, workspaceSize, executor, stream);
     if (ret != ::ACL_SUCCESS) {
+        aclDestroyAclOpExecutor(executor);
         ASDSIP_LOG(ERROR) << "aclnnCat failed. ERROR: " << ret;
         aclDestroyTensorList(tensorList);
         aclDestroyTensor(outAclTensor);
         return ErrorType::ACL_ERROR_INTERNAL_ERROR;
     }
 
+    aclDestroyAclOpExecutor(executor);
     aclDestroyTensorList(tensorList);
     aclDestroyTensor(outAclTensor);
     ASDSIP_LOG(INFO) << "Execute Concat success.";
     return ErrorType::ACL_SUCCESS;
 }
-}
+} // namespace AsdSip

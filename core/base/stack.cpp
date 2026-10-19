@@ -19,14 +19,14 @@ using namespace Mki;
 using namespace AsdSip;
 
 namespace AsdSip {
-AspbStatus MakeComplex(const Tensor &realTensor, const Tensor &imagTensor, Tensor &outTensor, int64_t dim, void *stream,
-    uint8_t *deviceBuffer)
+AspbStatus MakeComplex(const Tensor& realTensor, const Tensor& imagTensor, Tensor& outTensor, int64_t dim, void* stream,
+                       uint8_t* deviceBuffer)
 {
     uint64_t workspaceSize = 0;
     aclOpExecutor* executor = nullptr;
-    aclTensor *aclRealTensor = nullptr;
-    aclTensor *aclImagTensor = nullptr;
-    aclTensor *outAclTensor = nullptr;
+    aclTensor* aclRealTensor = nullptr;
+    aclTensor* aclImagTensor = nullptr;
+    aclTensor* outAclTensor = nullptr;
     toAclTensor(realTensor, aclRealTensor);
     toAclTensor(imagTensor, aclImagTensor);
     std::vector<aclTensor*> tmp{aclRealTensor, aclImagTensor};
@@ -42,15 +42,17 @@ AspbStatus MakeComplex(const Tensor &realTensor, const Tensor &imagTensor, Tenso
     }
     ret = aclnnStack(deviceBuffer, workspaceSize, executor, stream);
     if (ret != ::ACL_SUCCESS) {
+        aclDestroyAclOpExecutor(executor);
         ASDSIP_LOG(ERROR) << "aclnnStack failed. ERROR: " << ret;
         aclDestroyTensorList(tensorList);
         aclDestroyTensor(outAclTensor);
         return ErrorType::ACL_ERROR_INTERNAL_ERROR;
     }
 
+    aclDestroyAclOpExecutor(executor);
     aclDestroyTensorList(tensorList);
     aclDestroyTensor(outAclTensor);
     ASDSIP_LOG(INFO) << "Execute Concat success.";
     return ErrorType::ACL_SUCCESS;
 }
-}
+} // namespace AsdSip

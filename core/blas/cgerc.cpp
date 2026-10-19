@@ -57,12 +57,13 @@ AspbStatus asdBlasCgerc(asdBlasHandle handle, const int64_t m, const int64_t n, 
     ASDSIP_CHECK(CgercShapeCheck(parm, m, n) == ErrorType::ACL_SUCCESS, "blas asdBlasCgerc shape check failed.",
                  return ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
 
-    if (incx != 1) {
-        ASDSIP_LOG(INFO) << "blas asdBlasCgerc get incx != 1.";
-    }
-    if (incy != 1) {
-        ASDSIP_LOG(INFO) << "blas asdBlasCgerc get incy != 1.";
-    }
+    // 非正步长显式拒绝（issue #243）：负值经 static_cast<uint32_t> 回绕为超大
+    // 步长传入内核产生非法寻址；非 1 正步长内核同样不支持，一并对齐 cgemv 的
+    // !=1 显式拒绝口径
+    ASDSIP_ECHECK(incx > 0 && incx == 1, "blas asdBlasCgerc get incx <= 0 or != 1 (strided access not supported).",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
+    ASDSIP_ECHECK(incy > 0 && incy == 1, "blas asdBlasCgerc get incy <= 0 or != 1 (strided access not supported).",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
     if (lda <= 0) {
         ASDSIP_LOG(ERROR) << "blas asdBlasCgerc get lda <= 0.";
     }
@@ -111,7 +112,8 @@ AspbStatus asdBlasMakeCgercPlan(asdBlasHandle handle)
         plan = new AsdSip::BlasCgercPlan();
         if (!BlasPlanCache::MakePlan(handle, plan)) {
             delete plan;
-            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM) << "blas handle already bound to a plan, repeated initialization is not allowed.";
+            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM)
+                << "blas handle already bound to a plan, repeated initialization is not allowed.";
             return ErrorType::ACL_ERROR_INVALID_PARAM;
         }
     } catch (const std::exception& e) {

@@ -39,7 +39,10 @@ int64_t* getInputShape(const aclTensor* x)
     int64_t* storageDims = nullptr;
     uint64_t storageDimsNum = 0;
     auto ret = aclGetStorageShape(x, &storageDims, &storageDimsNum);
-    if (ret != ACL_SUCCESS || *storageDims <= 0 || storageDimsNum != INTERP_DIMS_THREE) {
+    // 先判空再解引用（issue #245）：0 维（标量）张量返回 dimsNum=0 且 dims 为空，
+    // 原写法先解引用 *storageDims 造成宿主空指针崩溃
+    if (ret != ACL_SUCCESS || storageDims == nullptr || storageDimsNum < 1 || *storageDims <= 0 ||
+        storageDimsNum != INTERP_DIMS_THREE) {
         if (storageDims != nullptr) {
             delete[] storageDims;
             storageDims = nullptr;
@@ -62,8 +65,9 @@ int64_t* getCoeffShape(const aclTensor* coefficient)
     int64_t* coeffDims = nullptr;
     uint64_t coeffDimsNum = 0;
     auto ret = aclGetStorageShape(coefficient, &coeffDims, &coeffDimsNum);
-    if (ret != ACL_SUCCESS || *coeffDims <= 0 || coeffDimsNum != INTERP_DIMS_THREE || coeffDims[1] < 0 ||
-        coeffDims[1] > MAX_SIGNAL_NUM) {
+    // 先判空再解引用（issue #245，同 getInputShape 口径）
+    if (ret != ACL_SUCCESS || coeffDims == nullptr || coeffDimsNum < 1 || *coeffDims <= 0 ||
+        coeffDimsNum != INTERP_DIMS_THREE || coeffDims[1] < 0 || coeffDims[1] > MAX_SIGNAL_NUM) {
         delete[] coeffDims;
         coeffDims = nullptr;
         ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH) << "interpByCoeff get wrong coefficient tensor.";
@@ -89,7 +93,13 @@ AspbStatus asdInterpWithCoeff(const aclTensor* x, const aclTensor* coefficient, 
     int64_t* storageDims = getInputShape(x);
     ASDSIP_ECHECK(storageDims != nullptr, "InterpWithCoeff failed.", ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
     int64_t* coeffDims = getCoeffShape(coefficient);
-    ASDSIP_ECHECK(coeffDims != nullptr, "InterpWithCoeff failed.", ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
+    // coefficient 校验失败路径先释放 storageDims（issue #248）：原直接 return
+    // 是唯一未清理的退出点，非法 coefficient 输入泄漏一次 shape 数组分配
+    if (coeffDims == nullptr) {
+        cleanAcl(storageDims, nullptr);
+        ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH) << "InterpWithCoeff failed.";
+        return ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH;
+    }
     if (storageDims[0] != coeffDims[0] || storageDims[1] != coeffDims[DIMS_TWO]) {
         cleanAcl(storageDims, coeffDims);
         ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH) << "input and coefficient do not match.";
@@ -111,7 +121,6 @@ AspbStatus asdInterpWithCoeff(const aclTensor* x, const aclTensor* coefficient, 
     SVector<aclTensor*> outTensors{output};
     Mki::Status status = RunAsdOpsV2(stream, opDesc, inTensors, outTensors, (uint8_t*)workSpace);
     ASDSIP_ECHECK(status.Ok(), status.Message(), ErrorType::ACL_ERROR_INTERNAL_ERROR);
-
 
     return ErrorType::ACL_SUCCESS;
 }

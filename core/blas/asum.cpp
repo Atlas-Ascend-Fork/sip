@@ -67,10 +67,8 @@ AspbStatus asdBlasSasumImpl(asdBlasHandle handle, const int64_t n, aclTensor* x,
     delete[] storageDims;
     storageDims = nullptr;
 
-    if (incx <= 0) {
-        ASDSIP_LOG(INFO) << "blas asum get incx <= 0,change incx =1.";
-        incx = 1;
-    }
+    // 非正步长显式拒绝（issue #260，统一口径）：原静默改写为 1 返回成功，实际计算另一组连续元素，结果静默错误
+    ASDSIP_ECHECK(incx > 0, "blas asdBlasSasumImpl get incx <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
 
     try {
         AsdSip::BlasAsumPlan& plan = dynamic_cast<AsdSip::BlasAsumPlan&>(BlasPlanCache::getPlan(handle));
@@ -142,7 +140,8 @@ AspbStatus asdBlasMakeAsumPlan(asdBlasHandle handle)
         plan = new AsdSip::BlasAsumPlan();
         if (!BlasPlanCache::MakePlan(handle, plan)) {
             delete plan;
-            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM) << "blas handle already bound to a plan, repeated initialization is not allowed.";
+            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM)
+                << "blas handle already bound to a plan, repeated initialization is not allowed.";
             return ErrorType::ACL_ERROR_INVALID_PARAM;
         }
     } catch (const std::exception& e) {

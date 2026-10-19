@@ -62,14 +62,12 @@ AspbStatus asdBlasCopyImpl(asdBlasHandle handle, CopyImplParam implParam, int64_
     }
     ASDSIP_ECHECK(implParam.n > 0, "blas asdBlasCopyImpl get n <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
 
-    if (implParam.incx <= 0) {
-        ASDSIP_LOG(INFO) << "blas asdBlasCopyImpl get incx <= 0,change incx =1.";
-        implParam.incx = 1;
-    }
-    if (implParam.incy <= 0) {
-        ASDSIP_LOG(INFO) << "blas asdBlasCopyImpl get incy <= 0,change incy =1.";
-        implParam.incy = 1;
-    }
+    // 非正步长显式拒绝（issue #260，统一口径）：原静默改写为 1 返回成功，实际计算另一组连续元素，结果静默错误
+    ASDSIP_ECHECK(implParam.incx > 0, "blas asdBlasCopyImpl get implParam.incx <= 0.",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
+    // 非正步长显式拒绝（issue #260，统一口径）：原静默改写为 1 返回成功，实际计算另一组连续元素，结果静默错误
+    ASDSIP_ECHECK(implParam.incy > 0, "blas asdBlasCopyImpl get implParam.incy <= 0.",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
 
     OpDesc opDesc;
     opDesc.opName = "CopyOperation";
@@ -146,7 +144,8 @@ AspbStatus asdBlasMakeCopyPlan(asdBlasHandle handle)
         plan = new AsdSip::BlasCopyPlan();
         if (!BlasPlanCache::MakePlan(handle, plan)) {
             delete plan;
-            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM) << "blas handle already bound to a plan, repeated initialization is not allowed.";
+            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM)
+                << "blas handle already bound to a plan, repeated initialization is not allowed.";
             return ErrorType::ACL_ERROR_INVALID_PARAM;
         }
     } catch (const std::exception& e) {

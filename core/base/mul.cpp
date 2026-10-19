@@ -19,14 +19,14 @@ using namespace AsdSip;
 
 namespace AsdSip {
 
-AsdSip::AspbStatus Mul(const Mki::Tensor &inputA, const Mki::Tensor &inTensorB, Mki::Tensor &outTensor,
-                       void *stream, uint8_t *deviceBuffer)
+AsdSip::AspbStatus Mul(const Mki::Tensor& inputA, const Mki::Tensor& inTensorB, Mki::Tensor& outTensor, void* stream,
+                       uint8_t* deviceBuffer)
 {
     uint64_t workspaceSize = 0;
     aclOpExecutor* executor = nullptr;
-    aclTensor *mulAAclTensor = nullptr;
-    aclTensor *mulBAclTensor = nullptr;
-    aclTensor *outAclTensor = nullptr;
+    aclTensor* mulAAclTensor = nullptr;
+    aclTensor* mulBAclTensor = nullptr;
+    aclTensor* outAclTensor = nullptr;
 
     toAclTensor(inputA, mulAAclTensor);
     if (mulAAclTensor == nullptr) {
@@ -58,6 +58,7 @@ AsdSip::AspbStatus Mul(const Mki::Tensor &inputA, const Mki::Tensor &inTensorB, 
 
     ret = aclnnMul(deviceBuffer, workspaceSize, executor, stream);
     if (ret != ::ACL_SUCCESS) {
+        aclDestroyAclOpExecutor(executor);
         ASDSIP_LOG(ERROR) << "aclnnMul failed. ERROR: " << ret;
         aclDestroyTensor(mulAAclTensor);
         aclDestroyTensor(mulBAclTensor);
@@ -65,9 +66,10 @@ AsdSip::AspbStatus Mul(const Mki::Tensor &inputA, const Mki::Tensor &inTensorB, 
         return ErrorType::ACL_ERROR_INTERNAL_ERROR;
     }
 
+    aclDestroyAclOpExecutor(executor);
     aclDestroyTensor(mulAAclTensor);
     aclDestroyTensor(mulBAclTensor);
     aclDestroyTensor(outAclTensor);
     return ErrorType::ACL_SUCCESS;
 }
-}
+} // namespace AsdSip

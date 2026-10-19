@@ -50,10 +50,8 @@ AspbStatus asdBlasNrm2Impl(asdBlasHandle handle, const int64_t n, aclTensor* x, 
 
     ASDSIP_ECHECK(n > 0, "blas asdBlasNrm2Impl get n <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
 
-    if (incx <= 0) {
-        ASDSIP_LOG(INFO) << "blas asdBlasNrm2Impl get incx <= 0,change to 1.";
-        incx = 1;
-    }
+    // 非正步长显式拒绝（issue #260，统一口径）：原静默改写为 1 返回成功，实际计算另一组连续元素，结果静默错误
+    ASDSIP_ECHECK(incx > 0, "blas asdBlasNrm2Impl get incx <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
     try {
         AsdSip::BlasPlan& plan = dynamic_cast<AsdSip::BlasPlan&>(BlasPlanCache::getPlan(handle));
         ASDSIP_ECHECK(plan.IsInitialized(), "Nrm2 plan init Error!.", ErrorType::ACL_ERROR_INTERNAL_ERROR);
@@ -127,7 +125,8 @@ AspbStatus asdBlasMakeNrm2Plan(asdBlasHandle handle)
         plan = new AsdSip::BlasPlan();
         if (!BlasPlanCache::MakePlan(handle, plan)) {
             delete plan;
-            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM) << "blas handle already bound to a plan, repeated initialization is not allowed.";
+            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM)
+                << "blas handle already bound to a plan, repeated initialization is not allowed.";
             return ErrorType::ACL_ERROR_INVALID_PARAM;
         }
     } catch (const std::exception& e) {

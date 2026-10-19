@@ -19,20 +19,20 @@ using namespace AsdSip;
 
 namespace AsdSip {
 
-AsdSip::AspbStatus UnfoldGrad(const Mki::Tensor &inTensor, Mki::Tensor &outTensor, SVector<int64_t> sizes, int64_t dim,
-                              int64_t size, int64_t step, void *stream, uint8_t *deviceBuffer)
+AsdSip::AspbStatus UnfoldGrad(const Mki::Tensor& inTensor, Mki::Tensor& outTensor, SVector<int64_t> sizes, int64_t dim,
+                              int64_t size, int64_t step, void* stream, uint8_t* deviceBuffer)
 {
     uint64_t workspaceSize = 0;
     aclOpExecutor* executor = nullptr;
-    aclTensor *inAclTensor = nullptr;
-    aclTensor *outAclTensor = nullptr;
+    aclTensor* inAclTensor = nullptr;
+    aclTensor* outAclTensor = nullptr;
 
     toAclTensor(inTensor, inAclTensor);
     if (inAclTensor == nullptr) {
         ASDSIP_LOG(ERROR) << "Fail to convert in mki A tensor to acltensor.";
         return ErrorType::ACL_ERROR_INTERNAL_ERROR;
     }
-    
+
     toAclTensor(outTensor, outAclTensor);
     if (outAclTensor == nullptr) {
         aclDestroyTensor(inAclTensor);
@@ -48,7 +48,8 @@ AsdSip::AspbStatus UnfoldGrad(const Mki::Tensor &inTensor, Mki::Tensor &outTenso
         return ErrorType::ACL_ERROR_INTERNAL_ERROR;
     }
 
-    auto ret = aclnnUnfoldGradGetWorkspaceSize(inAclTensor, inputSizes, dim, size, step, outAclTensor, &workspaceSize, &executor);
+    auto ret = aclnnUnfoldGradGetWorkspaceSize(inAclTensor, inputSizes, dim, size, step, outAclTensor, &workspaceSize,
+                                               &executor);
     if (ret != ::ACL_SUCCESS) {
         aclDestroyTensor(inAclTensor);
         aclDestroyTensor(outAclTensor);
@@ -58,18 +59,19 @@ AsdSip::AspbStatus UnfoldGrad(const Mki::Tensor &inTensor, Mki::Tensor &outTenso
     }
     ret = aclnnUnfoldGrad(deviceBuffer, workspaceSize, executor, stream);
     if (ret != ::ACL_SUCCESS) {
+        aclDestroyAclOpExecutor(executor);
         aclDestroyTensor(inAclTensor);
         aclDestroyTensor(outAclTensor);
         aclDestroyIntArray(inputSizes);
         ASDSIP_LOG(ERROR) << "aclnnUnfoldGrad failed. ERROR:" << ret;
         return ErrorType::ACL_ERROR_INTERNAL_ERROR;
     }
-  
+
+    aclDestroyAclOpExecutor(executor);
     aclDestroyTensor(inAclTensor);
     aclDestroyTensor(outAclTensor);
     aclDestroyIntArray(inputSizes);
     ASDSIP_LOG(INFO) << "Execute Reverse success.";
     return ErrorType::ACL_SUCCESS;
 }
-}
-
+} // namespace AsdSip

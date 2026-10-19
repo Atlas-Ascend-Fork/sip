@@ -73,15 +73,13 @@ AspbStatus asdBlasDotImpl(asdBlasHandle handle, DotImplParam implParam, int64_t 
     ASDSIP_ECHECK(implParam.n > 0, "blas asdBlasDotImpl get wrong input n, please check.",
                   ErrorType::ACL_ERROR_INVALID_PARAM);
 
-    if (implParam.incx <= 0) {
-        ASDSIP_LOG(INFO) << "blas asdBlasDotImpl get incx <= 0,change to 1.";
-        implParam.incx = 1;
-    }
+    // 非正步长显式拒绝（issue #260，统一口径）：原静默改写为 1 返回成功，实际计算另一组连续元素，结果静默错误
+    ASDSIP_ECHECK(implParam.incx > 0, "blas asdBlasDotImpl get implParam.incx <= 0.",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
 
-    if (implParam.incy <= 0) {
-        ASDSIP_LOG(INFO) << "blas asdBlasDotImpl get incy <= 0,change to 1.";
-        implParam.incy = 1;
-    }
+    // 非正步长显式拒绝（issue #260，统一口径）：原静默改写为 1 返回成功，实际计算另一组连续元素，结果静默错误
+    ASDSIP_ECHECK(implParam.incy > 0, "blas asdBlasDotImpl get implParam.incy <= 0.",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
 
     Status status;
     OpDesc opDesc;
@@ -186,7 +184,8 @@ AspbStatus asdBlasMakeDotPlan(asdBlasHandle handle)
         plan = new AsdSip::BlasDotPlan();
         if (!BlasPlanCache::MakePlan(handle, plan)) {
             delete plan;
-            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM) << "blas handle already bound to a plan, repeated initialization is not allowed.";
+            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM)
+                << "blas handle already bound to a plan, repeated initialization is not allowed.";
             return ErrorType::ACL_ERROR_INVALID_PARAM;
         }
     } catch (const std::exception& e) {

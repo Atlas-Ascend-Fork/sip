@@ -100,13 +100,13 @@ AspbStatus asdBlasCsrot(asdBlasHandle handle, const int64_t n, aclTensor* x, con
     ASDSIP_ECHECK(dataType == aclDataType::ACL_COMPLEX64, "blas asdBlasCsrot get wrong y tensor dtype.",
                   ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
 
-    if (incx <= 0) {
-        ASDSIP_LOG(INFO) << "blas asdBlasCsrot get incx <= 0.";
-    }
-
-    if (incy <= 0) {
-        ASDSIP_LOG(INFO) << "blas asdBlasCsrot get incy <= 0.";
-    }
+    // 步长校验（issue #247）：RotImplParam 不携带步长字段、内核按连续 n 个元素
+    // 处理，incx/incy != 1 时按 BLAS 语义传入将静默算错；原仅对 <=0 打日志，
+    // 现显式拒绝非 1 步长（含非正值），与 cgerc/cgemv 的口径一致
+    ASDSIP_ECHECK(incx == 1, "blas asdBlasCsrot get incx != 1 (strided access not supported).",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
+    ASDSIP_ECHECK(incy == 1, "blas asdBlasCsrot get incy != 1 (strided access not supported).",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
     ASDSIP_ECHECK(n > 0 && n <= UINT32_MAX, "blas asdBlasCsrot get n <= 0 or n > 2^32.",
                   ErrorType::ACL_ERROR_INVALID_PARAM);
     float cosValue = c;
@@ -130,7 +130,8 @@ AspbStatus asdBlasMakeRotPlan(asdBlasHandle handle)
         plan = new AsdSip::BlasPlan();
         if (!BlasPlanCache::MakePlan(handle, plan)) {
             delete plan;
-            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM) << "blas handle already bound to a plan, repeated initialization is not allowed.";
+            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM)
+                << "blas handle already bound to a plan, repeated initialization is not allowed.";
             return ErrorType::ACL_ERROR_INVALID_PARAM;
         }
     } catch (const std::exception& e) {

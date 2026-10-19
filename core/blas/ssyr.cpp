@@ -26,7 +26,9 @@ AspbStatus asdBlasSsyr(asdBlasHandle handle, asdBlasFillMode_t uplo, const int64
     uint64_t ssyrStorageDimsNum = 0;
     CHECK_STATUS_WITH_ACL_RETURN(aclGetStorageShape(x, &storageDims, &ssyrStorageDimsNum),
                                  "asdBlasSsyr: aclGetStorageShape");
-    if (*storageDims != n) {
+    // 维度数校验（issue #250，对齐 strmv 口径）：原仅比较首维值，[n, m] 等
+    // 多维张量可通过校验，内核按 1 维向量取前 n 个元素静默算错
+    if (storageDims == nullptr || ssyrStorageDimsNum != 1 || *storageDims != n) {
         delete[] storageDims;
         storageDims = nullptr;
         ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH) << "blas asdBlasSsyr get wrong x tensor num.";
@@ -48,9 +50,11 @@ AspbStatus asdBlasSsyr(asdBlasHandle handle, asdBlasFillMode_t uplo, const int64
 
     ASDSIP_ECHECK(n > 0, "blas asdBlasSsyr get n <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
 
-    if (incx <= 0) {
-        ASDSIP_LOG(INFO) << "blas asdBlasSsyr get incx <= 0.";
-    }
+    // 负/零步长显式拒绝（issue #243）：内核不支持负步长遍历，原仅打日志后
+    // static_cast<uint32_t>(incx) 将负值回绕为超大步长传入内核，产生非法寻址；
+    // 对齐 ssyr2/asum 的 <=0 拦截口径
+    ASDSIP_ECHECK(incx > 0, "blas asdBlasSsyr get incx <= 0 (negative stride not supported).",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
 
     if (lda <= 0) {
         ASDSIP_LOG(INFO) << "blas asdBlasSsyr get lda <= 0.";
@@ -98,7 +102,8 @@ AspbStatus asdBlasMakeSsyrPlan(asdBlasHandle handle)
         plan = new AsdSip::BlasPlan();
         if (!BlasPlanCache::MakePlan(handle, plan)) {
             delete plan;
-            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM) << "blas handle already bound to a plan, repeated initialization is not allowed.";
+            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM)
+                << "blas handle already bound to a plan, repeated initialization is not allowed.";
             return ErrorType::ACL_ERROR_INVALID_PARAM;
         }
     } catch (const std::exception& e) {

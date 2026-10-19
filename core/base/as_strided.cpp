@@ -19,14 +19,14 @@ using namespace AsdSip;
 
 namespace AsdSip {
 
-AspbStatus AsStrided(const Tensor &inTensor, Tensor &outTensor, SVector<int64_t> size, SVector<int64_t> stride,
-                     void *stream, int64_t offset, uint8_t *deviceBuffer)
+AspbStatus AsStrided(const Tensor& inTensor, Tensor& outTensor, SVector<int64_t> size, SVector<int64_t> stride,
+                     void* stream, int64_t offset, uint8_t* deviceBuffer)
 {
     Tensor tmpTensor = inTensor;
 
     tmpTensor.desc.dims = size;
     tmpTensor.desc.offset = offset;
-    
+
     auto strideData = stride.data();
     std::vector<int64_t> strideVec(stride.size());
     strideVec.assign(strideData, strideData + stride.size());
@@ -35,8 +35,8 @@ AspbStatus AsStrided(const Tensor &inTensor, Tensor &outTensor, SVector<int64_t>
 
     uint64_t workspaceSize = 0;
     aclOpExecutor* executor = nullptr;
-    aclTensor *inAclTensor = nullptr;
-    aclTensor *outAclTensor = nullptr;
+    aclTensor* inAclTensor = nullptr;
+    aclTensor* outAclTensor = nullptr;
     toAclTensor(tmpTensor, inAclTensor, strideVec);
     if (inAclTensor == nullptr) {
         ASDSIP_LOG(ERROR) << "Fail to convert in mki tensor to acltensor.";
@@ -65,8 +65,13 @@ AspbStatus AsStrided(const Tensor &inTensor, Tensor &outTensor, SVector<int64_t>
         return ErrorType::ACL_ERROR_INTERNAL_ERROR;
     }
 
+    // executor 不由本函数释放（回归记录，PR #200 复测）：aclnnInplaceCopy 为
+    // inplace 变体，二段接口执行时已接管并释放 executor 内部资源，调用方再
+    // aclDestroyAclOpExecutor 会触发 ~aclTensorList double free（UT 2D C2C
+    // 矩形用例 Transpose::Run → AsStrided 路径 SIGABRT 复现）。与普通 aclnn
+    // 算子（mul/slice 等调用方 destroy）的所有权语义不同，故此处保持不 destroy。
     aclDestroyTensor(inAclTensor);
     aclDestroyTensor(outAclTensor);
     return ErrorType::ACL_SUCCESS;
 }
-}
+} // namespace AsdSip

@@ -188,7 +188,8 @@ AspbStatus asdBlasCmatinvBatched(asdBlasHandle handle, const int64_t n, aclTenso
                   ErrorType::ACL_ERROR_INVALID_PARAM);
 
     ASDSIP_ECHECK(n <= MAX_MATRIX_SHAPE && batchSize <= MAX_MATRIX_BATCH,
-                  "blas asdBlasCmatinvBatched get n <= 256 || batchSize <= 3000.", ErrorType::ACL_ERROR_INVALID_PARAM);
+                  "blas asdBlasCmatinvBatched get n > 256 or batchSize > 3000, which exceeds the supported limit.",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
 
     return asdBlasCmatinvBatchedImpl(handle, {DTYPE_COMPLEX64, n, batchSize, A, Ainv});
 }
@@ -202,7 +203,8 @@ AspbStatus asdBlasHCmatinvBatched(asdBlasHandle handle, const int64_t n, aclTens
                   ErrorType::ACL_ERROR_INVALID_PARAM);
 
     ASDSIP_ECHECK(n <= MAX_MATRIX_SHAPE && batchSize <= MAX_MATRIX_BATCH,
-                  "blas asdBlasHCmatinvBatched get n <= 256 || batchSize <= 3000.", ErrorType::ACL_ERROR_INVALID_PARAM);
+                  "blas asdBlasHCmatinvBatched get n > 256 or batchSize > 3000, which exceeds the supported limit.",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
 
     // 对齐 ops-solver 行为与文档约束「当前约束为 n」：lda/lda_inv 非法时显式拦截（issue #138）
     ASDSIP_ECHECK(lda > 0 && lda_inv > 0, "blas asdBlasHCmatinvBatched get lda <= 0 or lda_inv <= 0.",
@@ -220,7 +222,8 @@ AspbStatus makeCmatinvBatchedPlan(asdBlasHandle handle, const int64_t n)
         plan = new AsdSip::BlasCmatinvBatchedPlan(n);
         if (!BlasPlanCache::MakePlan(handle, plan)) {
             delete plan;
-            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM) << "blas handle already bound to a plan, repeated initialization is not allowed.";
+            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM)
+                << "blas handle already bound to a plan, repeated initialization is not allowed.";
             return ErrorType::ACL_ERROR_INVALID_PARAM;
         }
     } catch (const std::exception& e) {
@@ -243,7 +246,8 @@ AspbStatus makeCgetriBatchedPlan(asdBlasHandle handle, const int64_t n, const in
         plan = new AsdSip::BlasCgetriBatchedPlan(n, batchSize, dtype);
         if (!BlasPlanCache::MakePlan(handle, plan)) {
             delete plan;
-            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM) << "blas handle already bound to a plan, repeated initialization is not allowed.";
+            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM)
+                << "blas handle already bound to a plan, repeated initialization is not allowed.";
             return ErrorType::ACL_ERROR_INVALID_PARAM;
         }
     } catch (const std::exception& e) {

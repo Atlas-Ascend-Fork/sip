@@ -65,9 +65,19 @@ void BlasMixCache::setCapacity(int64_t maxSize)
     }
 }
 
-int64_t BlasMixCache::getCapacity() { return capacity; }
+// 并发口径对齐（issue #256）：与 FFTMixCache（#196 修复）一致，查询接口持锁
+// 读取，避免与 get/setCapacity/clear 的 push_back/pop_front 并发数据竞争
+int64_t BlasMixCache::getCapacity()
+{
+    std::lock_guard<std::mutex> guard(blasMutex);
+    return capacity;
+}
 
-int64_t BlasMixCache::getSize() { return list.size(); }
+int64_t BlasMixCache::getSize()
+{
+    std::lock_guard<std::mutex> guard(blasMutex);
+    return list.size();
+}
 
 void BlasMixCache::clear()
 {

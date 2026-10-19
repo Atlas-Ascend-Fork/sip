@@ -19,13 +19,13 @@ using namespace AsdSip;
 
 namespace AsdSip {
 
-AsdSip::AspbStatus Muls(
-    const Mki::Tensor &inTensorA, float value, Mki::Tensor &outTensor, void *stream, uint8_t *deviceBuffer)
+AsdSip::AspbStatus Muls(const Mki::Tensor& inTensorA, float value, Mki::Tensor& outTensor, void* stream,
+                        uint8_t* deviceBuffer)
 {
     uint64_t workspaceSize = 0;
     aclOpExecutor* executor = nullptr;
-    aclTensor *inAclTensor = nullptr;
-    aclTensor *outAclTensor = nullptr;
+    aclTensor* inAclTensor = nullptr;
+    aclTensor* outAclTensor = nullptr;
     aclScalar* other = nullptr;
 
     toAclTensor(inTensorA, inAclTensor);
@@ -58,6 +58,7 @@ AsdSip::AspbStatus Muls(
 
     ret = aclnnMuls(deviceBuffer, workspaceSize, executor, stream);
     if (ret != ::ACL_SUCCESS) {
+        aclDestroyAclOpExecutor(executor);
         ASDSIP_LOG(ERROR) << "aclnnMuls failed. ERROR: " << ret;
         aclDestroyTensor(inAclTensor);
         aclDestroyScalar(other);
@@ -65,9 +66,10 @@ AsdSip::AspbStatus Muls(
         return ErrorType::ACL_ERROR_INTERNAL_ERROR;
     }
 
+    aclDestroyAclOpExecutor(executor);
     aclDestroyTensor(inAclTensor);
     aclDestroyScalar(other);
     aclDestroyTensor(outAclTensor);
     return ErrorType::ACL_SUCCESS;
 }
-}
+} // namespace AsdSip

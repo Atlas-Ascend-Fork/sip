@@ -63,10 +63,11 @@ AspbStatus asdBlasIamaxImpl(asdBlasHandle handle, IamaxImplParam implParam)
         AsdSip::BlasIamaxPlan& plan = dynamic_cast<AsdSip::BlasIamaxPlan&>(BlasPlanCache::getPlan(handle));
         ASDSIP_ECHECK(plan.IsInitialized(), "Iamax plan init Error!.", ErrorType::ACL_ERROR_INTERNAL_ERROR);
 
-        if (implParam.n <= 0 || implParam.incx <= 0) {
-            implParam.result = plan.zeroAclTensor;
-            return ErrorType::ACL_SUCCESS;
-        }
+        // 非法 n/incx 显式拒绝（issue #254，方案 b）：原将局部 implParam.result
+        // 指向 plan 内部张量后返回成功，用户 result 从未被写入（未初始化输出）；
+        // 对齐 #243/#247 的非法参数拒绝口径
+        ASDSIP_ECHECK(implParam.n > 0 && implParam.incx > 0, "blas asdBlasIamax get n <= 0 or incx <= 0.",
+                      ErrorType::ACL_ERROR_INVALID_PARAM);
 
         aclDataType dataType = aclDataType::ACL_DT_UNDEFINED;
         CHECK_STATUS_WITH_ACL_RETURN(aclGetDataType(implParam.x, &dataType), "asdBlasIamaxImpl: aclGetDataType");
@@ -143,7 +144,8 @@ AspbStatus asdBlasMakeIamaxPlan(asdBlasHandle handle)
         plan = new AsdSip::BlasIamaxPlan();
         if (!BlasPlanCache::MakePlan(handle, plan)) {
             delete plan;
-            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM) << "blas handle already bound to a plan, repeated initialization is not allowed.";
+            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM)
+                << "blas handle already bound to a plan, repeated initialization is not allowed.";
             return ErrorType::ACL_ERROR_INVALID_PARAM;
         }
     } catch (const std::exception& e) {

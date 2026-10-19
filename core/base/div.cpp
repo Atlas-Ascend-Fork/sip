@@ -19,14 +19,14 @@ using namespace AsdSip;
 
 namespace AsdSip {
 
-AsdSip::AspbStatus Div(const Mki::Tensor &inTensorA, const Mki::Tensor &inTensorB, Mki::Tensor &outTensor,
-                       void *stream, uint8_t *deviceBuffer)
+AsdSip::AspbStatus Div(const Mki::Tensor& inTensorA, const Mki::Tensor& inTensorB, Mki::Tensor& outTensor, void* stream,
+                       uint8_t* deviceBuffer)
 {
     uint64_t workspaceSize = 0;
     aclOpExecutor* executor = nullptr;
-    aclTensor *divBAclTensor = nullptr;
-    aclTensor *divBclTensor = nullptr;
-    aclTensor *outAclTensor = nullptr;
+    aclTensor* divBAclTensor = nullptr;
+    aclTensor* divBclTensor = nullptr;
+    aclTensor* outAclTensor = nullptr;
 
     toAclTensor(inTensorA, divBAclTensor);
     if (divBAclTensor == nullptr) {
@@ -58,6 +58,7 @@ AsdSip::AspbStatus Div(const Mki::Tensor &inTensorA, const Mki::Tensor &inTensor
 
     ret = aclnnDiv(deviceBuffer, workspaceSize, executor, stream);
     if (ret != ::ACL_SUCCESS) {
+        aclDestroyAclOpExecutor(executor);
         ASDSIP_LOG(ERROR) << "aclnnDiv failed. ERROR: " << ret;
         aclDestroyTensor(divBAclTensor);
         aclDestroyTensor(divBclTensor);
@@ -65,9 +66,10 @@ AsdSip::AspbStatus Div(const Mki::Tensor &inTensorA, const Mki::Tensor &inTensor
         return ErrorType::ACL_ERROR_INTERNAL_ERROR;
     }
 
+    aclDestroyAclOpExecutor(executor);
     aclDestroyTensor(divBAclTensor);
     aclDestroyTensor(divBclTensor);
     aclDestroyTensor(outAclTensor);
     return ErrorType::ACL_SUCCESS;
 }
-}
+} // namespace AsdSip

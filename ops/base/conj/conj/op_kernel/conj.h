@@ -25,7 +25,7 @@ constexpr uint32_t MAX_DATA_COUNT = 8 * 1024;
 class Conj {
 public:
     __aicore__ inline Conj(){};
-    __aicore__ inline void Init(GM_ADDR x, GM_ADDR y, const AsdSip::ConjTilingData *tilingData);
+    __aicore__ inline void Init(GM_ADDR x, GM_ADDR y, const AsdSip::ConjTilingData* tilingData);
     __aicore__ inline void Process();
 
 private:
@@ -58,12 +58,12 @@ private:
     uint32_t blockOffset = 0;
 };
 
-__aicore__ inline void Conj::Init(GM_ADDR x, GM_ADDR y, const AsdSip::ConjTilingData *tilingData)
+__aicore__ inline void Conj::Init(GM_ADDR x, GM_ADDR y, const AsdSip::ConjTilingData* tilingData)
 {
     blockIdx = GetBlockIdx();
 
-    inTensorsGM.SetGlobalBuffer((__gm__ float *)x);
-    outTensorsGM.SetGlobalBuffer((__gm__ float *)y);
+    inTensorsGM.SetGlobalBuffer((__gm__ float*)x);
+    outTensorsGM.SetGlobalBuffer((__gm__ float*)y);
 
     pipe.InitBuffer(dataQueue, BUFFER_NUM, MAX_DATA_COUNT * sizeof(float));
     pipe.InitBuffer(outQueue, BUFFER_NUM, MAX_DATA_COUNT * sizeof(float));
@@ -92,10 +92,20 @@ __aicore__ inline void Conj::Process()
     }
 
     if (reminder > 0) {
+        // 尾块按实际元素数搬运（issue #253）：原 CeilA2B(reminder, 8) * 8 向上取整
+        // 后整块 DataCopy，tail 非 8 倍数时读/写均越界张量末尾最多 7 个 float；
+        // 搬入改 DataCopyPad 按实际 reminder（pad 值 0 不影响有效数据，计算仍按
+        // 对齐量执行），搬出同样按实际 reminder，不再越界
         uint32_t dataCount = CeilA2B(reminder, 8) * 8;
-        CopyIn(offset, dataCount);
+        LocalTensor<float> dataLocal = dataQueue.AllocTensor<float>();
+        DataCopyExtParams copyParams{1, static_cast<uint32_t>(reminder * sizeof(float)), 0, 0, 0};
+        DataCopyPadExtParams<float> padParams{true, 0, 0, 0};
+        DataCopyPad(dataLocal, inTensorsGM[offset], copyParams, padParams);
+        dataQueue.EnQue(dataLocal);
         Compute(dataCount);
-        CopyOut(offset, dataCount);
+        LocalTensor<float> outLocal = outQueue.DeQue<float>();
+        DataCopyPad(outTensorsGM[offset], outLocal, copyParams);
+        outQueue.FreeTensor(outLocal);
     }
 }
 
@@ -133,6 +143,6 @@ __aicore__ inline void Conj::CopyOut(uint32_t offset, uint32_t dataCount)
     outQueue.FreeTensor(outLocal);
 }
 
-}  // namespace Cumprod
+} // namespace Conj
 
-#endif  // CONJ_N_D_H
+#endif // CONJ_N_D_H

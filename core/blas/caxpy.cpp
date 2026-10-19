@@ -53,15 +53,11 @@ AspbStatus asdBlasCaxpy(asdBlasHandle handle, const int64_t n, const std::comple
     ASDSIP_CHECK(CaxpShapeCheck(parm, n) == ErrorType::ACL_SUCCESS, "blas asdBlasCaxpy shape check failed.",
                  return ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
 
-    if (incx <= 0) {
-        ASDSIP_LOG(INFO) << "blas asdBlasCaxpy get incx <= 0,change incx =1.";
-        incx = 1;
-    }
+    // 非正步长显式拒绝（issue #260，统一口径）：原静默改写为 1 返回成功，实际计算另一组连续元素，结果静默错误
+    ASDSIP_ECHECK(incx > 0, "blas asdBlasCaxpy get incx <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
 
-    if (incy <= 0) {
-        ASDSIP_LOG(INFO) << "blas asdBlasCaxpy get incy <= 0,change incy =1.";
-        incy = 1;
-    }
+    // 非正步长显式拒绝（issue #260，统一口径）：原静默改写为 1 返回成功，实际计算另一组连续元素，结果静默错误
+    ASDSIP_ECHECK(incy > 0, "blas asdBlasCaxpy get incy <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
 
     try {
         AsdSip::BlasCaxpyPlan& plan = dynamic_cast<AsdSip::BlasCaxpyPlan&>(BlasPlanCache::getPlan(handle));
@@ -107,7 +103,8 @@ AspbStatus asdBlasMakeCaxpyPlan(asdBlasHandle handle)
         plan = new AsdSip::BlasCaxpyPlan();
         if (!BlasPlanCache::MakePlan(handle, plan)) {
             delete plan;
-            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM) << "blas handle already bound to a plan, repeated initialization is not allowed.";
+            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM)
+                << "blas handle already bound to a plan, repeated initialization is not allowed.";
             return ErrorType::ACL_ERROR_INVALID_PARAM;
         }
     } catch (const std::exception& e) {

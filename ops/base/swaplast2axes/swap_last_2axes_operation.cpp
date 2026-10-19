@@ -22,14 +22,18 @@ constexpr int64_t INPUT_DIM = 1;
 
 class SwapLast2AxesOperation : public OperationBase {
 public:
-    explicit SwapLast2AxesOperation(const std::string &opName) noexcept : OperationBase(opName) {}
+    explicit SwapLast2AxesOperation(const std::string& opName) noexcept : OperationBase(opName) {}
 
-    Kernel *GetBestKernel(const LaunchParam &launchParam) const override
+    Kernel* GetBestKernel(const LaunchParam& launchParam) const override
     {
         ASDSIP_CHECK(IsConsistent(launchParam), "Failed to check consistent", return nullptr);
 
+        // F32 分支修正（issue #255）：全仓无 SwapLast2AxesF32Kernel 实现/注册
+        // （CMakeLists 仅构建 C64、op_list.yaml 仅登记 C64），原返回 nullptr 使
+        // float32 输入派核失败且分支形同死代码；显式报告不支持的数据类型
         if (launchParam.GetInTensor(0).desc.dtype == TENSOR_DTYPE_FLOAT) {
-            return GetKernelByName("SwapLast2AxesF32Kernel");
+            ASDSIP_LOG(ERROR) << "swapLast2Axes does not support float32 in current version (C64 only).";
+            return nullptr;
         }
 
         if (launchParam.GetInTensor(0).desc.dtype == TENSOR_DTYPE_COMPLEX64) {
@@ -40,11 +44,11 @@ public:
     }
 
 protected:
-    Status InferShapeImpl(const LaunchParam &launchParam, SVector<Tensor> &outTensors) const override
+    Status InferShapeImpl(const LaunchParam& launchParam, SVector<Tensor>& outTensors) const override
     {
-        const Any &specificParam = launchParam.GetParam();
+        const Any& specificParam = launchParam.GetParam();
         ASDSIP_CHECK(specificParam.Type() == typeid(OpParam::SwapLast2Axes), "OpParam is invalid",
-                  return Status::FailStatus(ERROR_INFERSHAPE_ERROR, "no match specificParam type."));
+                     return Status::FailStatus(ERROR_INFERSHAPE_ERROR, "no match specificParam type."));
 
         int64_t dim = static_cast<int64_t>(launchParam.GetInTensor(0).desc.dims.size());
         ASDSIP_CHECK(dim > 1, "invalid dim", return Status::FailStatus(ERROR_ATTR_INVALID_TYPE));
@@ -56,17 +60,19 @@ protected:
         int64_t swapLastDimIdx = 2;
         int64_t swapSecondLastDimIdx = 1;
 
-        outTensors[0].desc.dims[dim - swapLastDimIdx] = launchParam.GetInTensor(0).desc.dims[dim - swapSecondLastDimIdx];
-        outTensors[0].desc.dims[dim - swapSecondLastDimIdx] = launchParam.GetInTensor(0).desc.dims[dim - swapLastDimIdx];
+        outTensors[0].desc.dims[dim - swapLastDimIdx] = launchParam.GetInTensor(0)
+                                                            .desc.dims[dim - swapSecondLastDimIdx];
+        outTensors[0].desc.dims[dim - swapSecondLastDimIdx] = launchParam.GetInTensor(0)
+                                                                  .desc.dims[dim - swapLastDimIdx];
 
         return Status::OkStatus();
     }
 
-    int64_t GetInputNum(const Any &specificParam) const override
+    int64_t GetInputNum(const Any& specificParam) const override
     {
         ASDSIP_CHECK(specificParam.Type() == typeid(OpParam::SwapLast2Axes), "OpParam is invalid", return 0);
         return INPUT_DIM;
     }
 };
 REG_OPERATION(SwapLast2AxesOperation);
-}  //    namespace AsdSip
+} //    namespace AsdSip
