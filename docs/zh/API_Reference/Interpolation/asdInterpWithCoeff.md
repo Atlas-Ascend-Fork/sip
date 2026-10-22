@@ -34,20 +34,26 @@ asdInterpWithCoeff：支持向量插值操作，主要用于数据符号的信�
 - 计算公式：
 
   $$
-  result=A \odot\ B =(A)_{ij}(B)_{ij}
+  result_{b,i,j}=\sum_{k=0}^{nRs-1} (A)_{b,i,k}\times(B)_{b,k,j}
   $$
+
+  其中$A$为coefficient（shape [batch, 14-nRs, nRs]），$B$为x（shape [batch, nRs, totalSubcarrier]），$result$为y（shape [batch, 14-nRs, totalSubcarrier]）；求和沿参考信号维$nRs$进行，即每个输出元素为coefficient行向量与x列向量的加权求和。
 
   示例：
 
-  输入“A”为：\
+  输入“A”（coefficient，[1, 12, 2]）为：\
 [ [ 1+1i, 1+1i ],\
-  [ 2+2i, 2+2i ] ]\
-输入“B”为：\
-[ [ 1+1i, 1+1i ],\
-  [ 2+2i, 2+2i ] ]\
-调用asdInterpWithCoeff算子后，输出“result”为：\
-[ [ 0+2i, 0+2i ],\
-  [ 0+8i, 0+8i ] ]
+  [ 1+1i, 1+1i ],\
+  ...\
+  [ 1+1i, 1+1i ] ]（共12行，均为1+1i）\
+输入“B”（x，[1, 2, 12]）为：\
+[ [ 1+1i, 1+1i, ..., 1+1i ],\
+  [ 2+2i, 2+2i, ..., 2+2i ] ]\
+调用asdInterpWithCoeff算子后，输出“result”（[1, 12, 12]）为：\
+[ [ 0+6i, 0+6i, ..., 0+6i ],\
+  [ 0+6i, 0+6i, ..., 0+6i ],\
+  ...\
+  [ 0+6i, 0+6i, ..., 0+6i ] ]（每个元素均为0+6i，例如result[0,0,0]=(1+1i)×(1+1i)+(1+1i)×(2+2i)=2i+4i=6i）
 
 ## 函数原型
 

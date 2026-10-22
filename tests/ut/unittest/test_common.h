@@ -50,7 +50,14 @@ static inline int CompareGoldenWithOutput(const std::string& goldenPath, const v
     file.seekg(0, std::ios::end);
     std::streamoff byteSize = file.tellg();
     file.seekg(0, std::ios::beg);
-    size_t goldenElems = static_cast<size_t>(byteSize) / (isComplex ? sizeof(std::complex<float>) : sizeof(float));
+    const size_t elemSize = isComplex ? sizeof(std::complex<float>) : sizeof(float);
+    // 拒绝非整元素长度的 golden：完整正确前缀+残缺尾部的损坏文件不应作为有效参考
+    if (byteSize < 0 || static_cast<size_t>(byteSize) % elemSize != 0) {
+        std::cout << "CompareGoldenWithOutput: invalid golden file size (bytes=" << byteSize
+                  << ", elemSize=" << elemSize << "): trailing bytes do not form a whole element" << std::endl;
+        return -1;
+    }
+    size_t goldenElems = static_cast<size_t>(byteSize) / elemSize;
     if (goldenElems != outElems) {
         std::cout << "CompareGoldenWithOutput: size mismatch (out=" << outElems << ", gold=" << goldenElems << ")"
                   << std::endl;
@@ -60,6 +67,11 @@ static inline int CompareGoldenWithOutput(const std::string& goldenPath, const v
     // 一次性读入 golden 缓冲（避免逐元素 iostream 调用开销）
     std::vector<char> goldenBuf(static_cast<size_t>(byteSize));
     file.read(goldenBuf.data(), byteSize);
+    // 读取不完整视为读取失败，零初始化缓冲不参与数值比较
+    if (file.fail() || file.gcount() != byteSize) {
+        std::cout << "CompareGoldenWithOutput: read golden failed: " << goldenPath << std::endl;
+        return -1;
+    }
     file.close();
 
     int mismatch = 0;

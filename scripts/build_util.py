@@ -93,8 +93,15 @@ def get_info_from_file(file_path):
 
 def write_meta(meta_info, output_path, target_version):
     meta_path = os.path.join(output_path, "meta.ini")
+    # O_TRUNC: when reusing an existing output directory, a shorter new
+    # content must not leave stale kernel records or compile options behind.
     with os.fdopen(
-        os.open(meta_path, os.O_WRONLY | os.O_CREAT, stat.S_IWUSR | stat.S_IRUSR), "w+"
+        os.open(
+            meta_path,
+            os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+            stat.S_IWUSR | stat.S_IRUSR,
+        ),
+        "w+",
     ) as fmeta:
         fmeta.write("$Version=1.0\n")
         fmeta.write(f"DeviceKernelVersion={target_version}\n")

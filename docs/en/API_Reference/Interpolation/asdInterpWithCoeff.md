@@ -21,20 +21,26 @@
 - Formula:
 
   $$
-  result=A \odot\ B =(A)_{ij}(B)_{ij}
+  result_{b,i,j}=\sum_{k=0}^{nRs-1} (A)_{b,i,k}\times(B)_{b,k,j}
   $$
+
+  where `A` is `coefficient` (shape [batch, 14-nRs, nRs]), `B` is `x` (shape [batch, nRs, totalSubcarrier]), and `result` is `y` (shape [batch, 14-nRs, totalSubcarrier]); the sum runs over the reference-signal dimension `nRs`, that is, each output element is the weighted sum of a `coefficient` row vector and an `x` column vector.
 
   Example:
 
-  The input `A` is:\
+  The input `A` (`coefficient`, [1, 12, 2]) is:\
 [ [ 1+1i, 1+1i ],\
-  [ 2+2i, 2+2i ] ]\
-The input `B` is:\
-[ [ 1+1i, 1+1i ],\
-  [ 2+2i, 2+2i ] ]\
-After the `asdInterpWithCoeff` operator is called, the output `result` is:\
-[ [ 0+2i, 0+2i ],\
-  [ 0+8i, 0+8i ] ]
+  [ 1+1i, 1+1i ],\
+  ...\
+  [ 1+1i, 1+1i ] ] (12 rows in total, all 1+1i)\
+The input `B` (`x`, [1, 2, 12]) is:\
+[ [ 1+1i, 1+1i, ..., 1+1i ],\
+  [ 2+2i, 2+2i, ..., 2+2i ] ]\
+After the `asdInterpWithCoeff` operator is called, the output `result` ([1, 12, 12]) is:\
+[ [ 0+6i, 0+6i, ..., 0+6i ],\
+  [ 0+6i, 0+6i, ..., 0+6i ],\
+  ...\
+  [ 0+6i, 0+6i, ..., 0+6i ] ] (every element is 0+6i, e.g. result[0,0,0]=(1+1i)×(1+1i)+(1+1i)×(2+2i)=2i+4i=6i)
 
 ## Function Prototype
 

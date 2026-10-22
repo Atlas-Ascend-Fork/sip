@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+# -----------------------------------------------------------------------------------------------------------
+# Copyright (c) 2026 Huawei Technologies Co., Ltd.
+# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+# CANN Open Software License Agreement Version 2.0 (the "License").
+# Please refer to the License for details. You may not use this file except in compliance with the License.
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+# See LICENSE in the root of the software repository for the full text of the License.
+# -----------------------------------------------------------------------------------------------------------
 """
 Generate test data and compare precision for FFT R2C 2D operator.
 Uses torch.fft.rfft2 as golden reference.
@@ -15,6 +24,7 @@ import numpy as np
 
 try:
     import torch
+
     HAS_TORCH = True
 except ImportError:
     HAS_TORCH = False
@@ -24,7 +34,7 @@ def generate_golden_torch(fftN, batch=1):
     np.random.seed(42)
     x = np.random.randn(batch, fftN, fftN).astype(np.float32)
     x_tensor = torch.from_numpy(x)
-    golden = torch.fft.rfft2(x_tensor, norm='backward')
+    golden = torch.fft.rfft2(x_tensor, norm="backward")
     return x, golden.numpy().astype(np.complex64)
 
 
@@ -50,22 +60,27 @@ def read_binary(filename, count):
 
 def compare_precision(npu_output, golden, fftN, batch):
     totalElements = golden.size
-    npu_complex = npu_output[0:2*totalElements:2] + 1j * npu_output[1:2*totalElements:2]
+    npu_complex = (
+        npu_output[0 : 2 * totalElements : 2]
+        + 1j * npu_output[1 : 2 * totalElements : 2]
+    )
     npu_complex = npu_complex.reshape(golden.shape)
     abs_error = np.abs(npu_complex - golden)
     gold_mag = np.abs(golden)
     rel_error = np.where(gold_mag > 1e-8, abs_error / gold_mag, abs_error)
     mare = float(np.mean(rel_error))
     mere = float(np.mean(abs_error) / float(np.mean(gold_mag)))
-    rmse = float(np.sqrt(np.mean(abs_error ** 2)))
+    rmse = float(np.sqrt(np.mean(abs_error**2)))
     max_abs = float(np.max(abs_error))
     print(f"\n=== Precision Comparison (fftN={fftN}, batch={batch}) ===")
     print(f"Elements: {totalElements}")
-    print(f"MARE: {mare:.6e}  MERE: {mere:.6e}  RMSE: {rmse:.6e}  MaxAbs: {max_abs:.6e}")
+    print(
+        f"MARE: {mare:.6e}  MERE: {mere:.6e}  RMSE: {rmse:.6e}  MaxAbs: {max_abs:.6e}"
+    )
     passed = (mare < 1e-3) and (mere < 0.5) and (rmse < 0.5)
     print(f"Result: {'PASS' if passed else 'FAIL'}")
 
-    print(f"\n=== Diagnosis ===")
+    print("\n=== Diagnosis ===")
     for r in range(min(4, golden.shape[1])):
         row = 0 if batch == 1 else 0
         print(f"  npu[{row},{r},0:4]: {npu_complex[row, r, 0:4]}")
@@ -102,14 +117,17 @@ def main():
         total_floats = batch * fftN * (fftN // 2 + 1) * 2
         npu_output = read_binary(npu_output_file, total_floats)
         if len(npu_output) == total_floats:
-            compare_precision(npu_output, golden, fftN, batch)
-        else:
-            print(f"Error: expected {total_floats} floats, got {len(npu_output)}")
-    else:
-        print(f"\nNPU output not found. Run the NPU executable first.")
-        print(f"  bash scripts/build.sh -DCATLASS_ARCH=3510 85_ascend950_fft_r2c_2d --clean")
-        print(f"  ./output/bin/85_ascend950_fft_r2c_2d {fftN} {batch} 0")
+            # 比较结果必须传播为进程退出码：验证失败不能伪装成成功
+            passed = compare_precision(npu_output, golden, fftN, batch)
+            return 0 if passed else 1
+        print(f"Error: expected {total_floats} floats, got {len(npu_output)}")
+        return 1
+    print("\nNPU output not found. Run the NPU executable first.")
+    print("  bash scripts/build.sh -DCATLASS_ARCH=3510 85_ascend950_fft_r2c_2d --clean")
+    print(f"  ./output/bin/85_ascend950_fft_r2c_2d {fftN} {batch} 0")
+    # 仅生成数据（无输出可比较）保持成功
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
