@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2025 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under the terms and contiditions of
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
  * CANN Open Software License Agreement Version 2.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
  * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
@@ -49,13 +49,11 @@ public:
 
         // Methods
         CATLASS_HOST_DEVICE
-        Params()
-        {}
+        Params() {}
 
         CATLASS_HOST_DEVICE
-        Params(
-            GemmCoord const& problemShape_, GemmCoord const& l1TileShape_, GM_ADDR ptrA_, LayoutA& layoutA_,
-            GM_ADDR ptrB_, LayoutB& layoutB_, GM_ADDR ptrC_, LayoutC& layoutC_)
+        Params(GemmCoord const& problemShape_, GemmCoord const& l1TileShape_, GM_ADDR ptrA_, LayoutA& layoutA_,
+               GM_ADDR ptrB_, LayoutB& layoutB_, GM_ADDR ptrC_, LayoutC& layoutC_)
             : problemShape(problemShape_),
               l1TileShape(l1TileShape_),
               ptrA(ptrA_),
@@ -69,8 +67,7 @@ public:
 
     // Methods
     CATLASS_DEVICE
-    DynamicSmallMatmul()
-    {}
+    DynamicSmallMatmul() {}
 
     /// Executes matmul
     CATLASS_DEVICE void operator()(Params const& params, Catlass::Arch::Resource<ArchTag>& resource)
@@ -110,9 +107,8 @@ public:
         int64_t gmOffsetC = params.layoutC.GetOffset(offsetC);
 
         // Compute block-scoped matrix multiply-add
-        blockMmad(
-            gmA[gmOffsetA], params.layoutA, gmB[gmOffsetB], params.layoutB, gmC[gmOffsetC], params.layoutC,
-            actualBlockShape);
+        blockMmad(gmA[gmOffsetA], params.layoutA, gmB[gmOffsetB], params.layoutB, gmC[gmOffsetC], params.layoutC,
+                  actualBlockShape);
 
         AscendC::PipeBarrier<PIPE_ALL>();
     }
