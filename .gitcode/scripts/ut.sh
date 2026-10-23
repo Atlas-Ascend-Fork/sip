@@ -15,7 +15,8 @@ gcc --version
 
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
 export LD_LIBRARY_PATH=/usr/local/Ascend/driver/lib64/driver/:$LD_LIBRARY_PATH
-bash build.sh ut
+export SIP_FFT_BACKEND=ops-fft-auto
+bash build.sh ut --use_ops_fft
 ret=$?
 
 if [ $ret -ne 0 ]; then
