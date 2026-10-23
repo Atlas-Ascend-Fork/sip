@@ -1,4 +1,4 @@
-# AscendSiPBoost Signal Processing Acceleration Library
+# Huawei AscendSiPBoost Signal Processing Acceleration Library
 
 🔥 [2025/10] The AscendSiPBoost project (hereinafter referred to as the SiP library) is launched for the first time.
 
@@ -20,7 +20,7 @@
 
 ## <a id="sip"></a>2.  What is SiP
 
-Ascend Signal Processing Boost (hereinafter referred to as the SiP library) is built based on Huawei Ascend AI processors. It is deeply adapted to hardware computing power, storage, and memory bandwidth characteristics. It provides high-performance NPU operators such as FFT, BLAS, FIR filtering, and interpolation to deliver efficient and reliable computing acceleration for the signal processing domain.
+Huawei Ascend Signal Processing Boost (hereinafter referred to as the SiP library) is built based on Huawei Ascend AI processors. It is deeply adapted to hardware computing power, storage, and memory bandwidth characteristics. It provides high-performance NPU operators such as FFT, BLAS, FIR filtering, and interpolation to deliver efficient and reliable computing acceleration for the signal processing domain.
 
 The interface functions of the acceleration library are mainly divided into six parts:
 

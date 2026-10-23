@@ -1,4 +1,4 @@
-# AscendSiPBoost 信号处理加速库
+# Huawei AscendSiPBoost 信号处理加速库
 
 🔥 [2025/10] AscendSiPBoost项目（下文简称为SiP库）首次上线。
 
@@ -20,7 +20,7 @@
 
 ## <a id="sip"></a>2.  什么是SiP
 
-Ascend Signal Processing Boost（昇腾信号处理加速库，下文简称为SiP库）基于华为Ascend AI处理器打造，深度适配硬件算力、存储及内存带宽特性，提供FFT、BLAS、FIR滤波、插值等高性能NPU算子，为信号处理领域提供高效可靠的算力加速。
+Huawei Ascend Signal Processing Boost（昇腾信号处理加速库，下文简称为SiP库）基于华为Ascend AI处理器打造，深度适配硬件算力、存储及内存带宽特性，提供FFT、BLAS、FIR滤波、插值等高性能NPU算子，为信号处理领域提供高效可靠的算力加速。
 
 加速库接口功能主要分成六个部分：
 
