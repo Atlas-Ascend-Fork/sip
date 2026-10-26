@@ -41,6 +41,10 @@ def get_dependency_paths():
 
     # Acl 路径
     acl_include = os.path.join(torch_npu_path, "include/third_party/acl/inc")
+    opapi_include = os.path.join(torch_npu_path, "include/third_party/op-plugin")
+    opapi_utils_include = os.path.join(
+        torch_npu_path, "include/third_party/op-plugin/op_plugin/utils"
+    )
     ascend_home = os.environ.get("ASCEND_HOME_PATH", "")
     ascend_include = os.path.join(ascend_home, "include")
 
@@ -53,6 +57,8 @@ def get_dependency_paths():
             torch_npu_include,
             sip_include_dir,
             acl_include,
+            opapi_include,
+            opapi_utils_include,
             *torch_include_paths,
             boost_comm_include,
             ascend_include,
@@ -68,7 +74,7 @@ your_ext = NpuExtension(
     sources=glob.glob(os.path.join(BASE_DIR, "csrc", "**", "*.cpp"), recursive=True),
     include_dirs=dep_paths["includes"],
     library_dirs=dep_paths["libs"],
-    libraries=["torch", "torch_npu", "c10", "asdsip", "mki"],
+    libraries=["torch", "torch_npu", "torch_python", "c10", "asdsip", "mki"],
     language="c++",
     extra_compile_args={
         "cxx": [

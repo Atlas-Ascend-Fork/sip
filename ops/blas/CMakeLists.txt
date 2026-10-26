@@ -35,6 +35,8 @@ add_subdirectory(hcgemm_batched)
 add_subdirectory(cgemm_batched)
 add_subdirectory(cmatinv_batched)
 add_subdirectory(cgetri_batched)
+add_subdirectory(sgetri_batched)
+add_subdirectory(smatinv_batched)
 
 message("blas ops_objects: ${ops_objects}")
 set(operations_objects ${operations_objects} ${ops_objects} ops_common_tiling PARENT_SCOPE)

@@ -100,6 +100,16 @@ CgetriBatchedOperation:
     CgetriBatchedC64Kernel:
         ascend910b: true
 
+SmatinvBatchedOperation:
+    SmatinvBatchedF32Kernel:
+        ascend910b: true
+
+SgetriBatchedOperation:
+    SgetriBatchedF32Kernel:
+        ascend910b: true
+    SgetriP2BatchedF32Kernel:
+        ascend910b: true
+
 InterpolationOperation:
     InterpolationC64Kernel:
         ascend910b: true

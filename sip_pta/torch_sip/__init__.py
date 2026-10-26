@@ -18,6 +18,9 @@ import torch
 # 修改本文件触发 ruff F401，noqa 保留必要的副作用导入语义）
 import sip_custom_ops_lib  # noqa: F401
 
+# npu_inv 快路径: 顶层绑定实现模块, 避免每次调用的函数内 import 查找 (~10us+/次)
+from torch_sip import _npu_inv_impl
+
 
 def asd_mul(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     return torch.ops.torch_sip.asd_mul(x, y)
@@ -397,3 +400,16 @@ def asd_fft_r2c(input_tensor: torch.Tensor, is_forward: bool = True) -> torch.Te
 
 def asd_fft_c2r(input_tensor: torch.Tensor, is_forward: bool = True) -> torch.Tensor:
     return torch.ops.torch_sip.asd_fft_c2r(input_tensor, is_forward)
+
+
+def npu_inv(a: torch.Tensor, *, out: torch.Tensor = None) -> torch.Tensor:
+    """批量实数矩阵求逆 (接口对齐 torch.linalg.inv), 支持反向传播。"""
+    return _npu_inv_impl.npu_inv(a, out=out)
+
+
+def npu_inv_backward(y: torch.Tensor, grad_y: torch.Tensor):
+    """手动反向路径-纯反向: ga = npu_inv_backward(y, dy), dA = -(Y^T dY) Y^T。
+
+    y 为正向阶段 npu_inv(a) 在 no_grad 下的输出 (调用方保存到反传阶段); dy 为上游产生的 dL/dy。
+    """
+    return _npu_inv_impl.npu_inv_backward(y, grad_y)

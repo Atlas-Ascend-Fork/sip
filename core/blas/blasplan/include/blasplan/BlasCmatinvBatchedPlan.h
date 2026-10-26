@@ -22,9 +22,11 @@ public:
     AsdSip::AspbStatus FreeTensor() override;
 
 public:
-    aclTensor *uniMatAclReal = nullptr;
-    aclTensor *uniMatAclImag = nullptr;
-    aclTensor *offsetAclTensor = nullptr;
+    aclTensor* uniMatAclReal = nullptr;
+    aclTensor* uniMatAclImag = nullptr;
+    aclTensor* offsetAclTensor = nullptr;
+
+    int64_t GetN() const { return n; }
 
 private:
     int64_t n;
@@ -32,4 +34,4 @@ private:
     Tensor uniMatImag;
     Tensor offsetTensor;
 };
-}
+} // namespace AsdSip

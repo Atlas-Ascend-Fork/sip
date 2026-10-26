@@ -23,9 +23,9 @@
 using namespace AscendC;
 using namespace matmul;
 
-__aicore__ inline void custom_getri(int dtype, int orgM, int orgN, int blockM, int blockN, int tileM,
-    GM_ADDR A_org, GM_ADDR A_inv, GM_ADDR A_work, GM_ADDR W, GM_ADDR work_gm,
-    GM_ADDR gather1_gm, GM_ADDR gather2_gm, GM_ADDR gather3_gm, GM_ADDR eye_gm, GM_ADDR workspace)
+__aicore__ inline void custom_getri(int dtype, int orgM, int orgN, int blockM, int blockN, int tileM, GM_ADDR A_org,
+                                    GM_ADDR A_inv, GM_ADDR A_work, GM_ADDR W, GM_ADDR work_gm, GM_ADDR gather1_gm,
+                                    GM_ADDR gather2_gm, GM_ADDR gather3_gm, GM_ADDR eye_gm, GM_ADDR workspace)
 {
     int M = (orgM + 15) / 16 * 16;
     int strideN = (orgN + 127) / 128 * 128;
@@ -36,9 +36,15 @@ __aicore__ inline void custom_getri(int dtype, int orgM, int orgN, int blockM, i
     CMatmulCustom<float> opmm;
 #ifdef __DAV_C220_VEC__
     pipe.InitBufPool(tbufPool, 192 * 1024);
-#elif  __DAV_C220_CUBE__
+#elif __DAV_C220_CUBE__
     opmm.Init(&pipe);
 #endif
+
+    // eye_gm is consumed in-place by SwapRows/trsm on every run, but the host
+    // plan uploads it only once (plan cache reuses device buffers across
+    // calls) -> rebuild it to identity layout before every run (fixes 2nd+
+    // call corruption: diff ~1e-2)
+    rebuild_eye_real(tbufPool, orgM, orgN, eye_gm);
 
     if (dtype > 0) {
         pad(tbufPool, orgM, orgN, A_org, A_work);
@@ -60,4 +66,4 @@ __aicore__ inline void custom_getri(int dtype, int orgM, int orgN, int blockM, i
     pipe.Destroy();
 }
 
-#endif  // _GETRI_CUSTOM_HPP_
+#endif // _GETRI_CUSTOM_HPP_

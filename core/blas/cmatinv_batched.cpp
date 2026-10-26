@@ -86,6 +86,12 @@ AspbStatus runCmatinvBatchedOps(asdBlasHandle handle, CmatinvBatchedImplParam im
             BlasPlanCache::getPlan(handle));
         ASDSIP_ECHECK(plan.IsInitialized(), "CmatinvBatched plan init Error!.", ErrorType::ACL_ERROR_INTERNAL_ERROR);
 
+        // GJ 路径 plan tensor (单位阵/偏移表) 仅按 n 分配, 只校验 n 与 plan 一致
+        ASDSIP_ECHECK(plan.GetN() == implParam.n,
+                      "blas asdBlasCmatinvBatched n mismatch with plan "
+                      "(plan was made with different n, re-make plan first).",
+                      ErrorType::ACL_ERROR_INVALID_PARAM);
+
         Status status;
         OpDesc opDesc;
         opDesc.opName = "CmatinvBatchedOperation";
@@ -118,6 +124,13 @@ AspbStatus runCgetriBatchedOps(asdBlasHandle handle, CmatinvBatchedImplParam imp
             BlasPlanCache::getPlan(handle));
         ASDSIP_ECHECK(plan.IsInitialized(), "CmatinvBatched (n >= 32) plan init Error!.",
                       ErrorType::ACL_ERROR_INTERNAL_ERROR);
+
+        // plan 的 W/eye/A_work 等 tensor 与 workspace 均按 MakePlan 时的
+        // n/batchSize 分配, 执行参数与 plan 不一致会导致 kernel 越界, 须显式拦截
+        ASDSIP_ECHECK(plan.GetN() == implParam.n && plan.GetBatchSize() == implParam.batchSize,
+                      "blas asdBlasCmatinvBatched n/batchSize mismatch with plan "
+                      "(plan was made with different n/batchSize, re-make plan first).",
+                      ErrorType::ACL_ERROR_INVALID_PARAM);
 
         Status status;
         OpDesc opDesc;
@@ -155,7 +168,7 @@ AspbStatus asdBlasCmatinvBatchedImpl(asdBlasHandle handle, CmatinvBatchedImplPar
         return shapeCheckStatus;
     }
 
-    AsdSip::AspbStatus runOpsStatus;
+    AsdSip::AspbStatus runOpsStatus = AsdSip::ErrorType::ACL_SUCCESS;
     if (implParam.n < MATRIX_SHAPE_LIMIT) {
         runOpsStatus = runCmatinvBatchedOps(handle, implParam);
     } else {

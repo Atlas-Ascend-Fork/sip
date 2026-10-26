@@ -170,6 +170,9 @@ add_library(test_src_ssyr OBJECT ${TEST_SRC_SSYR})
 aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/blas/cmatinv_batched TEST_SRC_CMATINV_BATCHED)
 add_library(test_src_cmatinv_batched OBJECT ${TEST_SRC_CMATINV_BATCHED})
 
+aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/blas/smatinv_batched TEST_SRC_SMATINV_BATCHED)
+add_library(test_src_smatinv_batched OBJECT ${TEST_SRC_SMATINV_BATCHED})
+
 # aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/filter/convolve TEST_SRC_CONVOLVE)
 # add_library(test_src_convolve OBJECT ${TEST_SRC_CONVOLVE})
 
@@ -214,6 +217,7 @@ add_executable(ops_unittest
     # $<TARGET_OBJECTS:test_src_cswap>
     $<TARGET_OBJECTS:test_src_ssyr>
     $<TARGET_OBJECTS:test_src_cmatinv_batched>
+    $<TARGET_OBJECTS:test_src_smatinv_batched>
     # $<TARGET_OBJECTS:test_src_cgemv>
 	# $<TARGET_OBJECTS:test_src_cgerc>
     # $<TARGET_OBJECTS:test_src_csrot>

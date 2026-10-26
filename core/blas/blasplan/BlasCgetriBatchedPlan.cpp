@@ -10,6 +10,7 @@
 #include "include/blasplan/BlasCgetriBatchedPlan.h"
 #include <securec.h>
 #include "mki/launch_param.h"
+#include "mki/utils/platform/platform_info.h"
 #include "utils/assert.h"
 #include "utils/ops_base.h"
 #include "utils/mem_base_inner.h"
@@ -43,9 +44,8 @@ BlasCgetriBatchedPlan::BlasCgetriBatchedPlan(int64_t n, int64_t batchSize, int64
     eyeBatchMatTensor.hostData = nullptr;
 };
 
-
-void BlasCgetriBatchedPlan::GenOffsetAndEyeMatData(std::vector<uint32_t> &gatherBuf1,
-    std::vector<uint32_t> &gatherBuf2, std::vector<uint32_t> &gatherBuf3, std::vector<float> &eyeBuf) const
+void BlasCgetriBatchedPlan::GenOffsetAndEyeMatData(std::vector<uint32_t>& gatherBuf1, std::vector<uint32_t>& gatherBuf2,
+                                                   std::vector<uint32_t>& gatherBuf3, std::vector<float>& eyeBuf) const
 {
     int64_t tileM = TILE_ELENUM;
     int64_t N = this->n;
@@ -87,7 +87,6 @@ void BlasCgetriBatchedPlan::GenOffsetAndEyeMatData(std::vector<uint32_t> &gather
     }
 }
 
-
 void BlasCgetriBatchedPlan::GenBatchWAclTensor()
 {
     int64_t blockN = BASE_BLOCK_ELENUM;
@@ -96,6 +95,11 @@ void BlasCgetriBatchedPlan::GenBatchWAclTensor()
     int64_t batchNum = this->batchSize;
 
     // gen batch w data
+    // W pivot 表初值契约: 0xFFFFFFFF 为"未写入"哨兵 —— MIX 路径 LUCustom3
+    // (blockM>512) 以 while(!~W[k]) 自旋等待其它核的面板写入 (getf2.hpp);
+    // 各路径 swap 每面板读取范围 [offsetN, offsetN+min(realM,realN)) 与
+    // LUCustom1/LUCustom3 同面板写入范围由同一 min(realM,realN) 公式决定,
+    // 严格一致, 不消费哨兵值。
     int64_t t = (std::min(M, N) + blockN - 1) / blockN * blockN;
     int64_t wEleNum = batchNum * t;
     std::vector<uint32_t> wBatchData(wEleNum, 0);
@@ -108,19 +112,35 @@ void BlasCgetriBatchedPlan::GenBatchWAclTensor()
     toAclTensor(wBatchTensor, wBatchAcl);
 }
 
-
 void BlasCgetriBatchedPlan::GenWorkAclTensor()
 {
     int64_t tileM = TILE_ELENUM;
     int64_t N = this->n;
     int64_t M = this->n;
     int64_t blockN = BASE_BLOCK_ELENUM;
-    int64_t aMatWorkEleNum = ((N + COL_ALIGNED_ELENUM - 1) / COL_ALIGNED_ELENUM *
-        COL_ALIGNED_ELENUM) * ((M + BASE_BLOCK_ELENUM - 1) / BASE_BLOCK_ELENUM *
-        BASE_BLOCK_ELENUM + COL_ALIGNED_ELENUM) * EYE_MATRIX_NUM;
+    int64_t aMatWorkEleNum = ((N + COL_ALIGNED_ELENUM - 1) / COL_ALIGNED_ELENUM * COL_ALIGNED_ELENUM) *
+                             ((M + BASE_BLOCK_ELENUM - 1) / BASE_BLOCK_ELENUM * BASE_BLOCK_ELENUM +
+                              COL_ALIGNED_ELENUM) *
+                             EYE_MATRIX_NUM;
 
     int64_t workM = (M + tileM - 1) / tileM * tileM;
     int64_t workEleNum = workM * blockN * COMPLEX_ELENUM;
+
+    // P2 (real fp32, dtype==2): kernel 侧每 AIV 核独立处理矩阵, A_work/work_gm
+    // 按切片划分, 每核独占一片 (kernel 按 aivIdx % slices 取片)。切片数与
+    // kernel 侧同源: min(batchSize, vector 核数) —— kernel 的 GetBlockNum()
+    // 即 P2 tiling SetBlockDim 下发的 vecCoreNum (见 sgetri_p2_batched_tiling.cpp),
+    // host 侧经 PlatformInfo 取同一数值, 避免双源常量在核数不同的平台上越界。
+    if (this->dtype == 2) {
+        uint32_t vecCoreNum = Mki::PlatformInfo::Instance().GetCoreNum(Mki::CoreType::CORE_TYPE_VECTOR);
+        int64_t coreNum = (vecCoreNum == 0) ? 1 : static_cast<int64_t>(vecCoreNum);
+        int64_t slices = this->batchSize < coreNum ? this->batchSize : coreNum;
+        if (slices < 1) {
+            slices = 1;
+        }
+        aMatWorkEleNum *= slices;
+        workEleNum *= slices;
+    }
 
     std::vector<float> aWorkData(aMatWorkEleNum, 0.0f);
     std::vector<float> workGmData(workEleNum, 0.0f);
@@ -138,7 +158,6 @@ void BlasCgetriBatchedPlan::GenWorkAclTensor()
     toAclTensor(workGmTensor, workGmAcl);
 }
 
-
 AsdSip::AspbStatus BlasCgetriBatchedPlan::CreateTensor()
 {
     GenBatchWAclTensor();
@@ -152,7 +171,8 @@ AsdSip::AspbStatus BlasCgetriBatchedPlan::CreateTensor()
     // generate offset and eye mat data
     int64_t gatherEleNum = tileM * blockN;
     int64_t eyeMatEleNum = ((N + COL_ALIGNED_ELENUM - 1) / COL_ALIGNED_ELENUM * COL_ALIGNED_ELENUM) *
-        ((M + BASE_BLOCK_ELENUM - 1) / BASE_BLOCK_ELENUM * BASE_BLOCK_ELENUM + COL_ALIGNED_ELENUM) * EYE_MATRIX_NUM;
+                           ((M + BASE_BLOCK_ELENUM - 1) / BASE_BLOCK_ELENUM * BASE_BLOCK_ELENUM + COL_ALIGNED_ELENUM) *
+                           EYE_MATRIX_NUM;
     int64_t batchNum = this->batchSize;
 
     std::vector<uint32_t> gatherOffset1(gatherEleNum, 0);
@@ -189,8 +209,7 @@ AsdSip::AspbStatus BlasCgetriBatchedPlan::CreateTensor()
     return ErrorType::ACL_SUCCESS;
 }
 
-
-void BlasCgetriBatchedPlan::FreeTensorData(Tensor &input) const
+void BlasCgetriBatchedPlan::FreeTensorData(Tensor& input) const
 {
     if (input.data != nullptr) {
         FreeTensorInDevice(input);
@@ -200,7 +219,6 @@ void BlasCgetriBatchedPlan::FreeTensorData(Tensor &input) const
         input.hostData = nullptr;
     }
 }
-
 
 AsdSip::AspbStatus BlasCgetriBatchedPlan::FreeTensor()
 {
@@ -225,11 +243,7 @@ AsdSip::AspbStatus BlasCgetriBatchedPlan::FreeTensor()
     return ErrorType::ACL_SUCCESS;
 }
 
-BlasCgetriBatchedPlan::~BlasCgetriBatchedPlan()
-{
-    BlasPlan::DestroyPlanData();
-}
-
+BlasCgetriBatchedPlan::~BlasCgetriBatchedPlan() { BlasPlan::DestroyPlanData(); }
 
 int64_t BlasCgetriBatchedPlan::GetWorkspaceSize()
 {
@@ -246,4 +260,4 @@ int64_t BlasCgetriBatchedPlan::GetWorkspaceSize()
     ASDSIP_LOG(DEBUG) << "BlasCgetriBatchedPlan estimates workspace-size:" << workspaceSize << ".\n";
     return workspaceSize;
 }
-}
+} // namespace AsdSip

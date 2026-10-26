@@ -22,21 +22,24 @@ public:
     AsdSip::AspbStatus CreateTensor() override;
     AsdSip::AspbStatus FreeTensor() override;
 
-    aclTensor *wBatchAcl = nullptr;
-    aclTensor *gather1OffsetAcl = nullptr;
-    aclTensor *gather2OffsetAcl = nullptr;
-    aclTensor *gather3OffsetAcl = nullptr;
-    aclTensor *eyeBatchMatAcl = nullptr;
+    aclTensor* wBatchAcl = nullptr;
+    aclTensor* gather1OffsetAcl = nullptr;
+    aclTensor* gather2OffsetAcl = nullptr;
+    aclTensor* gather3OffsetAcl = nullptr;
+    aclTensor* eyeBatchMatAcl = nullptr;
 
-    aclTensor *aWorkAcl = nullptr;
-    aclTensor *workGmAcl = nullptr;
+    aclTensor* aWorkAcl = nullptr;
+    aclTensor* workGmAcl = nullptr;
+
+    int64_t GetN() const { return n; }
+    int64_t GetBatchSize() const { return batchSize; }
 
 private:
     void GenBatchWAclTensor();
     void GenWorkAclTensor();
-    void GenOffsetAndEyeMatData(std::vector<uint32_t> &gatherBuf1, std::vector<uint32_t> &gatherBuf2,
-        std::vector<uint32_t> &gatherBuf3, std::vector<float> &eyeBuf) const;
-    void FreeTensorData(Tensor &input) const;
+    void GenOffsetAndEyeMatData(std::vector<uint32_t>& gatherBuf1, std::vector<uint32_t>& gatherBuf2,
+                                std::vector<uint32_t>& gatherBuf3, std::vector<float>& eyeBuf) const;
+    void FreeTensorData(Tensor& input) const;
 
     int64_t n;
     int64_t batchSize;
@@ -50,4 +53,4 @@ private:
     Tensor aWorkTensor;
     Tensor workGmTensor;
 };
-}
+} // namespace AsdSip
