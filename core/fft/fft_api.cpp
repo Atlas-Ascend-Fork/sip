@@ -1250,9 +1250,10 @@ AspbStatus OpsFftBackendUnifyIntercept(const FFTPlan& plan)
             continue;
         }
         // 回退提示用 ERROR 级: 默认日志级别下 WARN 会被完全过滤, 静默回退不可见
-        ASDSIP_LOG(ERROR) << "SIP_FFT_BACKEND=" << (autoFallback ? "ops-fft-auto" : "ops-fft") << ": "
-                          << (adapted ? "ops-fft kernel stub unavailable (binary package missing/mismatched)" :
-                                        "current FFT path is not adapted to ops-fft kernel")
+        const char* reason = adapted ?
+                                 "ops-fft kernel stub unavailable (ops-fft library not linked or symbol missing)" :
+                                 "current FFT path is not adapted to ops-fft kernel";
+        ASDSIP_LOG(ERROR) << "SIP_FFT_BACKEND=" << (autoFallback ? "ops-fft-auto" : "ops-fft") << ": " << reason
                           << (autoFallback ? ", auto fallback to internal kernel." : ", aborting.");
         if (!autoFallback) {
             return ErrorType::ACL_ERROR_API_NOT_SUPPORT;

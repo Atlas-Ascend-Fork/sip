@@ -32,7 +32,7 @@ public:
     size_t EstimateWorkspaceSize() override;
     void Run(Tensor& input, Tensor& output, void* stream, workspace::Workspace& workspace) override {}
     void Run(void* input, void* output, void* stream, workspace::Workspace& workspace) override;
-    // ops-fft 后端已覆盖 950 两条路径: mixed-radix 直调 + radix-2 直调存件旧版 kernel
+    // ops-fft 后端已覆盖 950 两条路径: mixed-radix 直调 + radix-2 直调制品旧版 kernel
     bool OpsFftBackendAdapted() const override { return true; }
     bool OpsFftBackendStubReady() const override;
 
@@ -45,7 +45,7 @@ private:
     AsdSip::AspbStatus BuildFftPlan();
     AsdSip::AspbStatus InitTactic();
     // ops-fft 直调后端 (950/arch35):
-    // mixed-radix 经 mix 内核整 FFT 单 launch 直调; radix-2 纯 2 幂直调存件旧版 kernel
+    // mixed-radix 经 mix 内核整 FFT 单 launch 直调; radix-2 纯 2 幂直调制品旧版 kernel
     // (即 sip 97769d8 优化前实现); 常量拷贝为公共步骤
     void RunViaOpsFft(void* input, void* output, void* stream, workspace::Workspace& workspace);
     void RunViaOpsFftRadix2(void* input, void* output, void* stream, workspace::Workspace& workspace);

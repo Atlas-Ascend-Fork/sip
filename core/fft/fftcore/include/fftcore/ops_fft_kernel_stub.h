@@ -41,7 +41,7 @@ struct OpsFftDftTilingData {
 
 static_assert(sizeof(OpsFftDftTilingData) == 60, "Fft1DDFTTilingData layout mismatch");
 
-// ops-fft 预编译制品 libcann_ops_fft.so 导出的 kernel host stub (bisheng <<<>>> 生成物):
+// ops-fft 制品 libcann_ops_fft.so 导出的 kernel host stub (bisheng <<<>>> 生成物):
 //   - fft_b: 910B(arch32) C2C radix-2, tiling 对应 sip FftBTilingData/Fft1DBTilingData
 //   - fft_n: 910B(arch32) C2C radix-2 大点数, tiling 对应 sip FftNTilingData/Fft1DNTilingData
 //   - fft_stride: 910B(arch32) C2C 纵向 stride, tiling 对应 sip FftStrideTilingData/Fft1DStrideTilingData
@@ -56,7 +56,7 @@ static_assert(sizeof(OpsFftDftTilingData) == 60, "Fft1DDFTTilingData layout mism
 //   - fft_c2r_multi_core: 950(arch35) C2R 混合基, tiling 对应 sip FftAllMixTilingData
 //   - rfft1_d_fast_dft: 950(arch35) R2C fast dft, tiling 与 sip 不同源 (4 指针 + 140B 值传),
 //     暂不接入, 请求时由统一拦截报错
-// stub 声明为 weak (存件 so 只含单一 SoC 的 arch 产物): 任一存件下均可加载, 缺失侧为 nullptr
+// stub 声明为 weak (制品 so 只含单一 SoC 的 arch 产物): 任一制品下均可加载, 缺失侧为 nullptr
 extern "C" {
 __attribute__((weak)) void fft_b(uint32_t blocks, void* unused, void* stream, void* ffts_addr, void* gm_input,
                                  void* gm_w, void* gm_t, void* gm_index, void* gm_output, void* gm_workspace,
@@ -139,13 +139,13 @@ namespace AsdSip {
 // 后端开关: SIP_FFT_BACKEND=ops-fft 为强制请求(未适配/缺件即报错, 不回退);
 // SIP_FFT_BACKEND=ops-fft-auto 为自动模式(适配且 stub 就绪的 step 走 ops-fft,
 // 其余 step 打 ERROR 日志后自动回退 internal, 见 OpsFftBackendUnifyIntercept);
-// 未设置时: 联合构建(存件已链接)默认严格档, 杜绝静默 internal; 纯 internal 构建仍为
+// 未设置时: 联合构建(制品已链接)默认严格档, 杜绝静默 internal; 纯 internal 构建仍为
 // internal; 显式 internal 与其他未识别取值均为 internal (sip 自身 kernel)
 inline bool UseOpsFftKernelBackend()
 {
     const char* backend = std::getenv("SIP_FFT_BACKEND");
     if (backend == nullptr || backend[0] == '\0') {
-        // 联合构建检测: 910B 存件含 fft_b, 950 存件含 arch35 mix, 任一非空即已链接存件
+        // 联合构建检测: 910B 制品含 fft_b, 950 制品含 arch35 mix, 任一非空即已链接制品
         return fft_b != nullptr || fft_c2c_arch35_mix_multi_core != nullptr;
     }
     return std::strcmp(backend, "ops-fft") == 0 || std::strcmp(backend, "ops-fft-auto") == 0;
@@ -177,7 +177,7 @@ inline bool OpsFftDftR2CStubAvailable() { return dft_r2c != nullptr; }
 
 inline bool OpsFftDftC2RStubAvailable() { return dft_c2r != nullptr; }
 
-// R2C/C2R 混合基按 aivSplitWay(1-3) 与奇偶选变体, 存件须同时含全部变体
+// R2C/C2R 混合基按 aivSplitWay(1-3) 与奇偶选变体, 制品须同时含全部变体
 inline bool OpsFftR2CStubAvailable()
 {
     return fft_r2c_1 != nullptr && fft_r2c_2 != nullptr && fft_r2c_3 != nullptr && fft_r2c_1_even != nullptr &&

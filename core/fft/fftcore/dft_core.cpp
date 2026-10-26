@@ -30,7 +30,7 @@ using namespace AsdSip;
 
 // dft stub 从 [sp+0] 裸读 60 字节 tiling, 与 AAPCS64 值传参约定(>16B 按引用, x7=地址)不符,
 // GCC 按值直调会错位读栈; 垫片将 tiling 落到 [sp+0..59] 后经 GOT 取弱符号 dft 跳转, x0..x6 透传。
-// 垫片仅对 aarch64 (910B 存件) 构建有意义; x86_64 链接 950 存件 (无 dft stub, 判空已拦截, 不可达),
+// 垫片仅对 aarch64 (910B 制品) 构建有意义; x86_64 链接 950 制品 (无 dft stub, 判空已拦截, 不可达),
 // #else 的 SysV 值传直调兜底仅保链接 (SysV >16B 结构体整体落栈, 无错位)。
 #if defined(__aarch64__)
 extern "C" void OpsFftCallDft(uint32_t blocks, void* unused, void* stream, void* gm_input, void* gm_dft_matrix,

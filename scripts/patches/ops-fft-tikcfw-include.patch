@@ -1,0 +1,21 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index b71de39..8744027 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -170,3 +170,16 @@ message(STATUS "  NPU       : ${ASCEND_NPU_ARCH}")
+ message(STATUS "  Operators : ${BUILD_OPERATORS}")
+ message(STATUS "  Tests     : ${BUILD_TESTING}")
+ message(STATUS "==========================================")
++
++# [sip-joint v2] bisheng of some CANN releases no longer auto-includes tikcfw internal
++# header paths, kernel side code needs them explicitly; must be BEFORE the repo's own
++# source dirs: public headers of certain CANN releases include an internal header with
++# the same name as this repo's (kernel_utils.h), appending at tail gets shadowed by the
++# repo's own dir and AscendC symbols (Add/BinaryRepeatParams etc.) go missing
++foreach(_tikcfw_impl
++        ${ASCEND_HOME_PATH}/aarch64-linux/tikcpp/tikcfw/impl
++        ${ASCEND_HOME_PATH}/x86_64-linux/tikcpp/tikcfw/impl)
++    if(EXISTS ${_tikcfw_impl})
++        target_include_directories(${OPS_FFT} BEFORE PUBLIC ${_tikcfw_impl})
++    endif()
++endforeach()

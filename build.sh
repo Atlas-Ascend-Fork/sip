@@ -43,25 +43,94 @@ function fn_build_mki()
     bash scripts/build.sh $build_options
 }
 
+function fn_build_ops_fft_from_src()
+{
+    # ops-fft 源码级联编译, 联合构建的唯一制品来源:
+    #   源码仓默认 3rdparty/ops-fft-src (缺失自动 clone, OPS_FFT_SRC_DIR 可指定外部源码),
+    #   产物收编回 3rdparty/ops-fft/ 布局, 不入库, 每次由源码重新产出
+    local soc=$1
+    local src_dir=${OPS_FFT_SRC_DIR:-${THIRD_PARTY_DIR}/ops-fft-src}
+    local pkg=${THIRD_PARTY_DIR}/ops-fft
+
+    if [ ! -f ${src_dir}/build.sh ]; then
+        if [ ${src_dir} != ${THIRD_PARTY_DIR}/ops-fft-src ]; then
+            echo "[ERROR] ops-fft: OPS_FFT_SRC_DIR=${OPS_FFT_SRC_DIR} 无 build.sh"
+            return 1
+        fi
+        local url_proto=https://
+        local url_host=gitcode.com
+        local src_url=${OPS_FFT_SRC_URL:-${url_proto}${url_host}/cann/ops-fft.git}
+        local src_ref=${OPS_FFT_SRC_REF:-master}
+        echo "ops-fft: clone source repo (${src_url} @ ${src_ref}) -> ${src_dir}"
+        git clone -b ${src_ref} ${src_url} ${src_dir} || return 1
+    fi
+
+    # 兼容补丁: 部分 CANN 的 bisheng 不含 tikcfw 内部头文件路径, 上游修复前由本仓携带, 已含修复时跳过
+    local patch=${CODE_ROOT}/scripts/patches/ops-fft-tikcfw-include.patch
+    if [ -f ${patch} ] && ! grep -q "sip-joint v2" ${src_dir}/CMakeLists.txt; then
+        git -C ${src_dir} apply ${patch} || return 2
+        echo "ops-fft: applied tikcfw include patch v2"
+    fi
+
+    # 旧 build 缓存跨 CANN 版本复用会混用编译器与头文件, 每次全量重配;
+    # 子构建 cmake 配置/编译器路径对齐当前 ASCEND_HOME_PATH
+    rm -rf ${src_dir}/build
+    local ascend_cmake_prefix=""
+    local cmake_dir
+    for cmake_dir in ${ASCEND_HOME_PATH}/lib64/cmake ${ASCEND_HOME_PATH}/${HOSTTYPE}-linux/lib64/cmake; do
+        if [ -d ${cmake_dir} ]; then
+            ascend_cmake_prefix=${ascend_cmake_prefix}:${cmake_dir}
+        fi
+    done
+
+    echo "ops-fft: build from source (soc=${soc}, head=$(git -C ${src_dir} rev-parse --short HEAD 2>/dev/null || echo unknown))"
+    ( cd ${src_dir} && \
+        CMAKE_PREFIX_PATH=${ascend_cmake_prefix#:}${CMAKE_PREFIX_PATH} \
+        PATH=${ASCEND_HOME_PATH}/bin:${PATH} \
+        bash build.sh --soc=${soc} -j${BUILD_JOBS:-$(nproc)} ) || return 1
+
+    local so=${src_dir}/build/libcann_ops_fft.so
+    if [ ! -f ${so} ]; then
+        echo "[ERROR] ops-fft: source build finished but ${so} not found"
+        return 1
+    fi
+
+    rm -rf ${pkg}/lib/${soc}   # 清理历史残留 so/悬空软链, 防混入收编制品与 filelist.csv
+    mkdir -p ${pkg}/lib/${soc} ${pkg}/include
+    cp -af ${src_dir}/build/libcann_ops_fft.so* ${pkg}/lib/${soc}/ || return 1
+    cp -f ${src_dir}/include/cann_ops_fft.h ${pkg}/include/ || return 1
+
+    local cann_ver=$(sed -n 's/^Version=//p' ${ASCEND_HOME_PATH}/compiler/version.info 2>/dev/null || echo unknown)
+    cat > ${pkg}/lib/${soc}/manifest.info <<EOF
+soc=${soc}
+abi=${USE_CXX11_ABI}
+cann_version=${cann_ver}
+cann_path=${ASCEND_HOME_PATH}
+source_head=$(git -C ${src_dir} rev-parse HEAD 2>/dev/null || echo unknown)
+so_md5sum=$(md5sum ${pkg}/lib/${soc}/libcann_ops_fft.so | awk '{print $1}')
+EOF
+    echo "ops-fft: artifacts -> ${pkg}/lib/${soc}/"
+    return 0
+}
+
 function fn_select_ops_fft_soc()
 {
-    # 自动推导 ops-fft 存件 SoC, 不提供手动开关:
-    #   仅启用 910b/950 之一 → 跟随该目标; 两者均启用 → 按构建机架构选取
-    #   (910B 存件为 aarch64, 950 存件为 x86_64); 均未启用 → 输出空, 跳过联合构建
+    # 自动推导 ops-fft 编译目标 SoC (不提供手动开关):
+    #   仅启用 910b/950 之一 → 跟随该目标; 均启用 → 按构建机架构 (aarch64→910B, x86_64→950); 均未启用 → 输出空, 跳过联合构建
     local targets
     targets=$(python3 -c "import sys; sys.path.insert(0, '${CODE_ROOT}/scripts'); \
 import build_util; print(' '.join(build_util.get_build_target_list()))" 2>/dev/null)
     local has_910b=0
     local has_950=0
-    [[ "${targets}" == *"ascend910b"* ]] && has_910b=1
-    [[ "${targets}" == *"ascend950"* ]] && has_950=1
+    [[ ${targets} == *"ascend910b"* ]] && has_910b=1
+    [[ ${targets} == *"ascend950"* ]] && has_950=1
 
     if [ ${has_910b} -eq 1 ] && [ ${has_950} -eq 0 ]; then
         echo "Ascend910B"
     elif [ ${has_950} -eq 1 ] && [ ${has_910b} -eq 0 ]; then
         echo "Ascend950"
     elif [ ${has_910b} -eq 1 ] && [ ${has_950} -eq 1 ]; then
-        if [ "$(uname -m)" = "aarch64" ]; then
+        if [ ${HOSTTYPE} = aarch64 ]; then
             echo "Ascend910B"
         else
             echo "Ascend950"
@@ -71,71 +140,102 @@ import build_util; print(' '.join(build_util.get_build_target_list()))" 2>/dev/n
 
 function fn_prepare_ops_fft_package()
 {
-    # ops-fft 联合构建为显式开启(--use_ops_fft), 默认不构建:
-    # 开启时存件为强依赖, 缺失/失配/目标不含 910b/950 报错终止
-    if [ "${USE_OPS_FFT}" != "ON" ]; then
-        echo "ops-fft: 未开启联合构建(默认纯 internal, 需要时加 --use_ops_fft)"
+    # ops-fft 联合构建为显式开启(--use_ops_fft), 默认不构建;
+    # 制品由源码级联编译产出 (fn_build_ops_fft_from_src), 失败即报错终止
+    if [ ${USE_OPS_FFT} != ON ]; then
+        echo "ops-fft: 未开启联合构建 (需要时加 --use_ops_fft)"
         export OPS_FFT_PKG_VALID=0
         return 0
     fi
-    local pkg="${THIRD_PARTY_DIR}/ops-fft"
+    local pkg=${THIRD_PARTY_DIR}/ops-fft
     local soc
     soc=$(fn_select_ops_fft_soc)
-    if [ -z "${soc}" ]; then
+    if [ -z ${soc} ]; then
         echo "[ERROR] ops-fft: --use_ops_fft 但 build targets 不含 ascend910b/ascend950"
         exit 1
     fi
-    if [ -n "${OPS_FFT_SOC}" ] && [ "${OPS_FFT_SOC}" != "${soc}" ]; then
-        echo "ops-fft: 环境变量 OPS_FFT_SOC=${OPS_FFT_SOC} 已忽略, 自动推导为 ${soc}"
-    fi
-    export OPS_FFT_SOC="${soc}"   # 导出供 cmake 选择制品目录
-    local so="${pkg}/lib/${soc}/libcann_ops_fft.so"
-    local manifest="${pkg}/lib/${soc}/manifest.info"
+    export OPS_FFT_SOC=${soc}   # 导出供 cmake 选择制品目录
 
-    # 逐项校验: soc/arch 为硬门禁, cann_version/abi 仅信息性记录
-    # (CANN ABI 向后兼容且接口为 extern "C" 纯 C, 均不影响二进制兼容)
-    local host_arch="$(uname -m)"
+    # 前置依赖检查: cmake 命令与 ASC cmake 模块 (asc-config) 仅部分 CANN 环境提供, 缺失即报错终止
+    local prereq_missing=0
+    local prereq_msg=""
+    if ! command -v cmake > /dev/null 2>&1; then
+        prereq_missing=1
+        prereq_msg="当前环境无 cmake 命令"
+    else
+        local asc_cfg=0
+        local cfg_dir
+        for cfg_dir in ${ASCEND_HOME_PATH}/lib64/cmake ${ASCEND_HOME_PATH}/${HOSTTYPE}-linux/lib64/cmake; do
+            if [ -f ${cfg_dir}/asc-config.cmake ]; then
+                asc_cfg=1
+                break
+            fi
+        done
+        if [ ${asc_cfg} -eq 0 ]; then
+            prereq_missing=1
+            prereq_msg="当前 CANN (${ASCEND_HOME_PATH}) 未提供 ASC cmake 模块"
+        fi
+    fi
+    if [ ${prereq_missing} -ne 0 ]; then
+        echo "================================================================================"
+        echo "[ERROR] ops-fft: ${prereq_msg}, 无法执行源码级联编译"
+        echo "================================================================================"
+        exit 1
+    fi
+
+    local rc=0
+    fn_build_ops_fft_from_src ${soc} || rc=$?
+    if [ ${rc} -ne 0 ]; then
+        echo "================================================================================"
+        echo "[ERROR] ops-fft: source build failed, 排查 OPS_FFT_SRC_DIR/网络后重试"
+        echo "================================================================================"
+        exit 1
+    fi
+
+    local so=${pkg}/lib/${soc}/libcann_ops_fft.so
+    local manifest=${pkg}/lib/${soc}/manifest.info
+
+    # 逐项校验: soc/arch 为硬门禁; cann_version/abi 仅信息性记录 (ABI 向后兼容, 不影响二进制兼容)
+    local host_arch=${HOSTTYPE}
     local so_arch="unknown"
-    case "$(readelf -h "${so}" 2>/dev/null | sed -n 's/^ *Machine: *//p')" in
-        AArch64) so_arch="aarch64" ;;
-        *X86-64*) so_arch="x86_64" ;;
+    # 读 ELF 头 e_machine 判定制品架构 (偏移 18, 小端: b7 00 -> AArch64, 3e 00 -> x86-64), 读不到保持 unknown
+    case $(od -An -tx1 -j18 -N2 ${so} 2>/dev/null | tr -d ' \n') in
+        b700) so_arch="aarch64" ;;
+        3e00) so_arch="x86_64" ;;
     esac
     local mismatch=""
-    if [ ! -f "${so}" ]; then
+    if [ ! -f ${so} ]; then
         mismatch="so 缺失: ${so}"
-    elif [ ! -f "${manifest}" ]; then
+    elif [ ! -f ${manifest} ]; then
         mismatch="manifest 缺失: ${manifest}"
-    elif ! grep -q "^soc=${soc}$" "${manifest}"; then
+    elif ! grep -q "^soc=${soc}$" ${manifest}; then
         mismatch="soc 不匹配 (需 ${soc}, manifest: $(grep '^soc=' ${manifest}))"
-    elif [ "${so_arch}" != "unknown" ] && [ "${so_arch}" != "${host_arch}" ]; then
-        mismatch="arch 不匹配 (本机 ${host_arch}, 存件 ${so_arch}: ${so})"
+    elif [ ${so_arch} != unknown ] && [ ${so_arch} != ${host_arch} ]; then
+        mismatch="arch 不匹配 (本机 ${host_arch}, 制品 ${so_arch}: ${so})"
     fi
 
-    if [ -z "${mismatch}" ]; then
-        echo "ops-fft binary package ready: ${so} (soc=${soc}, arch=${so_arch})"
+    if [ ${#mismatch} -eq 0 ]; then
+        echo "ops-fft package ready (source build): ${so} (soc=${soc}, arch=${so_arch})"
         export OPS_FFT_PKG_VALID=1
         return 0
     fi
 
-    # --use_ops_fft 下存件为强依赖: 缺失/失配直接报错终止
     echo "================================================================================"
-    echo "[ERROR] ops-fft binary package validation failed (--use_ops_fft), build aborted:"
-    echo "[ERROR]   ${mismatch}"
-    echo "[ERROR] see docs/ops_fft_joint_build.md (存件更新) or use a matched-arch host"
+    echo "[ERROR] ops-fft package validation failed: ${mismatch}"
     echo "================================================================================"
     exit 1
 }
 
 function fn_collect_ops_fft_artifacts()
 {
-    local pkg="${THIRD_PARTY_DIR}/ops-fft"
-    local soc="${OPS_FFT_SOC}"
-    if [ "${OPS_FFT_PKG_VALID}" != "1" ]; then
+    local pkg=${THIRD_PARTY_DIR}/ops-fft
+    local soc=${OPS_FFT_SOC}
+    if [ ${OPS_FFT_PKG_VALID} != 1 ]; then
         return
     fi
     mkdir -p ${OUTPUT_DIR}/lib ${OUTPUT_DIR}/include
-    cp -af "${pkg}/lib/${soc}"/libcann_ops_fft.so* ${OUTPUT_DIR}/lib/
-    cp -f "${pkg}/include/cann_ops_fft.h" ${OUTPUT_DIR}/include/ 2>/dev/null
+    cp -af ${pkg}/lib/${soc}/libcann_ops_fft.so* ${OUTPUT_DIR}/lib/
+    cp -f ${pkg}/include/cann_ops_fft.h ${OUTPUT_DIR}/include/
     echo "collect ops-fft artifacts: libcann_ops_fft.so, cann_ops_fft.h -> ${OUTPUT_DIR}"
 }
 
@@ -695,7 +795,7 @@ function fn_build()
         cd $CODE_ROOT/
     fi
 
-    # ops-fft 二进制存件准入 (默认不构建; --use_ops_fft 显式开启, 缺失/失配时报错终止)
+    # ops-fft 联合构建 (默认不构建, --use_ops_fft 显式开启)
     fn_prepare_ops_fft_package
 
     cd $CODE_ROOT/
@@ -724,7 +824,7 @@ function help_info() {
     echo "--output=<dir>               指定编译输出目录，默认为sip/output目录."
     echo "--use_cxx11_abi=0            设置-D_GLIBCXX_USE_CXX11_ABI=0 (默认选项)."
     echo "--use_cxx11_abi=1            设置-D_GLIBCXX_USE_CXX11_ABI=1."
-    echo "--use_ops_fft                开启 ops-fft 联合构建(默认不构建; 开启后存件缺失/失配时报错终止)."
+    echo "--use_ops_fft                开启 ops-fft 联合构建(默认不构建), 制品由源码级联编译产出."
     echo "--verbose                    打印详细的编译命令."
     echo "--mssanitizer                启用mssanitizer."
     echo "--device_id=<id>             指定运行 UT/example 的物理卡号(注入 ASDSIP_DEVICE_ID),"

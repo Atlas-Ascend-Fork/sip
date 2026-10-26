@@ -121,7 +121,7 @@ void FftC2CCoreArch35::Run(void* input, void* output, void* stream, workspace::W
         int32_t logNhalf = Log2PowerOfTwo(nHalf);
         int32_t isInverse = 1 - int(problemDesc.forward);
 
-        // stub 判空防护绕过统一拦截的直接调用(缺失走 internal); radix-2 直调存件旧版 kernel
+        // stub 判空防护绕过统一拦截的直接调用(缺失走 internal); radix-2 直调制品旧版 kernel
         if (AsdSip::UseOpsFftKernelBackend() && AsdSip::OpsFftArch35Radix2StubAvailable()) {
             RunViaOpsFftRadix2(input, output, stream, workspace);
             return;
@@ -236,7 +236,7 @@ void FftC2CCoreArch35::DestroyInDevice()
 
 bool FftC2CCoreArch35::OpsFftBackendStubReady() const
 {
-    // mixed-radix 经 mix 内核直调, radix-2 直调旧版 kernel; 两 stub 同源于一份存件
+    // mixed-radix 经 mix 内核直调, radix-2 直调旧版 kernel; 两 stub 同源于一份制品
     return AsdSip::OpsFftArch35MixStubAvailable() || AsdSip::OpsFftArch35Radix2StubAvailable();
 }
 
@@ -418,7 +418,7 @@ AspbStatus FftC2CCoreArch35::BuildOpsFftRadix2Coeffs()
     return AsdSip::ErrorType::ACL_SUCCESS;
 }
 
-// ops-fft 直调路径 (950/arch35 radix-2 纯 2 幂): 直调存件 fft_c2c_arch35_multi_core,
+// ops-fft 直调路径 (950/arch35 radix-2 纯 2 幂): 直调制品 fft_c2c_arch35_multi_core,
 // 即 sip 97769d8 旧版 C2C kernel (94ea107 性能重写前) 的移植, 契约同旧版 BuildFftPlan /
 // ops-fft host fft1_d_c2c.cpp: 整 FFT 单 launch, tiling 1216B (头部 + 5 workspace offset +
 // 内嵌 plan 数组), 常量为 per-stage DFT 矩阵与收缩式 twiddle 级联。

@@ -2,21 +2,23 @@
 
 ## 1. 概述
 
-联合构建为 SiP 的 FFT 算子提供第二种执行后端：直调 ops-fft 预编译库 `libcann_ops_fft.so` 导出的 device kernel，常量与 tiling 复用 SiP plan 期产物。
+联合构建为 SiP 的 FFT 算子提供第二种执行后端：直调 ops-fft 库 `libcann_ops_fft.so` 导出的 device kernel，常量与 tiling 复用 SiP plan 期产物。
 
 | 后端 | 说明 |
 | --- | --- |
 | internal | SiP 自带 kernel；纯 internal 构建的默认后端，联合构建下须显式 `SIP_FFT_BACKEND=internal` |
-| ops-fft | 直调存件 kernel，须以 `--use_ops_fft` 构建，联合构建下为默认后端（严格档） |
+| ops-fft | 直调 ops-fft 库 kernel，须以 `--use_ops_fft` 构建，联合构建下为默认后端（严格档） |
 
 双后端的数值一致性分两档（成因见第 2 节）：
 
 | 路径 | 一致性 |
 | --- | --- |
 | Ascend910B 全部覆盖路径；Ascend950 混合基路径 | 逐位一致 |
-| Ascend950 radix-2 路径（直调存件旧版 kernel） | 数值等价：rel ~2.3e-07，以毒化 + rel err + CPU 锚点验收 |
+| Ascend950 radix-2 路径（直调 ops-fft 旧版 kernel） | 数值等价：rel ~2.3e-07，以毒化 + rel err + CPU 锚点验收 |
 
 ## 2. 存件版本背景
+
+> 注：联合构建已改为源码级联编译（见 3.2 节），制品 kernel 跟随 ops-fft 上游演进；本节对应关系与一致性结论以 2026-04 快照存件为基准梳理，新制品的一致性以 `example/A2/FFT/ops_fft_ab/` A/B 验证为准。
 
 存件移植自 2026-04 的 SiP 快照（97769d8），此后不再跟随 SiP 演进；SiP 于 2026-06（94ea107）完成 FFT 性能重写。存件 kernel 与 SiP 现行实现的对应关系：
 
@@ -40,7 +42,7 @@
 
 ### 3.1 默认构建
 
-`bash build.sh` 产出纯 internal 安装包，不依赖 `3rdparty/ops-fft/` 存件。
+`bash build.sh` 产出纯 internal 安装包，不触发 ops-fft 源码编译。
 
 ### 3.2 联合构建
 
@@ -48,17 +50,26 @@
 bash build.sh --use_ops_fft
 ```
 
-存件为强依赖，构建前按 `lib/<soc>/manifest.info` 逐项校验：
+制品**由源码级联编译产出**（参照 ascend-boost-comm/mki 模式），为唯一途径，无预编译存件回退：
 
-- 硬门禁：`soc` 与编译目标一致；存件架构与本机一致（用 binutils 工具直读 `libcann_ops_fft.so` 的 ELF 头比对，当前 Ascend910B 存件为 aarch64、Ascend950 存件为 x86_64）。
+| 环节 | 行为 |
+| --- | --- |
+| 源码获取 | 默认 clone 上游 `cann/ops-fft` @ master 至 `3rdparty/ops-fft-src/`（常驻复用，免重复 clone）；`OPS_FFT_SRC_DIR` 指向外部已有源码；`OPS_FFT_SRC_URL`/`OPS_FFT_SRC_REF` 覆盖仓地址与分支 |
+| 兼容补丁 | 上游未修复部分 CANN 环境 bisheng 不再隐含 `tikcfw` 头文件路径前，自动应用 `scripts/patches/ops-fft-tikcfw-include.patch`（已应用时跳过） |
+| 编译 | `bash build.sh --soc=<自动推导> -j<N>`，SoC 复用 3.3 节推导链，产物三件套（soname 链）+ 头文件收编至 `3rdparty/ops-fft/` 制品布局，并自动生成 `manifest.info` |
+| 失败终止 | 源码获取/编译/收编失败、门禁复核不通过、或编译目标不含 Ascend910B/Ascend950 时，构建立即终止 |
+
+产物落 `3rdparty/ops-fft/` 后仍按门禁逐项复核（`lib/<soc>/manifest.info`）：
+
+- 硬门禁：`soc` 与编译目标一致；制品架构与本机一致（直读 `libcann_ops_fft.so` 的 ELF 头比对）。
 - `cann_version`、`abi` 为信息性字段，不参与校验：接口为 `extern "C"` 纯 C，CANN ABI 向后兼容。
 
-校验失败，或编译目标不含 Ascend910B/Ascend950 时，构建立即终止。校验通过后：`libasdsip.so` 以 `-Wl,--no-as-needed` 显式链接 `libcann_ops_fft.so`；存件与头文件收编进安装包（登记 `filelist.csv`，卸载不残留），运行期由 `set_env.sh` 设置的 `LD_LIBRARY_PATH` 定位。
+复核通过后：`libasdsip.so` 以 `-Wl,--no-as-needed` 显式链接 `libcann_ops_fft.so`；制品与头文件收编进安装包（登记 `filelist.csv`，卸载不残留），运行期由 `set_env.sh` 设置的 `LD_LIBRARY_PATH` 定位。`3rdparty/ops-fft/` 与 `3rdparty/ops-fft-src/` 均不入库（gitignore），`--clean` 一并清理。
 
 ### 3.3 SoC 推导
 
 - 仅启用 Ascend910B/Ascend950 之一：跟随该目标。
-- 两者同时启用：按构建机架构选取（aarch64 → Ascend910B 存件，x86_64 → Ascend950 存件）。
+- 两者同时启用：按构建机架构选取（aarch64 → Ascend910B，x86_64 → Ascend950）。
 
 ## 4. 运行
 
@@ -69,7 +80,7 @@ bash build.sh --use_ops_fft
 | 取值 | 语义 |
 | --- | --- |
 | 未设置 | 联合构建默认严格档（等价 `ops-fft`，杜绝静默 internal）；纯 internal 构建为 internal |
-| `ops-fft` | 强制档：路径未适配或存件缺所需 kernel 时返回 `ACL_ERROR_API_NOT_SUPPORT`，不回退。适用于 A/B 验证等须显式生效或显式失败的场景。 |
+| `ops-fft` | 强制档：路径未适配或 ops-fft 库缺所需 kernel 时返回 `ACL_ERROR_API_NOT_SUPPORT`，不回退。适用于 A/B 验证等须显式生效或显式失败的场景。 |
 | `ops-fft-auto` | 自动档：适配且 stub 就绪的 step 走 ops-fft，其余自动回退 internal（各 core 的 Run 分支逐 step 判定）。适用于全量 UT 与存量业务。 |
 | `internal` | 显式 internal：联合构建下的逃生口，A/B 对比的 internal 侧使用。 |
 
@@ -107,7 +118,7 @@ bash build.sh --use_ops_fft
 补充说明：
 
 - **radix-2 可达域由双层路由决定**：`a5::Select` 仅在纯 2 幂 n ≥ 2^21 时回落 arch35；arch35 内部仅 batch > 32 时选 radix-2 kernel。n < 2^21 的纯 2 幂调度至 RegBase/Packed/Gauss（未接入，强制档请求时报错）。
-- **R2C/C2R 当前不可达**：命中形状全部被 `a5::SelectReal` 调度至 Stockham/RegBase（未接入本后端），arch35 R2C/C2R core 不会被实例化；适配就位以对齐存件导出，待调度演进后即生效。
+- **R2C/C2R 当前不可达**：命中形状全部被 `a5::SelectReal` 调度至 Stockham/RegBase（未接入本后端），arch35 R2C/C2R core 不会被实例化；适配就位以对齐 ops-fft 库导出，待调度演进后即生效。
 
 ### 4.3 验证
 
@@ -125,16 +136,16 @@ bash build.sh 15000 4    # Ascend950：混合基 n=15000 命中 arch35 mix
 
 联合构建下 UT 不设置开关即为严格档，未适配形状会报错；全量执行请使用自动档（未适配 step 回退 internal，ERROR 日志可辨）；纯 internal 构建不受影响。联合构建安装包上运行未适配形状的既有业务（如 2D/3D 分解、istft）须显式 `SIP_FFT_BACKEND=internal` 或 `ops-fft-auto`。
 
-## 5. 存件维护
+## 5. 制品维护
 
-存件由 ops-fft 仓产出，本仓只收编、不从源码构建。布局：
+制品由源码级联编译产出（见 3.2 节），每次 `--use_ops_fft` 构建重新生成，不入库。布局：
 
 ```text
-3rdparty/ops-fft/
-├── include/cann_ops_fft.h            # ops-fft 对外头文件
+3rdparty/ops-fft/                     # 构建产物 (gitignore, --clean 清理)
+├── include/cann_ops_fft.h            # 自 ops-fft 源码收编
 └── lib/<soc>/                        # Ascend910B / Ascend950
     ├── libcann_ops_fft.so            # soname 链：.so -> .so.1 -> .so.x.y.z 三件套
-    └── manifest.info
+    └── manifest.info                 # 构建时自动生成
 ```
 
 `manifest.info` 字段（`build.sh` 仅校验 `soc`，其余为溯源信息）：
@@ -148,4 +159,4 @@ source_head=<commit>                  # 信息性：ops-fft 源码 commit
 so_md5sum=<md5sum>                    # md5sum libcann_ops_fft.so
 ```
 
-升级注意：若存件后续同步 94ea107 优化版 kernel，radix-2 直调可升级为逐位一致，但 tiling/常量契约会变（butterfly 不含 per-stage DFT 矩阵），`RunViaOpsFftRadix2` 需按新契约重写。
+升级注意：制品 kernel 跟随 ops-fft 上游演进，若上游同步 94ea107 优化版 kernel，radix-2 直调可升级为逐位一致，但 tiling/常量契约会变（butterfly 不含 per-stage DFT 矩阵），`RunViaOpsFftRadix2` 需按新契约重写；上游变更后以 `example/A2/FFT/ops_fft_ab/` A/B 验证确认。
