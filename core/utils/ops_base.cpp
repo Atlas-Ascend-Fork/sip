@@ -43,6 +43,13 @@ static Status MallocOutTensor(LaunchParam& launchParam, const Operation* op, SVe
         return status;
     }
 
+    // 记录哪些槽位持有调用方预置的设备内存（进入本函数时 data != nullptr）：
+    // 回滚时只释放本次调用新分配的内存，避免误释放调用方预置指针（PR #218 检视 P2）
+    SVector<bool> preexisting(static_cast<size_t>(outTensorNum), false);
+    for (int64_t i = 0; i < outTensorNum; i++) {
+        preexisting[static_cast<size_t>(i)] = launchParam.GetOutTensor(i).data != nullptr;
+    }
+
     for (int64_t i = 0; i < outTensorNum; i++) {
         Tensor& tensor = launchParam.GetOutTensor(i);
         Tensor& outTensor = outTensorList.at(i);
@@ -55,6 +62,20 @@ static Status MallocOutTensor(LaunchParam& launchParam, const Operation* op, SVe
         if (tensor.data == nullptr) {
             int st = MkiRtMemMallocDevice(&tensor.data, tensor.dataSize, MKIRT_MEM_DEFAULT);
             if (st != MKIRT_SUCCESS) {
+                // 中途回滚（issue #294）：仅释放本次调用新分配的 [0..i-1] 设备内存，
+                // 避免长驻进程在反复失败路径上持续泄漏直至 OOM
+                for (int64_t j = 0; j < i; j++) {
+                    if (preexisting[static_cast<size_t>(j)]) {
+                        continue; // 调用方预置内存，所有权归调用方，不释放
+                    }
+                    Tensor& prev = launchParam.GetOutTensor(j);
+                    if (prev.data != nullptr) {
+                        (void)MkiRtMemFreeDevice(prev.data);
+                        prev.data = nullptr;
+                        outTensorList.at(j).data = nullptr;
+                    }
+                }
+                ASDSIP_LOG(ERROR) << "Device malloc outtensor failed at index " << i;
                 return Status::FailStatus(-1, "Device malloc outtensor failed.");
             }
             outTensor.data = tensor.data;
@@ -118,7 +139,13 @@ static Status RunAsdOpsImpl(LaunchParam& launchParam, const AsdSip::OpDesc& opDe
         return Status::FailStatus(-1, "Get best kernel failed.");
     }
     kernel->SetLaunchWithTiling(true);
-    kernel->Init(launchParam);
+    // Init 状态检查（issue #288，对齐 fft_c2c_regbase.cpp:87 既有写法）：
+    // tiling 失败被吞后仍以未完成 tiling 启动内核，真实失败原因被掩盖
+    auto initStatus = kernel->Init(launchParam);
+    if (!initStatus.Ok()) {
+        ASDSIP_LOG(ERROR) << "Kernel Init failed in RunAsdOpsImpl.";
+        return initStatus;
+    }
 
     if (workspace == nullptr) {
         const KernelInfo& kernelInfo = kernel->GetKernelInfo();
@@ -186,6 +213,9 @@ Status MallocTensorInDevice(Tensor& tensor)
 
     st = MkiRtMemCopy(tensor.data, tensor.dataSize, tensor.hostData, tensor.dataSize, MKIRT_MEMCOPY_HOST_TO_DEVICE);
     if (st != MKIRT_SUCCESS) {
+        // 拷贝失败释放已分配设备内存（issue #294），避免错误路径泄漏
+        (void)MkiRtMemFreeDevice(tensor.data);
+        tensor.data = nullptr;
         ASDSIP_LOG(ERROR) << "Memcpy host to device failed.";
         return Status::FailStatus(-1, "Memcpy host to device failed.");
     }
@@ -234,7 +264,13 @@ static Status RunAsdOpsImplV2(LaunchParam& launchParam, const AsdSip::OpDesc& op
         return Status::FailStatus(-1, "Get best kernel failed.");
     }
     kernel->SetLaunchWithTiling(true);
-    kernel->Init(launchParam);
+    // Init 状态检查（issue #288，对齐 fft_c2c_regbase.cpp:87 既有写法）：
+    // tiling 失败被吞后仍以未完成 tiling 启动内核，真实失败原因被掩盖
+    auto initStatus = kernel->Init(launchParam);
+    if (!initStatus.Ok()) {
+        ASDSIP_LOG(ERROR) << "Kernel Init failed in RunAsdOpsImplV2.";
+        return initStatus;
+    }
     if (workspace == nullptr) {
         const KernelInfo& kernelInfo = kernel->GetKernelInfo();
         status = MallocAndSetWorkspace(kernelInfo, runInfo);
@@ -331,6 +367,13 @@ Status toAclTensor(const Tensor& inTensor, aclTensor*& outTensor, std::vector<in
         outTensor = aclCreateTensor(shape.data(), shape.size(), static_cast<aclDataType>(inTensor.desc.dtype),
                                     stride.data(), inTensor.desc.offset, static_cast<aclFormat>(inTensor.desc.format),
                                     storageShape.data(), storageShape.size(), inTensor.data);
+    }
+    // 空指针检查（issue #292）：aclCreateTensor 参数非法或资源不足时返回 nullptr，
+    // 原实现不判空仍返回成功，空指针经 AddOutTensor/ACL nnop 调用链继续传播，
+    // 单个失败张量即可污染整个 launch 流程（本助手被 30 余处调用）
+    if (outTensor == nullptr) {
+        ASDSIP_LOG(ERROR) << "aclCreateTensor failed, out tensor is nullptr.";
+        return Status::FailStatus(-1, "aclCreateTensor failed.");
     }
     return Status::OkStatus();
 }

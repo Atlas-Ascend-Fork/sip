@@ -16,8 +16,14 @@
 namespace wten {
 
 template <typename T>
-void arange(int64_t start, int64_t end, int64_t step, TheTensor<T> &out)
+void arange(int64_t start, int64_t end, int64_t step, TheTensor<T>& out)
 {
+    // 零步长防护（issue #293）：step==0 时 -step==0，落入 else 分支即有符号整数
+    // 除零 UB（典型 SIGFPE），且除零先于下方 size 校验发生，校验无法挽救
+    if (step == 0) {
+        ASDSIP_LOG(ERROR) << "arange step must not be zero.";
+        return;
+    }
     int64_t n;
     if (step > 0) {
         n = (end - 1 - start) / step + 1;
@@ -30,16 +36,15 @@ void arange(int64_t start, int64_t end, int64_t step, TheTensor<T> &out)
         return;
     }
 
-    T *out_data = out.data();
+    T* out_data = out.data();
     int64_t item = start;
     for (int64_t i = 0; i < n; i++, item += step) {
         out_data[i] = item;
     }
 }
 
-
 template <typename T>
-bool commonShapeCheck(TheTensor<T> &left, TheTensor<T> &right, TheTensor<T> &out)
+bool commonShapeCheck(TheTensor<T>& left, TheTensor<T>& right, TheTensor<T>& out)
 {
     if (left.ndim() != SHAPE_TWO || right.ndim() != SHAPE_TWO) {
         ASDSIP_LOG(ERROR) << "Inputs must be 2-dimension.";
@@ -70,9 +75,8 @@ bool commonShapeCheck(TheTensor<T> &left, TheTensor<T> &right, TheTensor<T> &out
     return true;
 }
 
-
 template <typename T>
-void outerAdd(TheTensor<T> &left, TheTensor<T> &right, TheTensor<T> &out)
+void outerAdd(TheTensor<T>& left, TheTensor<T>& right, TheTensor<T>& out)
 {
     bool checkStatus = commonShapeCheck(left, right, out);
     if (!checkStatus) {
@@ -88,7 +92,7 @@ void outerAdd(TheTensor<T> &left, TheTensor<T> &right, TheTensor<T> &out)
 }
 
 template <typename T>
-void outerMul(TheTensor<T> &left, TheTensor<T> &right, TheTensor<T> &out)
+void outerMul(TheTensor<T>& left, TheTensor<T>& right, TheTensor<T>& out)
 {
     bool checkStatus = commonShapeCheck(left, right, out);
     if (!checkStatus) {
@@ -104,7 +108,7 @@ void outerMul(TheTensor<T> &left, TheTensor<T> &right, TheTensor<T> &out)
 }
 
 template <typename T>
-void mulScalar(TheTensor<T> &in, T scalar, TheTensor<T> &out)
+void mulScalar(TheTensor<T>& in, T scalar, TheTensor<T>& out)
 {
     if (in.shape() != out.shape()) {
         ASDSIP_LOG(ERROR) << "Output does not match Input.";
@@ -117,10 +121,15 @@ void mulScalar(TheTensor<T> &in, T scalar, TheTensor<T> &out)
 }
 
 template <typename T>
-void modScalar(TheTensor<T> &src, T scalar, TheTensor<T> &dst)
+void modScalar(TheTensor<T>& src, T scalar, TheTensor<T>& dst)
 {
     if (src.shape() != dst.shape()) {
         ASDSIP_LOG(ERROR) << "Output does not match Input.";
+        return;
+    }
+    // 取模零防护（issue #293）：scalar==0 时整数取模为 UB（典型 SIGFPE）
+    if (scalar == T(0)) {
+        ASDSIP_LOG(ERROR) << "modScalar scalar must not be zero.";
         return;
     }
 
@@ -130,7 +139,7 @@ void modScalar(TheTensor<T> &src, T scalar, TheTensor<T> &dst)
 }
 
 template <typename T>
-void neg(TheTensor<T> &in, TheTensor<T> &out)
+void neg(TheTensor<T>& in, TheTensor<T>& out)
 {
     if (in.shape() != out.shape()) {
         ASDSIP_LOG(ERROR) << "Output does not match Input.";
@@ -143,7 +152,7 @@ void neg(TheTensor<T> &in, TheTensor<T> &out)
 }
 
 template <typename T>
-void sin(TheTensor<T> &in, TheTensor<T> &out)
+void sin(TheTensor<T>& in, TheTensor<T>& out)
 {
     if (in.shape() != out.shape()) {
         ASDSIP_LOG(ERROR) << "Output does not match Input.";
@@ -156,7 +165,7 @@ void sin(TheTensor<T> &in, TheTensor<T> &out)
 }
 
 template <typename T>
-void cos(TheTensor<T> &in, TheTensor<T> &out)
+void cos(TheTensor<T>& in, TheTensor<T>& out)
 {
     if (in.shape() != out.shape()) {
         ASDSIP_LOG(ERROR) << "Output does not match Input.";
@@ -169,7 +178,7 @@ void cos(TheTensor<T> &in, TheTensor<T> &out)
 }
 
 template <typename T>
-void transpose(TheTensor<T> &in, const std::vector<int64_t> &permute_dims, TheTensor<T> &out)
+void transpose(TheTensor<T>& in, const std::vector<int64_t>& permute_dims, TheTensor<T>& out)
 {
     if (in.ndim() != permute_dims.size()) {
         ASDSIP_LOG(ERROR) << "permute_dims does not match input's shape.";
@@ -193,8 +202,8 @@ void transpose(TheTensor<T> &in, const std::vector<int64_t> &permute_dims, TheTe
         reversed_dims[permute_dims[i]] = i;
     }
 
-    const std::vector<int64_t> &in_shape = in.shape();
-    const std::vector<int64_t> &out_strides = out.strides();
+    const std::vector<int64_t>& in_shape = in.shape();
+    const std::vector<int64_t>& out_strides = out.strides();
 
     for (int64_t index = 0; index < static_cast<int64_t>(out.size()); index++) {
         int64_t remain = index;
@@ -215,7 +224,7 @@ void transpose(TheTensor<T> &in, const std::vector<int64_t> &permute_dims, TheTe
 }
 
 template <typename T>
-void copy(TheTensor<T> &src, TheView<T> &dst)
+void copy(TheTensor<T>& src, TheView<T>& dst)
 {
     if (src.shape() != dst.shape()) {
         ASDSIP_LOG(ERROR) << "Output does not match Input.";
@@ -228,7 +237,7 @@ void copy(TheTensor<T> &src, TheView<T> &dst)
 }
 
 template <typename T>
-void copy(TheView<T> &src, TheView<T> &dst)
+void copy(TheView<T>& src, TheView<T>& dst)
 {
     if (src.shape() != dst.shape()) {
         ASDSIP_LOG(ERROR) << "Output does not match Input.";
@@ -241,7 +250,7 @@ void copy(TheView<T> &src, TheView<T> &dst)
 }
 
 template <typename T, typename E>
-void cast(TheTensor<T> &src, TheTensor<E> &dst)
+void cast(TheTensor<T>& src, TheTensor<E>& dst)
 {
     if (src.shape() != dst.shape()) {
         ASDSIP_LOG(ERROR) << "Output does not match Input.";
@@ -256,6 +265,13 @@ void cast(TheTensor<T> &src, TheTensor<E> &dst)
 template <typename T>
 TheTensor<T> arange(int64_t start, int64_t end, int64_t step)
 {
+    // 工厂重载在调用内层 arange 前先自行计算 n，step==0 时同样落入除零，
+    // 需与内层重载同等防护（issue #293 / PR #218 检视补充）
+    if (step == 0) {
+        ASDSIP_LOG(ERROR) << "arange step must not be zero.";
+        throw std::runtime_error("arange step must not be zero.");
+    }
+
     int64_t n;
     if (step > 0) {
         n = (end - 1 - start) / step + 1;
@@ -276,7 +292,7 @@ TheTensor<T> arange(int64_t start, int64_t end, int64_t step)
 }
 
 template <typename T>
-TheTensor<T> outerAdd(TheTensor<T> &left, TheTensor<T> &right)
+TheTensor<T> outerAdd(TheTensor<T>& left, TheTensor<T>& right)
 {
     if (left.ndim() != SHAPE_TWO || right.ndim() != SHAPE_TWO) {
         ASDSIP_LOG(ERROR) << "Inputs must be 2-dimension.";
@@ -291,7 +307,7 @@ TheTensor<T> outerAdd(TheTensor<T> &left, TheTensor<T> &right)
 }
 
 template <typename T>
-TheTensor<T> outerMul(TheTensor<T> &left, TheTensor<T> &right)
+TheTensor<T> outerMul(TheTensor<T>& left, TheTensor<T>& right)
 {
     if (left.ndim() != SHAPE_TWO || right.ndim() != SHAPE_TWO) {
         ASDSIP_LOG(ERROR) << "Inputs must be 2-dimension.";
@@ -306,7 +322,7 @@ TheTensor<T> outerMul(TheTensor<T> &left, TheTensor<T> &right)
 }
 
 template <typename T>
-TheTensor<T> mulScalar(TheTensor<T> &in, T scalar)
+TheTensor<T> mulScalar(TheTensor<T>& in, T scalar)
 {
     TheTensor<T> out{in.shape()};
 
@@ -316,8 +332,15 @@ TheTensor<T> mulScalar(TheTensor<T> &in, T scalar)
 }
 
 template <typename T>
-TheTensor<T> modScalar(TheTensor<T> &in, T scalar)
+TheTensor<T> modScalar(TheTensor<T>& in, T scalar)
 {
+    // 工厂重载先校验再分配，避免 scalar==0 时内层 return 后返回未填充张量
+    // （PR #218 检视 P3；抛异常风格与 arange/transpose 工厂重载一致）
+    if (scalar == T(0)) {
+        ASDSIP_LOG(ERROR) << "modScalar scalar must not be zero.";
+        throw std::runtime_error("modScalar scalar must not be zero.");
+    }
+
     TheTensor<T> out{in.shape()};
 
     modScalar(in, scalar, out);
@@ -326,7 +349,7 @@ TheTensor<T> modScalar(TheTensor<T> &in, T scalar)
 }
 
 template <typename T>
-TheTensor<T> neg(TheTensor<T> &in)
+TheTensor<T> neg(TheTensor<T>& in)
 {
     TheTensor<T> out{in.shape()};
 
@@ -336,7 +359,7 @@ TheTensor<T> neg(TheTensor<T> &in)
 }
 
 template <typename T>
-TheTensor<T> sin(TheTensor<T> &in)
+TheTensor<T> sin(TheTensor<T>& in)
 {
     TheTensor<T> out{in.shape()};
 
@@ -346,7 +369,7 @@ TheTensor<T> sin(TheTensor<T> &in)
 }
 
 template <typename T>
-TheTensor<T> cos(TheTensor<T> &in)
+TheTensor<T> cos(TheTensor<T>& in)
 {
     TheTensor<T> out{in.shape()};
 
@@ -356,7 +379,7 @@ TheTensor<T> cos(TheTensor<T> &in)
 }
 
 template <typename T>
-TheTensor<T> transpose(TheTensor<T> &in, const std::vector<int64_t> &permute_dims)
+TheTensor<T> transpose(TheTensor<T>& in, const std::vector<int64_t>& permute_dims)
 {
     std::vector<int64_t> out_shape(in.shape());
     for (size_t i = 0; i < out_shape.size(); i++) {
@@ -370,7 +393,7 @@ TheTensor<T> transpose(TheTensor<T> &in, const std::vector<int64_t> &permute_dim
 }
 
 template <typename T, typename E>
-TheTensor<E> cast(TheTensor<T> &src)
+TheTensor<E> cast(TheTensor<T>& src)
 {
     TheTensor<E> dst{src.shape()};
 
@@ -379,4 +402,4 @@ TheTensor<E> cast(TheTensor<T> &src)
     return dst;
 }
 
-}
+} // namespace wten
