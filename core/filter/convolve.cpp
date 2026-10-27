@@ -117,12 +117,16 @@ AspbStatus asdConvolveGetWorkspaceSize(int64_t signalLen, int64_t kernelLen, siz
     size_t kernelSize = static_cast<size_t>(kernelLen);
     size_t workspaceColNum = BASE_COL_BLOCK + kernelSize * DIMS_TWO - DIMS_TWO;
     size_t workspaceRowNum = workspaceColNum + kernelSize * DIMS_TWO - DIMS_TWO;
-    if (workspaceRowNum > SIZE_MAX / workspaceColNum || workspaceColNum * workspaceRowNum > SIZE_MAX / sizeof(float)) {
+    // 按 2 * sizeof(float)（complex64 的 8B/元素）为上界计算：tiling 侧对 complex64 按 8B/元素
+    // 分配 scratch、内核按 2×float 间距寻址 workspace，原 4B/元素对 complex64 场景会导致
+    // 设备侧越界写（issue #280）；complex32 用户多分配一倍属安全冗余
+    if (workspaceRowNum > SIZE_MAX / workspaceColNum ||
+        workspaceColNum * workspaceRowNum > SIZE_MAX / (DIMS_TWO * sizeof(float))) {
         ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM)
             << "asdConvolveGetWorkspaceSize overflow, kernelLen: " << kernelLen;
         return ErrorType::ACL_ERROR_INVALID_PARAM;
     }
-    size = workspaceColNum * workspaceRowNum * sizeof(float);
+    size = workspaceColNum * workspaceRowNum * DIMS_TWO * sizeof(float);
 
     return ErrorType::ACL_SUCCESS;
 }

@@ -13,7 +13,7 @@
 namespace wten {
 
 template <typename T>
-TheView<T> TheView<T>::select(const TheView<T> &view, int64_t dim, int64_t index)
+TheView<T> TheView<T>::select(const TheView<T>& view, int64_t dim, int64_t index)
 {
     if (dim < 0 || dim >= view.ndim()) {
         ASDSIP_LOG(ERROR) << "Invalid dim.";
@@ -40,8 +40,19 @@ TheView<T> TheView<T>::select(const TheView<T> &view, int64_t dim, int64_t index
 }
 
 template <typename T>
-TheView<T> TheView<T>::slice(const TheView<T> &view, int64_t dim, int64_t start, int64_t end, int64_t step)
+TheView<T> TheView<T>::slice(const TheView<T>& view, int64_t dim, int64_t start, int64_t end, int64_t step)
 {
+    // 与 select() 同型防护：dim 范围 / start 非负，防止越界读与负偏移（issue #290）
+    if (dim < 0 || dim >= view.ndim()) {
+        ASDSIP_LOG(ERROR) << "Invalid dim.";
+        throw std::runtime_error("Invalid dim.");
+    }
+
+    if (start < 0) {
+        ASDSIP_LOG(ERROR) << "start must be no less than 0.";
+        throw std::runtime_error("start must be no less than 0.");
+    }
+
     if (start >= end) {
         ASDSIP_LOG(ERROR) << "start must be less than end.";
         throw std::runtime_error("start must be less than end.");
@@ -74,4 +85,4 @@ template class TheView<double>;
 template class TheView<float>;
 template class TheView<int64_t>;
 
-}
+} // namespace wten

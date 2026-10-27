@@ -190,6 +190,18 @@ void transpose(TheTensor<T>& in, const std::vector<int64_t>& permute_dims, TheTe
         return;
     }
 
+    // 元素范围 + 唯一性校验：越界值会引发 vector 越界读写，
+    // 重复值会让 reversed_dims 留下未写入槽位、结果静默错误（issue #289）
+    std::vector<bool> seen(permute_dims.size(), false);
+    for (int64_t i = 0; i < static_cast<int64_t>(permute_dims.size()); i++) {
+        if (permute_dims[i] < 0 || permute_dims[i] >= static_cast<int64_t>(permute_dims.size()) ||
+            seen[permute_dims[i]]) {
+            ASDSIP_LOG(ERROR) << "permute_dims must be a permutation of [0, ndim).";
+            return;
+        }
+        seen[permute_dims[i]] = true;
+    }
+
     for (int64_t i = 0; i < static_cast<int64_t>(permute_dims.size()); i++) {
         if (in.shape()[permute_dims[i]] != out.shape()[i]) {
             ASDSIP_LOG(ERROR) << "Output's permute dim does not match input's permute dim.";
@@ -381,6 +393,22 @@ TheTensor<T> cos(TheTensor<T>& in)
 template <typename T>
 TheTensor<T> transpose(TheTensor<T>& in, const std::vector<int64_t>& permute_dims)
 {
+    // 先校验范围/唯一性再取下标，防止越界读（issue #289）；
+    // 非法输入按本文件值返回版助手既有约定抛异常（PR #220 检视口径统一）
+    if (in.ndim() != permute_dims.size()) {
+        ASDSIP_LOG(ERROR) << "permute_dims does not match input's shape.";
+        throw std::runtime_error("permute_dims does not match input's shape.");
+    }
+    std::vector<bool> seen(permute_dims.size(), false);
+    for (int64_t i = 0; i < static_cast<int64_t>(permute_dims.size()); i++) {
+        if (permute_dims[i] < 0 || permute_dims[i] >= static_cast<int64_t>(permute_dims.size()) ||
+            seen[permute_dims[i]]) {
+            ASDSIP_LOG(ERROR) << "permute_dims must be a permutation of [0, ndim).";
+            throw std::runtime_error("permute_dims must be a permutation of [0, ndim).");
+        }
+        seen[permute_dims[i]] = true;
+    }
+
     std::vector<int64_t> out_shape(in.shape());
     for (size_t i = 0; i < out_shape.size(); i++) {
         out_shape[i] = in.shape()[permute_dims[i]];

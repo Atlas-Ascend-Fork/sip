@@ -50,7 +50,9 @@ int64_t* getInputShape(const aclTensor* x)
         ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH) << "interpByCoeff get wrong input tensor.";
         return nullptr;
     }
-    if (storageDims[0] > MAX_BATCH || (storageDims[1] != INTERP_RS_TWO && storageDims[1] != INTERP_RS_FOUR) ||
+    // 下界校验：batch/subcarrier 维为 0 时 tiling 侧 splitN=0 触发 0/0 除零（issue #276）
+    if (storageDims[0] > MAX_BATCH || storageDims[0] <= 0 ||
+        (storageDims[1] != INTERP_RS_TWO && storageDims[1] != INTERP_RS_FOUR) || storageDims[DIMS_TWO] <= 0 ||
         storageDims[DIMS_TWO] > MAX_TOTAL_SUBCARRIER) {
         delete[] storageDims;
         storageDims = nullptr;

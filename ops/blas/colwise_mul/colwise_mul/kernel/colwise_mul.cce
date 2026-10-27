@@ -55,7 +55,7 @@ __aicore__ __inline__ __attribute__((always_inline)) void copy_vec_gm2ub(
 }
 
 __aicore__ __inline__ __attribute__((always_inline)) void copy_vec_ub2gm(
-    AscendC::GlobalTensor<float> dst, 
+    AscendC::GlobalTensor<float> dst,
     AscendC::LocalTensor<float> src,
     uint32_t len)
 {
@@ -238,11 +238,18 @@ extern "C" __global__ __aicore__ void colwise_mul(__gm__ float *__restrict__ mat
     AscendC::SetMaskNorm();
     AscendC::SetVectorMask<float>((uint64_t)-1, (uint64_t)-1);
 
-    auto core_idx = AscendC::GetBlockIdx();
+    // tiling 按 40 个向量核槽位分发行，而 SetBlockDim 只启动 20 个 block；
+    // 用子核展开索引（对齐 complex_mat_dot 写法）覆盖全部槽位 0~39，
+    // 否则槽位 20~39 分到的行静默未计算（issue #279）
+    auto core_idx = get_block_idx() * get_subblockdim() + get_subblockid();
     auto tiling_buf = reinterpret_cast<__gm__ uint8_t *>(tiling_gm);
 
     uint32_t m = (*(__gm__ uint32_t *)((__gm__ uint8_t *)tiling_buf));      // num of float elements
     uint32_t n = (*(__gm__ uint32_t *)((__gm__ uint8_t *)tiling_buf + 4));  // num of float elements
+
+    if (core_idx >= 40) {  // tiling 槽位表固定 40 项
+        return;
+    }
 
     uint32_t offset = (*(__gm__ uint32_t *)((__gm__ uint8_t *)tiling_buf + 8 + 4 * core_idx));
     uint32_t row_num = (*(__gm__ uint32_t *)((__gm__ uint8_t *)tiling_buf + 8 + 40 * 4 + 4 * core_idx));

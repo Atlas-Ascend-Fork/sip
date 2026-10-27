@@ -73,8 +73,11 @@ AspbStatus asdBlasHCgemmBatched(asdBlasHandle handle, asdBlasOperation_t transa,
         return status;
     }
 
-    ASDSIP_ECHECK(m > 0 && k > 0 && n > 0, "blas CgemmBatched only supports m > 0 && k > 0 && n > 0.",
-                  ErrorType::ACL_ERROR_INTERNAL_ERROR);
+    // batchCount > 0：batch=0 时 tiling 侧 CeilDiv(0, 0) 会整数除零（issue #273），
+    // 口径对齐 cgemv_batched 的 m/n/batchCount 下界校验
+    ASDSIP_ECHECK(m > 0 && k > 0 && n > 0 && batchCount > 0,
+                  "blas HCgemmBatched only supports m > 0 && k > 0 && n > 0 && batchCount > 0.",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
     ASDSIP_ECHECK(m <= 32 && k <= 32 && n <= 32, "blas CgemmBatched only supports m <= 32 && k <= 32 && n <= 32.",
                   ErrorType::ACL_ERROR_INTERNAL_ERROR);
 
@@ -137,7 +140,8 @@ AspbStatus asdBlasMakeHCgemmBatchedPlan(asdBlasHandle handle)
         plan = new AsdSip::BlasHCgemmBatchedPlan();
         if (!BlasPlanCache::MakePlan(handle, plan)) {
             delete plan;
-            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM) << "blas handle already bound to a plan, repeated initialization is not allowed.";
+            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM)
+                << "blas handle already bound to a plan, repeated initialization is not allowed.";
             return ErrorType::ACL_ERROR_INVALID_PARAM;
         }
     } catch (const std::exception& e) {
@@ -178,8 +182,11 @@ AspbStatus asdBlasCgemmBatched(asdBlasHandle handle, asdBlasOperation_t transa, 
         return status;
     }
 
-    ASDSIP_ECHECK(m > 0 && k > 0 && n > 0, "blas CgemmBatched only supports m > 0 && k > 0 && n > 0.",
-                  ErrorType::ACL_ERROR_INTERNAL_ERROR);
+    // batchCount > 0：batch=0 时 tiling 侧 CeilDiv(0, 0) 会整数除零（issue #273），
+    // 口径对齐 cgemv_batched 的 m/n/batchCount 下界校验
+    ASDSIP_ECHECK(m > 0 && k > 0 && n > 0 && batchCount > 0,
+                  "blas CgemmBatched only supports m > 0 && k > 0 && n > 0 && batchCount > 0.",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
     ASDSIP_ECHECK(m <= 32 && k <= 32 && n <= 32, "blas CgemmBatched only supports m <= 32 && k <= 32 && n <= 32.",
                   ErrorType::ACL_ERROR_INTERNAL_ERROR);
 
@@ -242,7 +249,8 @@ AspbStatus asdBlasMakeCgemmBatchedPlan(asdBlasHandle handle)
         plan = new AsdSip::BlasCgemmBatchedPlan();
         if (!BlasPlanCache::MakePlan(handle, plan)) {
             delete plan;
-            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM) << "blas handle already bound to a plan, repeated initialization is not allowed.";
+            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM)
+                << "blas handle already bound to a plan, repeated initialization is not allowed.";
             return ErrorType::ACL_ERROR_INVALID_PARAM;
         }
     } catch (const std::exception& e) {
