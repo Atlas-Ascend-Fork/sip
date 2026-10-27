@@ -19,7 +19,7 @@ function fn_install_cann_and_kernel()
 {
     cd $CANN_DIR
     chmod +x *.run
-    cann_install_path=${CANN_INSTALL_PATH}
+    cann_install_path="/home/slave1/Ascend/ascend-toolkit"
     if [ ! -d "$cann_install_path" ];then
         ./CANN-runtime-*.run --full --quiet --nox11 --install-path=${cann_install_path}
         ./CANN-compiler-*.run --full --pylocal --quiet --nox11 --install-path=${cann_install_path}
@@ -31,8 +31,8 @@ function fn_install_cann_and_kernel()
         ./CANN-hccl-*.run --full --quiet --nox11 --install-path=${cann_install_path}
     fi
     set +e
-    source ${CANN_INSTALL_PATH}/latest/bin/setenv.bash
-    export ASCEND_HOME_PATH=${CANN_INSTALL_PATH}/latest
+    source /home/slave1/Ascend/ascend-toolkit/latest/bin/setenv.bash
+    export ASCEND_HOME_PATH=/home/slave1/Ascend/ascend-toolkit/latest
     set -e
     cd -
 }
@@ -176,6 +176,14 @@ EOF
 
 function fn_build()
 {
+    echo "--------------------------1-----------------------------"
+    echo "[release.sh][fn_build] ASCEND_HOME_PATH=${ASCEND_HOME_PATH:-<unset>}"
+    echo "[release.sh][fn_build] CANN_INSTALL_PATH=${CANN_INSTALL_PATH:-<unset>}"
+    echo "--------------------------1-----------------------------"
+    if [[ ! -d ${CANN_INSTALL_PATH}/latest ]]; then
+        echo "[release.sh][fn_build] ${CANN_INSTALL_PATH:-<unset>} has no valid CANN install (latest not found), fallback to /home/slave1/Ascend/ascend-toolkit"
+        CANN_INSTALL_PATH=/home/slave1/Ascend/ascend-toolkit
+    fi
     export ASCEND_HOME_PATH=${CANN_INSTALL_PATH}/latest
     export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/lib64:${LD_LIBRARY_PATH}
 
@@ -211,9 +219,14 @@ function fn_build()
 
 function fn_init_cann_env()
 {
+    cann_default_install_path_1="/usr/local/Ascend/ascend-toolkit"
+    cann_default_install_path_2="/home/slave1/Ascend/ascend-toolkit/latest"
+
     set +e
-    if [[ -d ${CANN_INSTALL_PATH}/latest ]];then
-        source ${CANN_INSTALL_PATH}/latest/set_env.sh
+    if [ -d "${cann_default_install_path_1}" ];then
+        source /usr/local/Ascend/ascend-toolkit/set_env.sh
+    elif [ -d "${cann_default_install_path_2}" ]; then
+        source /home/slave1/Ascend/ascend-toolkit/latest/set_env.sh
     else
         fn_install_cann_and_kernel
         if [ -z $ASCEND_HOME_PATH ];then
@@ -308,27 +321,36 @@ VERSION="8.0.0"
 LOG_PATH="/var/log/cann_asdsip_log/"
 LOG_NAME="cann_asdsip_install.log"
 
-# CANN 工具包安装路径探测链：优先复用已导出的 ASCEND_HOME_PATH（剥去 /latest 后缀），
-# 其次使用可外部覆盖的 CANN_INSTALL_PATH，缺省回落通用安装路径 /usr/local/Ascend/ascend-toolkit；
-# 该目录不存在时，依次探测常见构建机目录 /home/slave1/Ascend/ascend-toolkit、
-# /home/jenkins/Ascend/ascend-toolkit，按顺序取第一个存在的路径（issue #204 探测链增强）。
-# 全部候选均不存在时保留通用默认值，由后续安装步骤给出明确的失败路径
+# CANN 工具包安装路径探测链（issue #204 增强）：
+# 1) 优先复用已导出的 ASCEND_HOME_PATH（剥去 /latest 后缀），但需校验 ${path}/latest 实际存在；
+# 2) 其次使用外部可覆盖的 CANN_INSTALL_PATH；
+# 3) 最后按 CI 构建机优先级探测候选路径：/home/slave1 > /usr/local > /home/jenkins。
+# 所有候选均以 ${candidate}/latest 目录存在为有效判据，过滤"目录存在但未安装 CANN 包"的
+# 无效路径（部分 CI 机器 /usr/local/Ascend/ascend-toolkit 目录存在但实际未安装）；
+# 全部无效时保留首选默认值 /home/slave1/Ascend/ascend-toolkit，由后续构建步骤给出明确报错
 if [[ -n ${ASCEND_HOME_PATH:-} ]]; then
-    CANN_INSTALL_PATH=${ASCEND_HOME_PATH%/latest}
-else
-    CANN_INSTALL_PATH=${CANN_INSTALL_PATH:-}
-    if [[ -z ${CANN_INSTALL_PATH} ]]; then
-        for cann_path_candidate in /usr/local/Ascend/ascend-toolkit \
-                                   /home/slave1/Ascend/ascend-toolkit \
-                                   /home/jenkins/Ascend/ascend-toolkit; do
-            if [[ -d ${cann_path_candidate} ]]; then
-                CANN_INSTALL_PATH=${cann_path_candidate}
-                break
-            fi
-        done
-        CANN_INSTALL_PATH=${CANN_INSTALL_PATH:-/usr/local/Ascend/ascend-toolkit}
+    cann_from_ascend=${ASCEND_HOME_PATH%/latest}
+    if [[ -d ${cann_from_ascend}/latest ]]; then
+        CANN_INSTALL_PATH=${cann_from_ascend}
+    else
+        echo "[release.sh] warn: ASCEND_HOME_PATH(${ASCEND_HOME_PATH}) has no valid CANN install (latest not found), ignore and probe"
     fi
 fi
+if [[ -z ${CANN_INSTALL_PATH:-} ]]; then
+    for cann_path_candidate in /home/slave1/Ascend/ascend-toolkit \
+                               /usr/local/Ascend/ascend-toolkit \
+                               /home/jenkins/Ascend/ascend-toolkit; do
+        if [[ -d ${cann_path_candidate}/latest ]]; then
+            CANN_INSTALL_PATH=${cann_path_candidate}
+            break
+        fi
+    done
+    CANN_INSTALL_PATH=${CANN_INSTALL_PATH:-/home/slave1/Ascend/ascend-toolkit}
+fi
 
+echo "--------------------------0-----------------------------"
+echo "[release.sh] ASCEND_HOME_PATH=${ASCEND_HOME_PATH:-<unset>}"
+echo "[release.sh] CANN_INSTALL_PATH=${CANN_INSTALL_PATH:-<unset>}"
+echo "--------------------------0-----------------------------"
 bep_env_init
 fn_main "$@"
