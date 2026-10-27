@@ -101,6 +101,16 @@ AspbStatus asdBlasCgemv(asdBlasHandle handle, asdBlasOperation_t trans, const in
         opDesc.specificParam = param;
         ASDSIP_LOG(DEBUG) << "OpDesc: " << opDesc.opName << "; OpDesc info: " << param.ToString();
 
+        // 执行期刷新 y 快照（issue #281）：yInTensor 是建 plan 时的 D2D 拷贝，缓存命中后
+        // 从不更新，beta != 0 的迭代调用会以第一次调用前的 y 原始值作 beta*y 输入，
+        // 结果静默错误。SetyInTensor 支持重复调用（内部先释放旧设备内存）
+        if (plan.GetyInAclTensor() == nullptr || plan.GetAclMaskTensor() == nullptr) {
+            ASDSIP_ECHECK(false, "blas Cgemv mask tensor is null.", ErrorType::ACL_ERROR_INVALID_PARAM);
+        }
+        AspbStatus refreshStatus = plan.SetyInTensor(y);
+        ASDSIP_ECHECK(refreshStatus == ErrorType::ACL_SUCCESS, "blas Cgemv refresh y snapshot failed.",
+                      ErrorType::ACL_ERROR_INTERNAL_ERROR);
+
         SVector<aclTensor*> inTensors{A, x, plan.GetyInAclTensor(), plan.GetAclMaskTensor()};
         SVector<aclTensor*> outTensors{y};
 

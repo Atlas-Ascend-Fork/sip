@@ -25,20 +25,19 @@ at::Tensor swapLast2Axes(const at::Tensor& input)
     c10_npu::NPUGuard guard(input.device());
 
     int64_t dim = input.dim();
-    TORCH_CHECK(dim >= sip_pta::DIM_2, "swap_last_two_axes expects input with at least 2 dimensions, but got ",
-                dim);
+    TORCH_CHECK(dim >= sip_pta::DIM_2, "swap_last_two_axes expects input with at least 2 dimensions, but got ", dim);
     auto sizes = input.sizes().vec();
     std::swap(sizes[dim - sip_pta::DIM_1], sizes[dim - sip_pta::DIM_2]);
     at::Tensor output = at::empty(sizes, input.options());
     size_t workspace_size = 0;
-    AsdSip::swapLast2AxesGetWorkspaceSize(workspace_size);
+    TORCH_CHECK(AsdSip::swapLast2AxesGetWorkspaceSize(workspace_size) == AsdSip::ErrorType::ACL_SUCCESS,
+                "swap_last2_axes: get workspace size failed.");
 
     auto sip_stream = c10_npu::getCurrentNPUStream().stream(false);
     at::Tensor workspace_tensor;
     void* workspace_addr = nullptr;
     if (workspace_size != 0) {
-        workspace_tensor =
-            at_npu::native::allocate_workspace(static_cast<long>(workspace_size), sip_stream);
+        workspace_tensor = at_npu::native::allocate_workspace(static_cast<long>(workspace_size), sip_stream);
         workspace_addr = const_cast<void*>(workspace_tensor.storage().data());
     }
     aclTensor* acl_in = CreateAclTensorFromAtTensor(input);

@@ -35,7 +35,11 @@ at::Tensor asdBlasCal(const at::Tensor& x, const at::Scalar& alpha)
 {
     c10_npu::NPUGuard guard(x.device());
 
-    at::Tensor x_fixed = x.is_contiguous() ? x : x.contiguous();
+    // 原地语义（schema 声明 Tensor(a!)，issue #283）：连续 x 直接在原存储上缩放；
+    // 非连续 x 在 contiguous 拷贝上计算后 copy_ 回写原存储，保证连续/非连续
+    // 两条路径的别名行为一致（输入均被改写）
+    at::Tensor x_orig = x;
+    at::Tensor x_fixed = x_orig.is_contiguous() ? x_orig : x_orig.contiguous();
     int64_t n = x_fixed.numel();
     int64_t incx = 1;
     auto x_type = x.scalar_type();
@@ -45,8 +49,7 @@ at::Tensor asdBlasCal(const at::Tensor& x, const at::Scalar& alpha)
 
     if (x_type == at::kFloat) {
         // --- 严格校验：实数向量不能用复数标量缩放 ---
-        TORCH_CHECK(!alpha_is_complex,
-                    "asd_blas_scal: Cannot scale a Float32 tensor with a complex alpha.");
+        TORCH_CHECK(!alpha_is_complex, "asd_blas_cal: Cannot scale a Float32 tensor with a complex alpha.");
 
         float a = alpha.to<float>();
         EXEC_BLAS_FUNC(AsdSip::asdBlasSscal, AsdSip::asdBlasMakeCalPlan, {}, n, a, x_fixed, incx);
@@ -55,28 +58,27 @@ at::Tensor asdBlasCal(const at::Tensor& x, const at::Scalar& alpha)
             // --- cscal: Complex * Complex ---
             c10::complex<float> a_c10 = alpha.to<c10::complex<float>>();
             std::complex<float> a(a_c10.real(), a_c10.imag());
-            EXEC_BLAS_FUNC(AsdSip::asdBlasCscal, AsdSip::asdBlasMakeCalPlan, {}, n, a, x_fixed,
-                           incx);
+            EXEC_BLAS_FUNC(AsdSip::asdBlasCscal, AsdSip::asdBlasMakeCalPlan, {}, n, a, x_fixed, incx);
         } else {
             // --- csscal: Complex * Float ---
             float a = alpha.to<float>();
-            EXEC_BLAS_FUNC(AsdSip::asdBlasCsscal, AsdSip::asdBlasMakeCalPlan, {}, n, a, x_fixed,
-                           incx);
+            EXEC_BLAS_FUNC(AsdSip::asdBlasCsscal, AsdSip::asdBlasMakeCalPlan, {}, n, a, x_fixed, incx);
         }
     } else {
-        TORCH_CHECK(false, "asd_blas_scal only supports Float32 or Complex64.");
+        TORCH_CHECK(false, "asd_blas_cal only supports Float32 or Complex64.");
     }
 
-    return x_fixed;
+    if (!x_orig.is_contiguous()) {
+        x_orig.copy_(x_fixed);
+    }
+
+    return x_orig;
 }
 
 // -----------------------------------------------------------------------------------
 // 算子注册 (Fragment)
 // -----------------------------------------------------------------------------------
-TORCH_LIBRARY_FRAGMENT(torch_sip, m) { m.def("asd_blas_cal(Tensor x, Scalar alpha) -> Tensor"); }
+TORCH_LIBRARY_FRAGMENT(torch_sip, m) { m.def("asd_blas_cal(Tensor(a!) x, Scalar alpha) -> Tensor(a!)"); }
 
-TORCH_LIBRARY_IMPL(torch_sip, PrivateUse1, m)
-{
-    m.impl("asd_blas_cal", &asdBlasCal);
-}
+TORCH_LIBRARY_IMPL(torch_sip, PrivateUse1, m) { m.impl("asd_blas_cal", &asdBlasCal); }
 } // namespace sip_pta

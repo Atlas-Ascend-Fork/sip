@@ -36,8 +36,7 @@ at::Tensor asdInterpWithCoeff(const at::Tensor& x, const at::Tensor& coefficient
     // 校验：维度必须为 3D (batch, m, k)
     TORCH_CHECK(x.dim() == sip_pta::DIM_3 && coefficient.dim() == sip_pta::DIM_3,
                 "asd_interp_with_coeff: Inputs must be 3D tensors.");
-    TORCH_CHECK(x.size(0) == coefficient.size(0),
-                "asd_interp_with_coeff: Batch sizes must match.");
+    TORCH_CHECK(x.size(0) == coefficient.size(0), "asd_interp_with_coeff: Batch sizes must match.");
     TORCH_CHECK(x.size(sip_pta::DIM_1) == coefficient.size(sip_pta::DIM_2),
                 "asd_interp_with_coeff: Inner dimensions must match (x.size(1) == coeff.size(2)).");
 
@@ -52,9 +51,10 @@ at::Tensor asdInterpWithCoeff(const at::Tensor& x, const at::Tensor& coefficient
     aclTensor* acl_coefficient = CreateAclTensorFromAtTensor(coefficient);
     aclTensor* acl_output = CreateAclTensorFromAtTensor(output);
 
-    // 获取 workspace 大小
+    // 获取 workspace 大小（检查返回值，口径对齐 #259，issue #286）
     size_t workspace_size = 0;
-    AsdSip::asdInterpWithCoeffGetWorkspaceSize(workspace_size);
+    TORCH_CHECK(AsdSip::asdInterpWithCoeffGetWorkspaceSize(workspace_size) == AsdSip::ErrorType::ACL_SUCCESS,
+                "asd_interp_with_coeff: get workspace size failed.");
 
     // 准备执行流和 Workspace 内存
     auto sip_stream = c10_npu::getCurrentNPUStream().stream(false);
@@ -73,12 +73,8 @@ at::Tensor asdInterpWithCoeff(const at::Tensor& x, const at::Tensor& coefficient
 // -----------------------------------------------------------------------------------
 // 算子注册
 // -----------------------------------------------------------------------------------
-TORCH_LIBRARY_FRAGMENT(torch_sip, m) {
-    m.def("asd_interp_with_coeff(Tensor x, Tensor coefficient) -> Tensor");
-}
+TORCH_LIBRARY_FRAGMENT(torch_sip, m) { m.def("asd_interp_with_coeff(Tensor x, Tensor coefficient) -> Tensor"); }
 
-TORCH_LIBRARY_IMPL(torch_sip, PrivateUse1, m) {
-    m.impl("asd_interp_with_coeff", &asdInterpWithCoeff);
-}
+TORCH_LIBRARY_IMPL(torch_sip, PrivateUse1, m) { m.impl("asd_interp_with_coeff", &asdInterpWithCoeff); }
 
 } // namespace sip_pta

@@ -53,7 +53,10 @@ at::Tensor asdBlasCgemv(const at::Tensor& A, const at::Tensor& x, at::Tensor& y,
     auto makePlan = [opA, m, n, acl_y, incy](AsdSip::asdBlasHandle handle) {
         return AsdSip::asdBlasMakeCgemvPlan(handle, opA, m, n, acl_y, incy);
     };
-    std::vector<int64_t> params = {static_cast<int64_t>(opA), m, n, reinterpret_cast<int64_t>(acl_y), incy};
+    // 缓存键不含临时描述符指针（issue #281）：acl_y 是每次调用新建的临时 aclTensor，
+    // 其指针值进入缓存键后，地址复用时不同 y 的调用会误命中同一 plan（beta*y 串张量），
+    // 地址不复用时缓存恒不失效。plan 形态由 opA/m/n/incy 决定，y 的形状信息已被 m/n 覆盖
+    std::vector<int64_t> params = {static_cast<int64_t>(opA), m, n, incy};
     // 执行算子
     // 传递 A, x, y (at::Tensor 类型)，宏内部的 ConvertTypes 会处理转换
     EXEC_BLAS_FUNC(AsdSip::asdBlasCgemv, makePlan, params, opA, m, n, a_std, A, lda, x, incx, b_std, acl_y, incy);
