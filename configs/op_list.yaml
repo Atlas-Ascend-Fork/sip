@@ -243,6 +243,10 @@ FftC2CArch35Operation:
     FftC2CArch35MixC64Kernel:
         ascend950: true
 
+FftShiftOperation:
+    FftShiftC64Kernel:
+        ascend950: true
+
 MulOperation:
     MulC64Kernel:
         ascend910b: true

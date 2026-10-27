@@ -26,6 +26,7 @@ add_subdirectory(r2c/fft)
 add_subdirectory(real/fft_regbase)
 add_subdirectory(real/fft_stockham)
 add_subdirectory(c2c3d/ddd_sep)
+add_subdirectory(fftshift)
 
 
 set(operations_objects ${operations_objects} ${ops_objects} PARENT_SCOPE)

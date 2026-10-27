@@ -19,7 +19,7 @@ extern "C" {
 typedef struct aclTensor aclTensor;
 
 namespace AsdSip {
-typedef void *asdFftHandle;
+typedef void* asdFftHandle;
 
 enum asdFftStatus { SUCCESS = 0, FAILED = 1 };
 
@@ -45,38 +45,37 @@ enum asdFft1dDimType {
 
 // Creates only an opaque handle, and only allocates space basic data structures for it.
 // This function does not initialize handle.
-AsdSip::AspbStatus asdFftCreate(asdFftHandle &handle);
+AsdSip::AspbStatus asdFftCreate(asdFftHandle& handle);
 
 // Binds a stream to handle.
-AsdSip::AspbStatus asdFftSetStream(asdFftHandle handle, void *stream);
+AsdSip::AspbStatus asdFftSetStream(asdFftHandle handle, void* stream);
 
 // Initializes handle with 1D setting.
 // Any given handle can only be initialized once.
-AsdSip::AspbStatus asdFftMakePlan1D(asdFftHandle handle, int64_t fftSize, asdFftType fftType,
-                                    asdFftDirection direction, int64_t batchSize,
+AsdSip::AspbStatus asdFftMakePlan1D(asdFftHandle handle, int64_t fftSize, asdFftType fftType, asdFftDirection direction,
+                                    int64_t batchSize,
                                     asdFft1dDimType dimType = asdFft1dDimType::ASCEND_FFT_HORIZONTAL);
 
-AspbStatus asdFftIstftMakePlan(asdFftHandle handle, const aclTensor *input, const int64_t nFft,
+AspbStatus asdFftIstftMakePlan(asdFftHandle handle, const aclTensor* input, const int64_t nFft,
                                const int64_t hopLengthOpt, const int64_t winLengthOpt, const bool center = true,
-                               const bool normalized = false, const bool onesidedOpt = false,
-                               int64_t lengthOpt = 0, const bool returnComplex = true);
+                               const bool normalized = false, const bool onesidedOpt = false, int64_t lengthOpt = 0,
+                               const bool returnComplex = true);
 
 // Executes a c2c fft transform.
-AsdSip::AspbStatus asdFftExecC2C(asdFftHandle handle, const aclTensor *input, const aclTensor *output);
+AsdSip::AspbStatus asdFftExecC2C(asdFftHandle handle, const aclTensor* input, const aclTensor* output);
 
 // Executes a c2c fft transform with real part and imag part separated.
-AsdSip::AspbStatus asdFftExecC2CSeparated(asdFftHandle handle, const aclTensor *inputReal, const aclTensor *inputImag,
-    const aclTensor *outputReal, const aclTensor *outputImag);
-
+AsdSip::AspbStatus asdFftExecC2CSeparated(asdFftHandle handle, const aclTensor* inputReal, const aclTensor* inputImag,
+                                          const aclTensor* outputReal, const aclTensor* outputImag);
 
 // Executes a c2r fft transform.
-AsdSip::AspbStatus asdFftExecC2R(asdFftHandle handle, const aclTensor *input, const aclTensor *output);
+AsdSip::AspbStatus asdFftExecC2R(asdFftHandle handle, const aclTensor* input, const aclTensor* output);
 
 // Executes a r2c fft transform.
-AsdSip::AspbStatus asdFftExecR2C(asdFftHandle handle, const aclTensor *input, const aclTensor *output);
+AsdSip::AspbStatus asdFftExecR2C(asdFftHandle handle, const aclTensor* input, const aclTensor* output);
 
-AspbStatus asdFftExecIstft(asdFftHandle handle, const aclTensor *input,
-                           const aclTensor *windowOpt, const aclTensor *output);
+AspbStatus asdFftExecIstft(asdFftHandle handle, const aclTensor* input, const aclTensor* windowOpt,
+                           const aclTensor* output);
 
 // Destroy a handle, free all spaces allocated for it.
 AsdSip::AspbStatus asdFftDestroy(asdFftHandle handle);
@@ -85,16 +84,27 @@ AsdSip::AspbStatus asdFftMakePlan2D(asdFftHandle handle, int64_t fftSizeX, int64
                                     asdFftDirection direction, int32_t batchSize);
 
 AspbStatus asdFftMakePlan3D(asdFftHandle handle, int64_t fftSizeX, int64_t fftSizeY, int64_t fftSizeZ,
-    asdFftType fftType, asdFftDirection direction, int32_t batchSize);
+                            asdFftType fftType, asdFftDirection direction, int32_t batchSize);
 
-AsdSip::AspbStatus asdFftGetWorkspaceSize(asdFftHandle handle, size_t &workspaceSize);
+AsdSip::AspbStatus asdFftGetWorkspaceSize(asdFftHandle handle, size_t& workspaceSize);
 
-AsdSip::AspbStatus asdFftSetWorkspace(asdFftHandle handle, void *workspace);
+AsdSip::AspbStatus asdFftSetWorkspace(asdFftHandle handle, void* workspace);
 
 AsdSip::AspbStatus asdFftSynchronize(asdFftHandle handle);
 
-AsdSip::AspbStatus asdFftGetType(asdFftHandle handle, asdFftType &fftType);
-}
+AsdSip::AspbStatus asdFftGetType(asdFftHandle handle, asdFftType& fftType);
+
+// Shifts the zero-frequency component of batched complex slices to the center of each slice
+// (aligned with the reference CUDA fftShiftBatch2DKernel):
+//   output[s][(r + (row + 1) / 2) % row][(c + (col + 1) / 2) % col] = input[s][r][c]
+// input holds `batch` slices of `row` x `col` complex64 elements, slice s starting at element
+// offset `s * dist`; output is a contiguous `batch` x `row` x `col` complex64 tensor.
+// A non-positive `dist` means the input slices are contiguous (dist = row * col).
+// NOTE: the current version supports 2D slices (row x col) only; support for other
+// dimensions will be added in a later release.
+AsdSip::AspbStatus asdFftShift(int64_t row, int64_t col, int64_t batch, int64_t dist, const aclTensor* input,
+                               aclTensor* output, void* stream, void* workspace = nullptr);
+} // namespace AsdSip
 
 #ifdef __cplusplus
 }

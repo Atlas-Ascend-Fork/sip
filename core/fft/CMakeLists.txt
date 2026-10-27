@@ -12,7 +12,7 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/utils)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/fftcore)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/fftplan)
 
-add_library(fft STATIC $<TARGET_OBJECTS:fft_utils> $<TARGET_OBJECTS:fft_core> $<TARGET_OBJECTS:fft_plan> fft_api.cpp istft.cpp) 
+add_library(fft STATIC $<TARGET_OBJECTS:fft_utils> $<TARGET_OBJECTS:fft_core> $<TARGET_OBJECTS:fft_plan> fft_api.cpp istft.cpp fftshift.cpp)
 set_target_properties(fft PROPERTIES LINKER_LANGUAGE CXX)
 
 target_link_libraries(fft PUBLIC fft_utils)

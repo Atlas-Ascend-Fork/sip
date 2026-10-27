@@ -402,6 +402,51 @@ def asd_fft_c2r(input_tensor: torch.Tensor, is_forward: bool = True) -> torch.Te
     return torch.ops.torch_sip.asd_fft_c2r(input_tensor, is_forward)
 
 
+def fft_shift(
+    input_tensor: torch.Tensor,
+    row: int = None,
+    col: int = None,
+    batch: int = None,
+    dist: int = 0,
+) -> torch.Tensor:
+    """
+    FFT Shift: 将批量复数 slice 的零频分量移到各 slice 中心
+    (对齐 CUDA fftShiftBatch2DKernel 语义)。
+    当前版本仅支持 2D slice（row x col），其他维度支持待后续版本补齐。
+
+    output[s][(r + (row+1)//2) % row][(c + (col+1)//2) % col] = input[s][r][c]
+
+    Args:
+        input_tensor: complex64 张量
+            - 3D [batch, row, col]（可省略 row/col/batch 自动推断）
+            - 或 1D 扁平布局（须显式指定 row/col/batch/dist）
+        row:  每 slice 行数（3D 输入可省略）
+        col:  每 slice 列数（3D 输入可省略）
+        batch: slice 数（3D 输入可省略）
+        dist:  输入 slice 间元素步距；<= 0 表示连续（dist = row*col）。
+               dist > row*col 时输入 slice 间有 padding。
+
+    Returns:
+        complex64 张量，形状 [batch, row, col]
+
+    Example:
+        >>> x = torch.randn(12000, 500, 50, dtype=torch.complex64, device="npu")
+        >>> y = fft_shift(x)                    # 自动推断
+        >>> y = fft_shift(x, 500, 50, 12000)    # 显式指定
+    """
+    if row is None or col is None or batch is None:
+        # 自动推断：要求 3D [batch, row, col]
+        shape = input_tensor.shape
+        if len(shape) != 3:
+            raise ValueError(
+                f"fft_shift: auto-infer requires a 3D [batch, row, col] tensor, "
+                f"got {len(shape)}D shape {shape}. "
+                f"Explicitly pass row/col/batch for flattened input."
+            )
+        return torch.ops.torch_sip.asd_fft_shift_auto(input_tensor)
+    return torch.ops.torch_sip.asd_fft_shift(input_tensor, row, col, batch, dist)
+
+
 def npu_inv(a: torch.Tensor, *, out: torch.Tensor = None) -> torch.Tensor:
     """批量实数矩阵求逆 (接口对齐 torch.linalg.inv), 支持反向传播。"""
     return _npu_inv_impl.npu_inv(a, out=out)
