@@ -27,12 +27,9 @@ constexpr int64_t UB_SIZE = 192 * 1024;
 constexpr int64_t NUM_TWO = 2;
 constexpr int64_t GATHER_OFFSET_SIZE = 1024;
 
-static int64_t ceilDiv(int64_t x, int64_t base)
-{
-    return (x + base - 1) / base;
-}
+static int64_t ceilDiv(int64_t x, int64_t base) { return (x + base - 1) / base; }
 
-AsdSip::AspbStatus HCgemmBatchedTiling(const LaunchParam &launchParam, KernelInfo &kernelInfo)
+AsdSip::AspbStatus HCgemmBatchedTiling(const LaunchParam& launchParam, KernelInfo& kernelInfo)
 {
     auto dtype = launchParam.GetInTensor(0).desc.dtype;
     int64_t complexSize = static_cast<int64_t>(GetTensorElementSize(dtype));
@@ -59,10 +56,10 @@ AsdSip::AspbStatus HCgemmBatchedTiling(const LaunchParam &launchParam, KernelInf
     // there are 2 inter-spaces
     int64_t miniBatch = remainUb / NUM_TWO / NUM_TWO / (rightSize * complexSize);
 
-    void *tilingData = kernelInfo.GetTilingHostAddr();
-    HCgemmBatchedTilingData *tilingDataPtr = reinterpret_cast<HCgemmBatchedTilingData *>(tilingData);
-    ASDSIP_CHECK(
-        tilingData != nullptr, "tilingDataPtr should not be empty", return AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    void* tilingData = kernelInfo.GetTilingHostAddr();
+    HCgemmBatchedTilingData* tilingDataPtr = reinterpret_cast<HCgemmBatchedTilingData*>(tilingData);
+    ASDSIP_CHECK(tilingData != nullptr, "tilingDataPtr should not be empty",
+                 return AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
 
     tilingDataPtr->m = m;
     tilingDataPtr->k = k;
@@ -72,17 +69,17 @@ AsdSip::AspbStatus HCgemmBatchedTiling(const LaunchParam &launchParam, KernelInf
     tilingDataPtr->miniBatch = miniBatch;
     ASDSIP_LOG(DEBUG) << "tilingData: "
                       << "OpName: HCgemmBatched"
-                      << ", m:" << m << ", k:" << k << ", n:" << n << ", batch:" << batch << ", fftN:" << subBatch
-                      << ", radixListLen:" << miniBatch;
+                      << ", m:" << m << ", k:" << k << ", n:" << n << ", batch:" << batch << ", subBatch:" << subBatch
+                      << ", miniBatch:" << miniBatch;
 
     // there are 2 vectors
     // there are 2 buffers
-    uint64_t workspaceSize =
-        static_cast<uint64_t>(NUM_TWO * NUM_TWO * miniBatch * rightSize * complexSize * useCubeCores);
+    uint64_t workspaceSize = static_cast<uint64_t>(NUM_TWO * NUM_TWO * miniBatch * rightSize * complexSize *
+                                                   useCubeCores);
     kernelInfo.SetBlockDim(useCubeCores);
     kernelInfo.GetScratchSizes() = {workspaceSize};
     ASDSIP_LOG(DEBUG) << "KernelInfo:\n" << kernelInfo.ToString();
 
     return AsdSip::ErrorType::ACL_SUCCESS;
 }
-}  // namespace AsdSip
+} // namespace AsdSip

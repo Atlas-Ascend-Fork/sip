@@ -23,31 +23,30 @@ constexpr uint64_t TENSOR_PERM_IDX = 1;
 
 class SwapLast2AxesKernel : public KernelBase {
 public:
-    explicit SwapLast2AxesKernel(const std::string &kernelName, const BinHandle *handle) noexcept
+    explicit SwapLast2AxesKernel(const std::string& kernelName, const BinHandle* handle) noexcept
         : KernelBase(kernelName, handle)
-    {
-    }
+    {}
 
-    bool CanSupport(const LaunchParam &launchParam) const override
+    bool CanSupport(const LaunchParam& launchParam) const override
     {
         ASDSIP_CHECK(launchParam.GetParam().Type() == typeid(OpParam::SwapLast2Axes),
-                "SwapLast2Axes: param type invalid", return false);
+                     "SwapLast2Axes: param type invalid", return false);
         ASDSIP_CHECK(launchParam.GetInTensorCount() == 1, "input num invalid", return false);
-        ASDSIP_CHECK(launchParam.GetOutTensorCount() == 1, "output num invalid", return false);  // markhere
+        ASDSIP_CHECK(launchParam.GetOutTensorCount() == 1, "output num invalid", return false);
         return true;
     }
 
-    uint64_t GetTilingSize(const LaunchParam &launchParam) const override
+    uint64_t GetTilingSize(const LaunchParam& launchParam) const override
     {
         (void)launchParam;
         return sizeof(SwapLast2AxesTilingData);
     }
 
-    Status InitImpl(const LaunchParam &launchParam) override
+    Status InitImpl(const LaunchParam& launchParam) override
     {
         auto status = SwapLast2AxesTiling(launchParam, kernelInfo_);
         ASDSIP_CHECK(status == AsdSip::ErrorType::ACL_SUCCESS, "InitRunInfoImpl SwapLast2AxesTiling failed",
-                    return Status::FailStatus(ERROR_INVALID_VALUE));
+                     return Status::FailStatus(ERROR_INVALID_VALUE));
         return Status::OkStatus();
     }
 };
@@ -55,21 +54,20 @@ public:
 // SwapLast2AxesC64Kernel
 class SwapLast2AxesC64Kernel : public SwapLast2AxesKernel {
 public:
-    explicit SwapLast2AxesC64Kernel(const std::string &kernelName, const BinHandle *handle) noexcept
+    explicit SwapLast2AxesC64Kernel(const std::string& kernelName, const BinHandle* handle) noexcept
         : SwapLast2AxesKernel(kernelName, handle)
-    {
-    }
+    {}
 
-    bool CanSupport(const LaunchParam &launchParam) const override
+    bool CanSupport(const LaunchParam& launchParam) const override
     {
         ASDSIP_CHECK(SwapLast2AxesKernel::CanSupport(launchParam), "failed to check support", return false);
         ASDSIP_CHECK(launchParam.GetInTensor(0).desc.dtype == TENSOR_DTYPE_COMPLEX64, "tensor dtype unsupported",
-                  return false);
+                     return false);
         ASDSIP_CHECK(launchParam.GetOutTensor(0).desc.dtype == TENSOR_DTYPE_COMPLEX64, "tensor dtype unsupported",
-                  return false);
+                     return false);
         return true;
     }
 };
 REG_KERNEL_BASE(SwapLast2AxesC64Kernel);
 
-}  // namespace AsdSip
+} // namespace AsdSip

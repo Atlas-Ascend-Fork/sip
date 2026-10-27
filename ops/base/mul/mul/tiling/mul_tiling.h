@@ -7,13 +7,13 @@
  * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
  * See LICENSE in the root of the software repository for the full text of the License.
  */
-#ifndef OPS_BUILT_IN_OP_TILING_RUNTIME_MULTINOMIAL_H_
-#define OPS_BUILT_IN_OP_TILING_RUNTIME_MULTINOMIAL_H_
+#ifndef ASDSIP_MUL_TILING_H
+#define ASDSIP_MUL_TILING_H
 
 #include "mki/kernel_info.h"
 #include "mki/launch_param.h"
 #include "utils/aspb_status.h"
 namespace AsdSip {
-AsdSip::AspbStatus CMulTiling(const Mki::LaunchParam &launchParam, Mki::KernelInfo &kernelInfo);
-}  // namespace AsdSip
+AsdSip::AspbStatus CMulTiling(const Mki::LaunchParam& launchParam, Mki::KernelInfo& kernelInfo);
+} // namespace AsdSip
 #endif

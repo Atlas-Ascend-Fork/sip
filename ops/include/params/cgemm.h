@@ -32,7 +32,7 @@ struct Cgemm {
     std::complex<float> alpha;
     std::complex<float> beta;
 
-    bool operator==(const Cgemm &other) const
+    bool operator==(const Cgemm& other) const
     {
         return this->m == other.m && this->n == other.n && this->k == other.k && this->transA == other.transA &&
                this->transB == other.transB && this->lda == other.lda && this->ldb == other.ldb &&
@@ -42,13 +42,13 @@ struct Cgemm {
     std::string ToString() const
     {
         std::stringstream ss;
-        ss << "alpha:" << alpha << ", beta:" << beta << "m:" << m << ", n:" << n << "k:" << k << ", transA:" << transA
-           << "transB:" << transB << ", lda:" << lda << "ldb:" << ldb << ", ldc:" << ldc << "ldaPad:" << ldaPad
-           << ", ldbPad:" << ldbPad;
+        ss << "alpha:" << alpha << ", beta:" << beta << ", m:" << m << ", n:" << n << ", k:" << k
+           << ", transA:" << transA << ", transB:" << transB << ", lda:" << lda << ", ldb:" << ldb << ", ldc:" << ldc
+           << ", ldaPad:" << ldaPad << ", ldbPad:" << ldbPad;
         return ss.str();
     }
 };
-}  // namespace OpParam
-}  // namespace AsdSip
+} // namespace OpParam
+} // namespace AsdSip
 
-#endif  // ASDSIP_PARAMS_CGEMM_H
+#endif // ASDSIP_PARAMS_CGEMM_H

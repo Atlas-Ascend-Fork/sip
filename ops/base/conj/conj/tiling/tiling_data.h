@@ -7,8 +7,8 @@
  * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
  * See LICENSE in the root of the software repository for the full text of the License.
  */
-#ifndef ASDOPS_MULTINOMIAL_TILING_DATA
-#define ASDOPS_MULTINOMIAL_TILING_DATA
+#ifndef ASDOPS_CONJ_TILING_DATA
+#define ASDOPS_CONJ_TILING_DATA
 
 #include <cstdint>
 
@@ -19,5 +19,5 @@ struct ConjTilingData {
     uint32_t len{0};
     uint32_t tail{0};
 };
-}
+} // namespace AsdSip
 #endif

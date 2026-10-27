@@ -7,13 +7,13 @@
  * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
  * See LICENSE in the root of the software repository for the full text of the License.
  */
-#ifndef ASDOPS_MULTINOMIAL_TILING_H
-#define ASDOPS_MULTINOMIAL_TILING_H
+#ifndef ASDOPS_CONJ_TILING_H
+#define ASDOPS_CONJ_TILING_H
 
 #include "mki/kernel_info.h"
 #include "mki/launch_param.h"
 #include "utils/aspb_status.h"
 namespace AsdSip {
-AsdSip::AspbStatus ConjTiling(const Mki::LaunchParam &launchParam, Mki::KernelInfo &kernelInfo);
-}  // namespace AsdSip
+AsdSip::AspbStatus ConjTiling(const Mki::LaunchParam& launchParam, Mki::KernelInfo& kernelInfo);
+} // namespace AsdSip
 #endif

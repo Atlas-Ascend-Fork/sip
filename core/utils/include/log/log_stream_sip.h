@@ -14,21 +14,21 @@
 namespace AsdSip {
 class LogStreamSip {
 public:
-    LogStreamSip(const char *filePath, int line, const char *funcName, LogLevel level,
-            ErrorType errCode = AsdSip::ErrorType::ACL_SUCCESS);
+    LogStreamSip(const char* filePath, int line, const char* funcName, LogLevel level,
+                 ErrorType errCode = AsdSip::ErrorType::ACL_SUCCESS);
     ~LogStreamSip();
-    template <typename T> LogStreamSip &operator<<(const T &value)
+    template <typename T>
+    LogStreamSip& operator<<(const T& value)
     {
         stream_ << value;
         return *this;
     }
-    void FormatSip(const char *format, ...);
+    void FormatSip(const char* format, ...);
 
 private:
     LogEntity logEntity_;
     bool useStream_ = true;
-    int errCode_;
-    std::ostringstream &stream_;
+    std::ostringstream& stream_; // errCode_ 未初始化且全仓零引用，真实错误码存于 logEntity_.errCode，删除（issue #298）
 };
 } // namespace AsdSip
 #endif

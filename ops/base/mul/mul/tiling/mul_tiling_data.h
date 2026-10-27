@@ -7,8 +7,8 @@
  * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
  * See LICENSE in the root of the software repository for the full text of the License.
  */
-#ifndef ASDSIP_MULTINOMIAL_TILING_DATA
-#define ASDSIP_MULTINOMIAL_TILING_DATA
+#ifndef ASDSIP_MUL_TILING_DATA
+#define ASDSIP_MUL_TILING_DATA
 
 #include <cstdint>
 
@@ -19,5 +19,5 @@ struct CMulTilingData {
     int64_t calNum[48];
     int64_t startOffset[48];
 };
-}  // namespace AsdSip
+} // namespace AsdSip
 #endif

@@ -144,7 +144,7 @@ __aicore__ __inline__ __attribute__((always_inline)) void colwise_mul_aiv(
     AscendC::GlobalTensor<float> gm_vec,
     AscendC::GlobalTensor<uint32_t> gm_aug,
     AscendC::GlobalTensor<float> gm_out,
-    uint32_t m, uint32_t cal_num, uint32_t offset, uint32_t row_num)
+    uint32_t cal_num, uint32_t offset, uint32_t row_num)
 {
     // ub 192kb
     AsdopsBuffer<ArchType::ASCEND_V220> buf;
@@ -244,7 +244,6 @@ extern "C" __global__ __aicore__ void colwise_mul(__gm__ float *__restrict__ mat
     auto core_idx = get_block_idx() * get_subblockdim() + get_subblockid();
     auto tiling_buf = reinterpret_cast<__gm__ uint8_t *>(tiling_gm);
 
-    uint32_t m = (*(__gm__ uint32_t *)((__gm__ uint8_t *)tiling_buf));      // num of float elements
     uint32_t n = (*(__gm__ uint32_t *)((__gm__ uint8_t *)tiling_buf + 4));  // num of float elements
 
     if (core_idx >= 40) {  // tiling 槽位表固定 40 项
@@ -267,7 +266,7 @@ extern "C" __global__ __aicore__ void colwise_mul(__gm__ float *__restrict__ mat
     aug_tensor.SetGlobalBuffer(reinterpret_cast<__gm__ uint32_t *>(aug));
     result_tensor.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(result));
 
-    colwise_mul_aiv(mat_tensor, vec_tensor, aug_tensor, result_tensor, m, n, offset, row_num);
+    colwise_mul_aiv(mat_tensor, vec_tensor, aug_tensor, result_tensor, n, offset, row_num);
 }
 
 #endif

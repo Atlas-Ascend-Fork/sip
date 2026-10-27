@@ -31,8 +31,8 @@ template <typename T>
 class SwapLast2AxesAIV {
 public:
     __aicore__ inline SwapLast2AxesAIV(){};
-    __aicore__ inline void Init(GM_ADDR inTensor, GM_ADDR outTensor, AsdSip::SwapLast2AxesTilingData *tilingdata,
-                                TPipe *pipe);
+    __aicore__ inline void Init(GM_ADDR inTensor, GM_ADDR outTensor, AsdSip::SwapLast2AxesTilingData* tilingdata,
+                                TPipe* pipe);
     __aicore__ inline void Process();
 
 private:
@@ -58,27 +58,22 @@ private:
     uint64_t batch;
     uint64_t row;
     uint64_t col;
-    uint64_t partsInRow;
-    uint64_t partsInCol;
 
     uint64_t cores;
 };
 
 template <>
 __aicore__ inline void SwapLast2AxesAIV<float>::Init(GM_ADDR inTensor, GM_ADDR outTensor,
-                                                     AsdSip::SwapLast2AxesTilingData *tilingdata, TPipe *pipe)
+                                                     AsdSip::SwapLast2AxesTilingData* tilingdata, TPipe* pipe)
 {
     cores = AscendC::GetBlockNum();
 
-    inTensorGM.SetGlobalBuffer((__gm__ float *)inTensor);
-    outTensorGM.SetGlobalBuffer((__gm__ float *)outTensor);
+    inTensorGM.SetGlobalBuffer((__gm__ float*)inTensor);
+    outTensorGM.SetGlobalBuffer((__gm__ float*)outTensor);
 
     batch = tilingdata->batch;
     row = tilingdata->row;
     col = tilingdata->col;
-
-    partsInRow = (row + K_PART_ROW - 1) / K_PART_ROW;
-    partsInCol = (col + K_PART_COL - 1) / K_PART_COL;
 
     pipe->InitBuffer(inQueue, K_BUFFER_NUM, K_PART_BYTES);
     pipe->InitBuffer(interQueue, K_BUFFER_NUM, K_PART_BYTES);
@@ -155,8 +150,8 @@ __aicore__ inline void SwapLast2AxesAIV<float>::ComputeTransDataTo5HD(uint64_t p
         }
 
         for (uint64_t i = 0; i < 16; i++) {
-            dstLocalList[i] = (uint64_t)(interLocal[j * 192 * 8 +
-                (i / 2) * K_PART_ROW + (i % 2) * K_N_FLOATS_PER_BLOCK].GetPhyAddr());
+            dstLocalList[i] = (uint64_t)(interLocal[j * 192 * 8 + (i / 2) * K_PART_ROW + (i % 2) * K_N_FLOATS_PER_BLOCK]
+                                             .GetPhyAddr());
         }
 
         TransDataTo5HD<float>(dstLocalList, srcLocalList, transDataParams);
@@ -231,10 +226,10 @@ __aicore__ inline void SwapLast2AxesAIV<float>::Process()
                         partCol = col % K_PART_COL;
                     }
 
-                    uint64_t inOffset =
-                        batchIdx * row * col * 2 + rowIdx * K_PART_ROW * col * 2 + colIdx * K_PART_COL * 2;
-                    uint64_t outOffset =
-                        batchIdx * row * col * 2 + colIdx * K_PART_COL * row * 2 + rowIdx * K_PART_ROW * 2;
+                    uint64_t inOffset = batchIdx * row * col * 2 + rowIdx * K_PART_ROW * col * 2 +
+                                        colIdx * K_PART_COL * 2;
+                    uint64_t outOffset = batchIdx * row * col * 2 + colIdx * K_PART_COL * row * 2 +
+                                         rowIdx * K_PART_ROW * 2;
 
                     CopyIn(partRow, partCol, inOffset);
                     ComputeTransDataTo5HD(partRow, partCol);
@@ -248,6 +243,6 @@ __aicore__ inline void SwapLast2AxesAIV<float>::Process()
     }
 }
 
-}
+} // namespace SwapLast2Axes
 
-#endif  // SWAPLAST2AXES_AIV_H
+#endif // SWAPLAST2AXES_AIV_H

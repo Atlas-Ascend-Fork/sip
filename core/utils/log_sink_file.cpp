@@ -8,6 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 #include <string>
+#include <vector>
 #include <cstdlib>
 #include <cstring>
 #include <clocale>
@@ -38,7 +39,7 @@ namespace AsdSip {
 constexpr size_t MAX_LOG_FILE_COUNT = 50;                         // 50 回滚管理50个日志文件
 constexpr size_t MAX_FILE_NAME_LEN = 128;                         // 128: max file length
 constexpr uint64_t MAX_FILE_SIZE_THRESHOLD = 20 * 1024 * 1024;    // 20,971,520 当前单个日志文件最大20M
-constexpr uint64_t DISK_AVAILABEL_LIMIT = 1 * 1024 * 1024 * 1024; // 磁盘剩余空间门限1G
+constexpr uint64_t DISK_AVAILABLE_LIMIT = 1 * 1024 * 1024 * 1024; // 磁盘剩余空间门限1G
 
 static bool isValidChar(unsigned char c)
 {
@@ -57,23 +58,13 @@ static bool IsValidFileName(const char* name)
         return false;
     }
 
-    // 保存当前的locale设置
-    std::string original_locale = std::setlocale(LC_CTYPE, nullptr);
-
-    // 设置新的locale环境
-    std::setlocale(LC_CTYPE, "en_US.UTF-8");
-
+    // isValidChar 为纯 ASCII 范围判断，无 locale 依赖调用，
+    // 不再对进程全局 LC_CTYPE 执行 setlocale 变更/恢复（跨线程隐患，issue #298）
     for (size_t i = 0; i < len; ++i) {
-        char c = name[i];
-        if (!isValidChar(static_cast<unsigned char>(c))) {
-            // 恢复原来的locale设置
-            std::setlocale(LC_CTYPE, original_locale.c_str());
+        if (!isValidChar(static_cast<unsigned char>(name[i]))) {
             return false;
         }
     }
-
-    // 恢复原来的locale设置
-    std::setlocale(LC_CTYPE, original_locale.c_str());
     return true;
 }
 
@@ -335,13 +326,15 @@ void LogSinkFileSip::Init()
     // 日志前缀固定为 asdsip（此前以伪环境变量形态硬编码，易误导维护者以为可配置，issue #140）
     boostType_ = "asdsip";
 
-    const char* env = std::getenv("ASCEND_PROCESS_LOG_PATH") ? std::getenv("ASCEND_PROCESS_LOG_PATH") : "asdsip";
-    std::string logRootDir = env && strlen(env) <= MAX_ENV_STRING_LEN && IsValidFileName(env) ? std::string(env) :
-                                                                                                GetHomeDir();
+    // 缓存 getenv 结果，避免同一 env 键连续查询两次（issue #298）
+    const char* envRaw = std::getenv("ASCEND_PROCESS_LOG_PATH");
+    std::string env = (envRaw != nullptr) ? envRaw : "asdsip";
+    std::string logRootDir = env.size() <= MAX_ENV_STRING_LEN && IsValidFileName(env.c_str()) ? env : GetHomeDir();
 
     logRootDir = ResolveAndValidatePath(logRootDir);
     if (logRootDir.empty()) {
-        std::cerr << "Warning: User-specified log path is invalid: " << (env == nullptr ? "asdsip" : env) << std::endl;
+        // env 为 std::string（构造时已对 nullptr 兜底为 "asdsip"），不存在空指针形态
+        std::cerr << "Warning: User-specified log path is invalid: " << env << std::endl;
         // 回退到默认安全路径
         std::string defaultPath = GetHomeDir();
         logRootDir = ResolveAndValidatePath(defaultPath);
@@ -437,10 +430,7 @@ void LogSinkFileSip::OpenFile()
         return;
     }
 
-    if (currentFd_ >= 0) {
-        CloseFile();
-    }
-
+    // 唯一调用点 LogSip 已保证仅在 currentFd_ < 0 时调用 OpenFile，此处判断不可达，直接移除（issue #298）
     currentFd_ = open(logFilePath.c_str(), O_RDWR | O_CREAT | O_APPEND, S_IRUSR | S_IWUSR | S_IRGRP);
     if (currentFd_ < 0) {
         std::cout << "asdsip_log open " << logFilePath << " fail" << std::endl;
@@ -478,9 +468,9 @@ bool LogSinkFileSip::IsDiskAvailable()
     }
 
     uint64_t availableSize = vfs.f_bsize * vfs.f_bfree;
-    if (availableSize <= DISK_AVAILABEL_LIMIT) {
-        std::cout << "asdsip_log disk available space it too low, available size:" << availableSize
-                  << ", limit size:" << DISK_AVAILABEL_LIMIT << std::endl;
+    if (availableSize <= DISK_AVAILABLE_LIMIT) {
+        std::cout << "asdsip_log disk available space is too low, available size:" << availableSize
+                  << ", limit size:" << DISK_AVAILABLE_LIMIT << std::endl;
         return false;
     }
 
@@ -525,17 +515,18 @@ void LogSinkFileSip::CloseFile()
 
 std::string LogSinkFileSip::GetHomeDir()
 {
-    int bufsize;
-    if ((bufsize = sysconf(_SC_GETPW_R_SIZE_MAX)) == -1) {
+    long bufsize = sysconf(_SC_GETPW_R_SIZE_MAX);
+    if (bufsize <= 0) {
         return "";
     }
 
-    char buffer[bufsize] = {0};
+    // VLA 改为定长堆缓冲：bufsize 运行期确定，VLA 属 GCC 扩展、非标准 C++（issue #298）
+    std::vector<char> buffer(static_cast<size_t>(bufsize), 0);
     struct passwd pwd = {};
     struct passwd* result = nullptr;
     // POSIX: getpwuid_r 返回 0 但 *result 为 NULL 表示用户未找到，此时 pwd 内容未定义。
     // 两种失败情况（返回非 0 / result 为 NULL）都必须视为错误，条件应为 || 而非 &&
-    if (getpwuid_r(getuid(), &pwd, buffer, bufsize, &result) != 0 || result == nullptr) {
+    if (getpwuid_r(getuid(), &pwd, buffer.data(), buffer.size(), &result) != 0 || result == nullptr) {
         return "";
     }
 

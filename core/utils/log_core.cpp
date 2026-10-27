@@ -133,7 +133,7 @@ LogCoreSip::LogCoreSip()
 
     if (GetLogToStdoutFromEnv()) { // print but not to file
         AddSink(std::make_shared<LogSinkStdoutSip>());
-    } else if (!GetLogToStdoutFromEnv() && GetLogToFileFromEnv()) { // not print but to file
+    } else if (GetLogToFileFromEnv()) { // not print but to file（else-if 分支中 stdout 条件恒真，为死条件，issue #298）
         AddSink(std::make_shared<AsdSip::LogSinkFileSip>());
     }
 }
