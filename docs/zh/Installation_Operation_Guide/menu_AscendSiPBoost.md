@@ -103,6 +103,9 @@
     <!-- npu="A3,910b" id31 -->
     - [Istft](../API_Reference/FFT/Istft.md)
     <!-- end id31 -->
+    <!-- npu="950" id35 -->
+    - [FftShift](../API_Reference/FFT/FftShift.md)
+    <!-- end id35 -->
   - [Filter](./Filter.md)
     <!-- npu="A3,910b" id32 -->
     - [asdConvolve](../API_Reference/Filter/asdConvolve.md)
