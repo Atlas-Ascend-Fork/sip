@@ -20,13 +20,13 @@
 
 static constexpr uint8_t BUFFER_NUM = 2;
 static constexpr uint32_t TMPBUF_NUM = 3;
-static constexpr uint32_t ELENUM_LINE_ALIGNED = 32;  // max elements in line
-static constexpr uint32_t UBUF_SIZE = 190 * 1024;    // 190kb
+static constexpr uint32_t ELENUM_LINE_ALIGNED = 32; // max elements in line
+static constexpr uint32_t UBUF_SIZE = 190 * 1024;   // 190kb
 static constexpr uint32_t BYTENUM_BLOCK = 32;
 static constexpr uint32_t BYTENUM_REPEAT = 256;
 static constexpr uint32_t COMPLEX_ELENUM = 2;
 
-static constexpr uint32_t FP16_DTYPE_SIZE = sizeof(float) / 2;  // 2b
+static constexpr uint32_t FP16_DTYPE_SIZE = sizeof(float) / 2; // 2b
 
 static uint32_t CalMaxMatNum(bool isTrans, bool dataType, uint32_t m)
 {
@@ -36,32 +36,30 @@ static uint32_t CalMaxMatNum(bool isTrans, bool dataType, uint32_t m)
             // trans && fp32
             matNum = (UBUF_SIZE / COMPLEX_ELENUM - (3 * BUFFER_NUM + TMPBUF_NUM) * BYTENUM_REPEAT) /
                      (BUFFER_NUM * sizeof(float) * m * ELENUM_LINE_ALIGNED +
-                         2 * BUFFER_NUM * sizeof(float) * ELENUM_LINE_ALIGNED + sizeof(uint32_t) * ELENUM_LINE_ALIGNED +
-                         TMPBUF_NUM * sizeof(float) * m * ELENUM_LINE_ALIGNED + ELENUM_LINE_ALIGNED * BYTENUM_BLOCK);
+                      2 * BUFFER_NUM * sizeof(float) * ELENUM_LINE_ALIGNED + sizeof(uint32_t) * ELENUM_LINE_ALIGNED +
+                      TMPBUF_NUM * sizeof(float) * m * ELENUM_LINE_ALIGNED + ELENUM_LINE_ALIGNED * BYTENUM_BLOCK);
         } else {
             // trans && fp16
-            matNum =
-                (UBUF_SIZE / COMPLEX_ELENUM - (3 * BUFFER_NUM + TMPBUF_NUM + 2) * BYTENUM_REPEAT) /
-                (BUFFER_NUM * FP16_DTYPE_SIZE * m * ELENUM_LINE_ALIGNED +
-                    2 * BUFFER_NUM * FP16_DTYPE_SIZE * ELENUM_LINE_ALIGNED + sizeof(uint32_t) * ELENUM_LINE_ALIGNED +
-                    TMPBUF_NUM * sizeof(float) * m * ELENUM_LINE_ALIGNED + ELENUM_LINE_ALIGNED * BYTENUM_BLOCK +
-                    m * ELENUM_LINE_ALIGNED * FP16_DTYPE_SIZE + ELENUM_LINE_ALIGNED * sizeof(float));
+            matNum = (UBUF_SIZE / COMPLEX_ELENUM - (3 * BUFFER_NUM + TMPBUF_NUM + 2) * BYTENUM_REPEAT) /
+                     (BUFFER_NUM * FP16_DTYPE_SIZE * m * ELENUM_LINE_ALIGNED +
+                      2 * BUFFER_NUM * FP16_DTYPE_SIZE * ELENUM_LINE_ALIGNED + sizeof(uint32_t) * ELENUM_LINE_ALIGNED +
+                      TMPBUF_NUM * sizeof(float) * m * ELENUM_LINE_ALIGNED + ELENUM_LINE_ALIGNED * BYTENUM_BLOCK +
+                      m * ELENUM_LINE_ALIGNED * FP16_DTYPE_SIZE + ELENUM_LINE_ALIGNED * sizeof(float));
         }
     } else {
         if (dataType) {
             // no trans && fp32
             matNum = (UBUF_SIZE / COMPLEX_ELENUM - (3 * BUFFER_NUM + TMPBUF_NUM + 1) * BYTENUM_REPEAT) /
                      (BUFFER_NUM * sizeof(float) * m * ELENUM_LINE_ALIGNED +
-                         2 * BUFFER_NUM * sizeof(float) * ELENUM_LINE_ALIGNED + sizeof(uint32_t) * ELENUM_LINE_ALIGNED +
-                         TMPBUF_NUM * sizeof(float) * m * ELENUM_LINE_ALIGNED + ELENUM_LINE_ALIGNED * sizeof(float));
+                      2 * BUFFER_NUM * sizeof(float) * ELENUM_LINE_ALIGNED + sizeof(uint32_t) * ELENUM_LINE_ALIGNED +
+                      TMPBUF_NUM * sizeof(float) * m * ELENUM_LINE_ALIGNED + ELENUM_LINE_ALIGNED * sizeof(float));
         } else {
             // no trans && fp16
-            matNum =
-                (UBUF_SIZE / COMPLEX_ELENUM - (3 * BUFFER_NUM + TMPBUF_NUM + 3) * BYTENUM_REPEAT) /
-                (BUFFER_NUM * FP16_DTYPE_SIZE * m * ELENUM_LINE_ALIGNED +
-                    2 * BUFFER_NUM * FP16_DTYPE_SIZE * ELENUM_LINE_ALIGNED + sizeof(uint32_t) * ELENUM_LINE_ALIGNED +
-                    TMPBUF_NUM * sizeof(float) * m * ELENUM_LINE_ALIGNED + ELENUM_LINE_ALIGNED * sizeof(float) +
-                    m * ELENUM_LINE_ALIGNED * FP16_DTYPE_SIZE + ELENUM_LINE_ALIGNED * FP16_DTYPE_SIZE);
+            matNum = (UBUF_SIZE / COMPLEX_ELENUM - (3 * BUFFER_NUM + TMPBUF_NUM + 3) * BYTENUM_REPEAT) /
+                     (BUFFER_NUM * FP16_DTYPE_SIZE * m * ELENUM_LINE_ALIGNED +
+                      2 * BUFFER_NUM * FP16_DTYPE_SIZE * ELENUM_LINE_ALIGNED + sizeof(uint32_t) * ELENUM_LINE_ALIGNED +
+                      TMPBUF_NUM * sizeof(float) * m * ELENUM_LINE_ALIGNED + ELENUM_LINE_ALIGNED * sizeof(float) +
+                      m * ELENUM_LINE_ALIGNED * FP16_DTYPE_SIZE + ELENUM_LINE_ALIGNED * FP16_DTYPE_SIZE);
         }
     }
     matNum = matNum > 0 ? matNum : 1;
@@ -79,6 +77,11 @@ BlasCgemvBatchedPlan::BlasCgemvBatchedPlan(asdBlasOperation_t trans, asdDataType
 
 AsdSip::AspbStatus BlasCgemvBatchedPlan::CreateTensor()
 {
+    // trans 枚举校验（issue #285，对齐 #265 cgemm/cgemv 口径）：非法枚举
+    // （3/-1 等）原落入"非 OP_N"分支静默按转置计算并返回成功
+    ASDSIP_ECHECK(trans == asdBlasOperation_t::ASDBLAS_OP_N || trans == asdBlasOperation_t::ASDBLAS_OP_T ||
+                      trans == asdBlasOperation_t::ASDBLAS_OP_C,
+                  "blas cgemv_batched get invalid trans enum.", ErrorType::ACL_ERROR_INVALID_PARAM);
     SetMaskTensor();
     ASDSIP_ECHECK(maskAclTensor != nullptr, "BlasCgemvBatchedPlan create mask tensor failed.",
                   ErrorType::ACL_ERROR_INTERNAL_ERROR);
@@ -100,10 +103,10 @@ void BlasCgemvBatchedPlan::SetMaskTensor()
 
     uint32_t eleNumPerRepeat = BYTENUM_REPEAT / dtypeSize;
     uint32_t maskSize = maxMatNum * ELENUM_LINE_ALIGNED * COMPLEX_ELENUM;
-    uint32_t *maskData = nullptr;
+    uint32_t* maskData = nullptr;
     try {
         maskData = new uint32_t[maskSize];
-    } catch (std::bad_alloc &e) {
+    } catch (std::bad_alloc& e) {
         ASDSIP_LOG(ERROR) << "BlasCgemvBatchedPlan failed: " << e.what();
         return;
     }
@@ -136,14 +139,11 @@ AsdSip::AspbStatus BlasCgemvBatchedPlan::FreeTensor()
         maskTensor.data = nullptr;
     }
     if (maskTensor.hostData != nullptr) {
-        delete[] static_cast<uint32_t *>(maskTensor.hostData);
+        delete[] static_cast<uint32_t*>(maskTensor.hostData);
         maskTensor.hostData = nullptr;
     }
     return ErrorType::ACL_SUCCESS;
 }
 
-BlasCgemvBatchedPlan::~BlasCgemvBatchedPlan()
-{
-    BlasPlan::DestroyPlanData();
-}
-}  // namespace AsdSip
+BlasCgemvBatchedPlan::~BlasCgemvBatchedPlan() { BlasPlan::DestroyPlanData(); }
+} // namespace AsdSip

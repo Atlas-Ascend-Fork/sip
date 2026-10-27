@@ -36,6 +36,13 @@ at::Tensor asdBlasCgemvBatched(const at::Tensor& A, const at::Tensor& x, at::Ten
     // 2. 参数准备
     const int64_t incx = 1;
     const int64_t incy = 1;
+    // trans 枚举校验（issue #285，对齐 #265 修复的 cgemm/cgemv 口径）：任意整数
+    // 直转后非法值会静默按转置处理
+    if (trans != static_cast<int64_t>(AsdSip::asdBlasOperation_t::ASDBLAS_OP_N) &&
+        trans != static_cast<int64_t>(AsdSip::asdBlasOperation_t::ASDBLAS_OP_T) &&
+        trans != static_cast<int64_t>(AsdSip::asdBlasOperation_t::ASDBLAS_OP_C)) {
+        TORCH_CHECK(false, "asd_blas_cgemv_batched got invalid trans enum: ", trans);
+    }
     AsdSip::asdBlasOperation_t opA = static_cast<AsdSip::asdBlasOperation_t>(trans);
     int64_t batchCount = A.size(0);
     int64_t m_val = y.size(1);

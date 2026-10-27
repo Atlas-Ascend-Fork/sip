@@ -10,6 +10,7 @@
 #ifndef LOG_CORE_H
 #define LOG_CORE_H
 #include <memory>
+#include <mutex>
 #include <vector>
 #include "log/log_entity.h"
 #include "log/log_sink_sip.h"
@@ -19,17 +20,17 @@ class LogCoreSip {
 public:
     LogCoreSip();
     virtual ~LogCoreSip() = default;
-    static LogCoreSip &InstanceSip();
+    static LogCoreSip& InstanceSip();
     LogLevel GetLogLevel() const;
     void SetLogLevel(LogLevel level);
-    void LogSip(const char *log, uint64_t logLen);
-    void DeleteLogFileSink();
+    void LogSip(const char* log, uint64_t logLen);
     void AddSink(std::shared_ptr<LogSinkSip> sink);
-    const std::vector<std::shared_ptr<LogSinkSip>> &GetAllSinks() const;
+    const std::vector<std::shared_ptr<LogSinkSip>>& GetAllSinks() const;
 
 private:
     std::vector<std::shared_ptr<LogSinkSip>> sinks_;
+    std::mutex sinkMutex_; // 保护 sinks_ 的遍历快照与增删（issue #297）
     LogLevel level_ = LogLevel::INFO;
 };
-} // namespace Mki
+} // namespace AsdSip
 #endif

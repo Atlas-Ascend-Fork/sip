@@ -136,6 +136,13 @@ AsdSip::AspbStatus BlasCgemvPlan::SetyInTensor(aclTensor* y)
         return ErrorType::ACL_ERROR_INVALID_PARAM;
     }
 
+    // 重复调用（执行期刷新，PR #219 检视 P2）：先销毁旧 aclTensor 描述符再重建，
+    // 否则 aclCreateTensor 的旧指针被直接覆盖，迭代调用场景线性泄漏描述符
+    if (yInAclTensor != nullptr) {
+        (void)aclDestroyTensor(yInAclTensor);
+        yInAclTensor = nullptr;
+    }
+
     toAclTensor(yInTensor, yInAclTensor);
     if (yInAclTensor == nullptr) {
         ASDSIP_LOG(ERROR) << "convert to aclTensor fail.";
@@ -146,6 +153,14 @@ AsdSip::AspbStatus BlasCgemvPlan::SetyInTensor(aclTensor* y)
 
 AsdSip::AspbStatus BlasCgemvPlan::FreeTensor()
 {
+    if (yInAclTensor != nullptr) {
+        (void)aclDestroyTensor(yInAclTensor);
+        yInAclTensor = nullptr;
+    }
+    if (maskAclTensor != nullptr) {
+        (void)aclDestroyTensor(maskAclTensor);
+        maskAclTensor = nullptr;
+    }
     if (maskTensor.data != nullptr) {
         FreeTensorInDevice(maskTensor);
         maskTensor.data = nullptr;

@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <clocale>
+#include <ctime>
 #include <cctype>
 #include <cerrno>
 #include <syscall.h>
@@ -340,10 +341,18 @@ void LogSinkFileSip::Init()
 
     logRootDir = ResolveAndValidatePath(logRootDir);
     if (logRootDir.empty()) {
-        std::cerr << "Warning: User-specified log path is invalid: " << env;
+        std::cerr << "Warning: User-specified log path is invalid: " << (env == nullptr ? "asdsip" : env) << std::endl;
         // 回退到默认安全路径
         std::string defaultPath = GetHomeDir();
         logRootDir = ResolveAndValidatePath(defaultPath);
+    }
+
+    if (logRootDir.empty()) {
+        // 双重回退均失败（如容器内服务账号无 passwd 条目）：显式禁用文件日志，
+        // 不再退化拼出根路径 "/log/asdsip" 并尝试在文件系统根创建目录（issue #296）
+        std::cerr << "asdsip_log: failed to resolve a safe log directory, file logging disabled" << std::endl;
+        logDir_.clear();
+        return;
     }
 
     logDir_ = logRootDir + "/log" + "/" + boostType_;
@@ -411,6 +420,10 @@ void LogSinkFileSip::DeleteOldestFile()
 
 void LogSinkFileSip::OpenFile()
 {
+    if (logDir_.empty()) { // 初始化时未能解析出安全日志目录，文件日志保持禁用（issue #296）
+        return;
+    }
+
     MakeLogDir();
 
     DeleteOldestFile();
@@ -420,6 +433,10 @@ void LogSinkFileSip::OpenFile()
     }
 
     std::string logFilePath = GetNewLogFilePath();
+    if (logFilePath.empty()) { // 时间戳获取失败，跳过本次滚动，避免生成非法文件名（issue #295）
+        return;
+    }
+
     if (currentFd_ >= 0) {
         CloseFile();
     }
@@ -438,11 +455,17 @@ void LogSinkFileSip::OpenFile()
 std::string LogSinkFileSip::GetNewLogFilePath()
 {
     std::time_t tmpTime = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-    struct tm* nowTime = std::localtime(&tmpTime);
+    // std::localtime 使用进程级静态缓冲，非线程安全且可能返回 nullptr（传给 put_time 为 UB），
+    // 改用线程安全的 localtime_r（对齐 log_stream.cpp 写法，issue #295）
+    struct tm timeinfo = {};
+    if (localtime_r(&tmpTime, &timeinfo) == nullptr) {
+        std::cout << "asdsip_log localtime_r fail, skip this log rotation" << std::endl;
+        return "";
+    }
 
     std::stringstream filePath;
     filePath << logDir_ << "/" << boostType_ << "_" << std::to_string(syscall(SYS_getpid)) << "_"
-             << std::put_time(nowTime, "%Y%m%d%H%M%S") << ".log";
+             << std::put_time(&timeinfo, "%Y%m%d%H%M%S") << ".log";
     return filePath.str();
 }
 

@@ -135,6 +135,14 @@ AspbStatus asdBlasCgemvBatchedImpl(asdBlasHandle handle, CgemvBatchedImplParam i
         opDesc.opName = "CgemvBatchedOperation";
         AsdSip::OpParam::CgemvBatched param;
 
+        // 执行参数-plan 一致性校验（issue #284，对齐 closed #170 cgemm 同类修复）：
+        // mask 张量按 MakePlan 时的 m 推导，执行 m 大于 plan m 时内核 UB 按执行
+        // m 展开会越过按 plan m 计算的边界；trans/dtype 变化同样使 plan 失配
+        ASDSIP_ECHECK(implParam.m == plan.GetPlanM() && implParam.trans == plan.GetPlanTrans() &&
+                          implParam.dtype == plan.GetPlanDtype(),
+                      "CgemvBatched exec (m, trans, dtype) must match MakePlan parameters.",
+                      ErrorType::ACL_ERROR_INVALID_PARAM);
+
         int64_t transType = static_cast<int64_t>(implParam.trans);
         int64_t dataType = static_cast<int64_t>(implParam.dtype);
 

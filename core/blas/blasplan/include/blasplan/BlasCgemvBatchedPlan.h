@@ -14,10 +14,7 @@
 namespace AsdSip {
 using namespace Mki;
 
-enum class asdDataType_t {
-    ASD_C_32F = 0,
-    ASD_C_64F
-};
+enum class asdDataType_t { ASD_C_32F = 0, ASD_C_64F };
 
 class BlasCgemvBatchedPlan : public BlasPlan {
 public:
@@ -26,21 +23,21 @@ public:
     AsdSip::AspbStatus CreateTensor() override;
     void SetMaskTensor();
     AsdSip::AspbStatus FreeTensor() override;
-    uint32_t GetMaxMatNum() const
-    {
-        return this->maxMatNum;
-    }
-    aclTensor *GetAclMaskTensor()
-    {
-        return this->maskAclTensor;
-    }
+    uint32_t GetMaxMatNum() const { return this->maxMatNum; }
+    // plan 绑定 m 访问器（issue #284）：mask 张量按 MakePlan 时的 m 推导尺寸，
+    // 执行入口据此校验执行 m 与 plan m 一致，防止以更大执行 m 复用旧 plan 时
+    // 内核 UB 按执行 m 展开越过按 plan m 计算的掩码/UB 边界
+    int64_t GetPlanM() const { return this->m; }
+    asdBlasOperation_t GetPlanTrans() const { return this->trans; }
+    asdDataType_t GetPlanDtype() const { return this->dtype; }
+    aclTensor* GetAclMaskTensor() { return this->maskAclTensor; }
 
 private:
     Tensor maskTensor;
-    aclTensor *maskAclTensor = nullptr;
+    aclTensor* maskAclTensor = nullptr;
     asdBlasOperation_t trans;
     asdDataType_t dtype;
     int64_t m;
     uint32_t maxMatNum;
 };
-}
+} // namespace AsdSip
