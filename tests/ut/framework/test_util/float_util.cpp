@@ -20,15 +20,14 @@ bool FloatUtil::FloatJudgeEqual(float expected, float actual, float atol, float 
 }
 
 template <class T>
-void FloatUtil::GenerateCode(float lower, float upper, std::vector<T> &code)
+void FloatUtil::GenerateCode(float lower, float upper, std::vector<T>& code)
 {
-    std::random_device rd;
-    std::default_random_engine eng(rd());
-    std::uniform_real_distribution<float> distr(lower, upper);
+    // 固定种子 + 工具链无关 LCG（issue #306），不用 std::random_device
+    uint32_t state = 42U;
     for (size_t i = 0; i < code.size(); i++) {
-        code[i] = static_cast<T>(distr(eng));
+        code[i] = static_cast<T>(ut_random::Uniform(state, lower, upper));
     }
 }
 
-template void FloatUtil::GenerateCode(float lower, float upper, std::vector<Mki::fp16_t> &code);
-template void FloatUtil::GenerateCode(float lower, float upper, std::vector<float> &code);
+template void FloatUtil::GenerateCode(float lower, float upper, std::vector<Mki::fp16_t>& code);
+template void FloatUtil::GenerateCode(float lower, float upper, std::vector<float>& code);

@@ -10,7 +10,6 @@
 #include <gtest/gtest.h>
 #include <filesystem>
 #include <cmath>
-#include <random>
 #include "test_common.h"
 #include "mki/utils/status/status.h"
 #include "mki/utils/log/log.h"
@@ -26,7 +25,8 @@ namespace {
 constexpr float ATOL = 0.001;
 constexpr float RTOL = 0.001;
 
-std::string GetSsyr2OutputDirectory() {
+std::string GetSsyr2OutputDirectory()
+{
     const char* current_dir_env = std::getenv("CURRENT_DIR");
     if (current_dir_env) {
         return std::string(current_dir_env);
@@ -35,11 +35,11 @@ std::string GetSsyr2OutputDirectory() {
     }
 }
 
-float GetRandomAlpha() {
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_real_distribution<float> distr(0.5f, 2.0f);
-    return distr(gen);
+float GetRandomAlpha()
+{
+    // 固定种子 + 工具链无关 LCG（issue #306）：alpha 不再随运行/工具链变化，失败可复现
+    uint32_t state = 42U;
+    return ut_random::Uniform(state, 0.5f, 2.0f);
 }
 
 void RunSsyr2Test(asdBlasFillMode_t uplo, const std::string& uploStr)
@@ -75,7 +75,8 @@ void RunSsyr2Test(asdBlasFillMode_t uplo, const std::string& uploStr)
     Tensor inputTensorA = context.inTensors[2];
 
     for (size_t i = 0; i < context.inTensors.size(); i++) {
-        std::string filename = GetElementDtype(context.inTensors[i].desc.dtype) + "_input_" + std::to_string(i) + ".bin";
+        std::string filename = GetElementDtype(context.inTensors[i].desc.dtype) + "_input_" + std::to_string(i) +
+                               ".bin";
         if (SaveTensorToBin(context.inTensors[i], destPath + "/ssyr2_data/" + filename)) {
             std::cout << "Tensor saved successfully: " << filename << std::endl;
         } else {
@@ -83,15 +84,16 @@ void RunSsyr2Test(asdBlasFillMode_t uplo, const std::string& uploStr)
         }
     }
 
-    std::string gen_data_cmd = "cd " + ShellQuote(destPath + "/ssyr2_data/") + " && python3 gen_data.py " + std::to_string(alpha) + " " + uploStr;
+    std::string gen_data_cmd = "cd " + ShellQuote(destPath + "/ssyr2_data/") + " && python3 gen_data.py " +
+                               std::to_string(alpha) + " " + uploStr;
     system(gen_data_cmd.c_str());
 
-    aclTensor *aclInputX = nullptr;
-    aclTensor *aclInputY = nullptr;
-    aclTensor *aclInputA = nullptr;
-    void *inputXDeviceAddr = nullptr;
-    void *inputYDeviceAddr = nullptr;
-    void *inputADeviceAddr = nullptr;
+    aclTensor* aclInputX = nullptr;
+    aclTensor* aclInputY = nullptr;
+    aclTensor* aclInputA = nullptr;
+    void* inputXDeviceAddr = nullptr;
+    void* inputYDeviceAddr = nullptr;
+    void* inputADeviceAddr = nullptr;
 
     std::vector<float> inputXHostData(n);
     float* inputXDataPtr = static_cast<float*>(inputTensorX.hostData);
@@ -133,7 +135,7 @@ void RunSsyr2Test(asdBlasFillMode_t uplo, const std::string& uploStr)
     blasStatus = asdBlasGetWorkspaceSize(handle, workSize);
     ASSERT_EQ(blasStatus, AsdSip::ErrorType::ACL_SUCCESS);
 
-    void *workspaceAddr = nullptr;
+    void* workspaceAddr = nullptr;
     if (workSize > 0) {
         ret = aclrtMalloc(&workspaceAddr, static_cast<int64_t>(workSize), ACL_MEM_MALLOC_HUGE_FIRST);
         ASSERT_EQ(ret, ::ACL_SUCCESS);
@@ -153,10 +155,7 @@ void RunSsyr2Test(asdBlasFillMode_t uplo, const std::string& uploStr)
 
     asdBlasDestroy(handle);
 
-    ret = aclrtMemcpy(inputTensorA.hostData,
-                      inputTensorA.dataSize,
-                      inputADeviceAddr,
-                      inputTensorA.dataSize,
+    ret = aclrtMemcpy(inputTensorA.hostData, inputTensorA.dataSize, inputADeviceAddr, inputTensorA.dataSize,
                       ACL_MEMCPY_DEVICE_TO_HOST);
     ASSERT_EQ(ret, ::ACL_SUCCESS);
 
@@ -186,12 +185,6 @@ void RunSsyr2Test(asdBlasFillMode_t uplo, const std::string& uploStr)
 }
 } // namespace
 
-TEST(TestBlasSsyr2, TestSsyr2Lower)
-{
-    RunSsyr2Test(asdBlasFillMode_t::ASDBLAS_FILL_MODE_LOWER, "lower");
-}
+TEST(TestBlasSsyr2, TestSsyr2Lower) { RunSsyr2Test(asdBlasFillMode_t::ASDBLAS_FILL_MODE_LOWER, "lower"); }
 
-TEST(TestBlasSsyr2, TestSsyr2Upper)
-{
-    RunSsyr2Test(asdBlasFillMode_t::ASDBLAS_FILL_MODE_UPPER, "upper");
-}
+TEST(TestBlasSsyr2, TestSsyr2Upper) { RunSsyr2Test(asdBlasFillMode_t::ASDBLAS_FILL_MODE_UPPER, "upper"); }

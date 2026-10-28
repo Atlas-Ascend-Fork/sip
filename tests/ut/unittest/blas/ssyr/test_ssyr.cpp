@@ -10,7 +10,6 @@
 #include <gtest/gtest.h>
 #include <filesystem>
 #include <cmath>
-#include <random>
 #include "test_common.h"
 #include "mki/utils/status/status.h"
 #include "mki/utils/log/log.h"
@@ -38,10 +37,9 @@ std::string GetSsyrOutputDirectory()
 
 float GetRandomAlpha()
 {
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_real_distribution<float> distr(0.5f, 2.0f);
-    return distr(gen);
+    // 固定种子 + 工具链无关 LCG（issue #306）：alpha 不再随运行/工具链变化，失败可复现
+    uint32_t state = 42U;
+    return ut_random::Uniform(state, 0.5f, 2.0f);
 }
 
 void RunSsyrTest(asdBlasFillMode_t uplo, const std::string& uploStr)

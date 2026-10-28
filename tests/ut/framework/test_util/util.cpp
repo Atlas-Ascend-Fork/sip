@@ -12,6 +12,7 @@
 
 #include <array>
 #include <cfloat>
+#include <cstdint>
 #include <cstdlib>
 #include <functional>
 #include <map>
@@ -28,7 +29,6 @@
 #include "mki/utils/fp16/fp16_t.h"
 #include <fstream>
 #include <iterator>
-#include <random>
 #include <securec.h>
 #include <sstream>
 #include <iostream>
@@ -37,6 +37,7 @@
 #include "ops.h"
 #include "mki/utils/rt/rt.h"
 #include "log/log.h"
+#include "float_util.h"
 #include "utils/assert.h"
 #include "utils/aspb_status.h"
 #include "acl/acl.h"
@@ -275,57 +276,53 @@ static Tensor OpTestCreateHostRandTensor(const TensorDesc& tensorDesc)
     Tensor tensor;
     tensor.desc = tensorDesc;
 
-    std::default_random_engine eng(42); // 使用固定种子保证测试可复现
+    // 固定种子 + 工具链无关 LCG（issue #306）：跨编译器数据一致，失败可复现
+    uint32_t rngState = 2026U;
     if (tensorDesc.dtype == TENSOR_DTYPE_FLOAT) {
         tensor.dataSize = tensor.Numel() * sizeof(float);
         tensor.hostData = malloc(tensor.dataSize);
-        std::uniform_real_distribution<float> distr(FLOAT_MIN, FLOAT_MAX);
         float* tensorData = static_cast<float*>(tensor.hostData);
         for (int64_t i = 0; i < tensor.Numel(); i++) {
-            tensorData[i] = static_cast<float>(distr(eng));
+            tensorData[i] = static_cast<float>(ut_random::Uniform(rngState, FLOAT_MIN, FLOAT_MAX));
         }
     } else if (tensorDesc.dtype == TENSOR_DTYPE_COMPLEX64) {
         tensor.dataSize = tensor.Numel() * sizeof(float) * 2;
         tensor.hostData = malloc(tensor.dataSize);
-        std::uniform_real_distribution<float> distr(FLOAT_MIN, FLOAT_MAX);
         std::complex<float>* tensorData = static_cast<std::complex<float>*>(tensor.hostData);
         for (int64_t i = 0; i < tensor.Numel(); i++) {
-            tensorData[i] = {static_cast<float>(distr(eng)), static_cast<float>(distr(eng))};
+            tensorData[i] = {static_cast<float>(ut_random::Uniform(rngState, FLOAT_MIN, FLOAT_MAX)),
+                             static_cast<float>(ut_random::Uniform(rngState, FLOAT_MIN, FLOAT_MAX))};
         }
     } else if (tensorDesc.dtype == TENSOR_DTYPE_FLOAT16) {
         tensor.dataSize = tensor.Numel() * sizeof(fp16_t);
         tensor.hostData = malloc(tensor.dataSize);
-        std::uniform_real_distribution<float> distr(FLOAT_MIN, FLOAT_MAX);
         fp16_t* tensorData = static_cast<fp16_t*>(tensor.hostData);
         for (int64_t i = 0; i < tensor.Numel(); i++) {
-            tensorData[i] = static_cast<fp16_t>(distr(eng));
+            tensorData[i] = static_cast<fp16_t>(ut_random::Uniform(rngState, FLOAT_MIN, FLOAT_MAX));
         }
         ASDSIP_LOG(INFO) << "create fp16 call!";
     } else if (tensorDesc.dtype == TENSOR_DTYPE_INT32) {
         tensor.dataSize = tensor.Numel() * sizeof(int32_t);
         tensor.hostData = malloc(tensor.dataSize);
-        std::uniform_real_distribution<float> distr(FLOAT_MIN, FLOAT_MAX);
         int32_t* tensorData = static_cast<int32_t*>(tensor.hostData);
         for (int64_t i = 0; i < tensor.Numel(); i++) {
-            tensorData[i] = static_cast<int32_t>(distr(eng));
+            tensorData[i] = static_cast<int32_t>(ut_random::Uniform(rngState, FLOAT_MIN, FLOAT_MAX));
         }
         ASDSIP_LOG(INFO) << "create int32 call!";
     } else if (tensorDesc.dtype == TENSOR_DTYPE_INT16) {
         tensor.dataSize = tensor.Numel() * sizeof(int16_t);
         tensor.hostData = malloc(tensor.dataSize);
-        std::uniform_real_distribution<float> distr(FLOAT_MIN, FLOAT_MAX);
         int16_t* tensorData = static_cast<int16_t*>(tensor.hostData);
         for (int64_t i = 0; i < tensor.Numel(); i++) {
-            tensorData[i] = static_cast<int16_t>(distr(eng));
+            tensorData[i] = static_cast<int16_t>(ut_random::Uniform(rngState, FLOAT_MIN, FLOAT_MAX));
         }
         ASDSIP_LOG(INFO) << "create int16 call!";
     } else if (tensorDesc.dtype == TENSOR_DTYPE_COMPLEX32) {
         tensor.dataSize = tensor.Numel() * sizeof(fp16_t) * 2;
         tensor.hostData = malloc(tensor.dataSize);
-        std::uniform_real_distribution<float> distr(0, 1);
         fp16_t* tensorData = static_cast<fp16_t*>(tensor.hostData);
         for (int64_t i = 0; i < tensor.Numel() * 2; i++) {
-            tensorData[i] = static_cast<fp16_t>(distr(eng));
+            tensorData[i] = static_cast<fp16_t>(ut_random::Uniform(rngState, 0.0f, 1.0f));
         }
     } else {
         std::stringstream ss;
