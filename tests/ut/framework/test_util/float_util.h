@@ -39,7 +39,7 @@ class FloatUtil {
 public:
     /**
      * @brief 指定精度下判断两float数据是否相同
-     * @param excepted      期望数据
+     * @param expected      期望数据
      * @param actual        真实计算数据
      * @param atol          绝对误差的阈值，例如0.001
      * @param rtol          相对误差的阈值，例如0.001
