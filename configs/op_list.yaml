@@ -247,6 +247,10 @@ FftShiftOperation:
     FftShiftC64Kernel:
         ascend950: true
 
+IfftShiftOperation:
+    IfftShiftC64Kernel:
+        ascend950: true
+
 MulOperation:
     MulC64Kernel:
         ascend910b: true

@@ -11,6 +11,7 @@ See LICENSE in the root of the software repository for the full text of the Lice
 
 __version__ = "0.1.0"
 
+import math
 from typing import Tuple, Union
 import torch
 
@@ -445,6 +446,64 @@ def fft_shift(
             )
         return torch.ops.torch_sip.asd_fft_shift_auto(input_tensor)
     return torch.ops.torch_sip.asd_fft_shift(input_tensor, row, col, batch, dist)
+
+
+def ifft_shift(
+    input_tensor: torch.Tensor,
+    row: int = None,
+    col: int = None,
+    batch: int = None,
+    dist: int = 0,
+    scale: float = 1.0,
+) -> torch.Tensor:
+    """
+    IFFT Shift: fft_shift 的逆变换，将批量复数 slice 的零频分量从中心移回角落
+    (对齐 CUDA ifftShiftScaleBatch2DKernel 语义)。
+    当前版本仅支持 2D slice（row x col），其他维度支持待后续版本补齐。
+
+    output[s][(r + row//2) % row][(c + col//2) % col] = scale * input[s][r][c]
+
+    偶数维度下与 fft_shift 排列一致；奇数维度下两者相差 1（floor 而非 ceil）。
+    scale 为逐元素输出乘子（kernel 内 float32 计算），可把逆 FFT 的
+    1/(row*col) 归一化折叠进本 pass；scale=1 时数值逐位不变（纯排列）。
+
+    Args:
+        input_tensor: complex64 张量
+            - 3D [batch, row, col]（可省略 row/col/batch 自动推断）
+            - 或 1D 扁平布局（须显式指定 row/col/batch/dist）
+        row:  每 slice 行数（3D 输入可省略）
+        col:  每 slice 列数（3D 输入可省略）
+        batch: slice 数（3D 输入可省略）
+        dist:  输入 slice 间元素步距；<= 0 表示连续（dist = row*col）。
+               dist > row*col 时输入 slice 间有 padding。
+        scale: 逐元素输出乘子（float32），默认 1.0。
+
+    Returns:
+        complex64 张量，形状 [batch, row, col]
+
+    Example:
+        >>> x = torch.randn(12000, 500, 50, dtype=torch.complex64, device="npu")
+        >>> y = ifft_shift(x)                              # 自动推断, scale=1
+        >>> y = ifft_shift(x, 500, 50, 12000, scale=1/25000)  # 折叠逆 FFT 归一化
+    """
+    if row is None or col is None or batch is None:
+        # 自动推断：要求 3D [batch, row, col]
+        shape = input_tensor.shape
+        if len(shape) != 3:
+            raise ValueError(
+                f"ifft_shift: auto-infer requires a 3D [batch, row, col] tensor, "
+                f"got {len(shape)}D shape {shape}. "
+                f"Explicitly pass row/col/batch for flattened input."
+            )
+        # 浮点相等判断使用 math.isclose（G.TYP.02）；与 1.0 近似的 scale 视为默认值
+        if dist != 0 or not math.isclose(scale, 1.0):
+            return torch.ops.torch_sip.asd_ifft_shift(
+                input_tensor, shape[1], shape[2], shape[0], dist, scale
+            )
+        return torch.ops.torch_sip.asd_ifft_shift_auto(input_tensor)
+    return torch.ops.torch_sip.asd_ifft_shift(
+        input_tensor, row, col, batch, dist, scale
+    )
 
 
 def npu_inv(a: torch.Tensor, *, out: torch.Tensor = None) -> torch.Tensor:

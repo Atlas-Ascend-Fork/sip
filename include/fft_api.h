@@ -104,6 +104,22 @@ AsdSip::AspbStatus asdFftGetType(asdFftHandle handle, asdFftType& fftType);
 // dimensions will be added in a later release.
 AsdSip::AspbStatus asdFftShift(int64_t row, int64_t col, int64_t batch, int64_t dist, const aclTensor* input,
                                aclTensor* output, void* stream, void* workspace = nullptr);
+
+// Inverse of asdFftShift, shifts the zero-frequency component back to the corner of
+// each batched complex slice (aligned with the reference CUDA ifftShiftScaleBatch2DKernel):
+//   output[s][(r + row / 2) % row][(c + col / 2) % col] = scale * input[s][r][c]
+// For even dimensions the permutations of asdFftShift / asdIfftShift coincide; for odd
+// dimensions the shifts differ by one (floor instead of ceil).
+// `scale` is an element-wise output multiplier (float32 arithmetic in the kernel) so that
+// the inverse FFT normalization 1 / (row * col) can be folded into the shift pass;
+// scale == 1 keeps the values bit-exact unchanged (pure permutation).
+// input holds `batch` slices of `row` x `col` complex64 elements, slice s starting at
+// element offset `s * dist`; output is a contiguous `batch` x `row` x `col` complex64 tensor.
+// A non-positive `dist` means the input slices are contiguous (dist = row * col).
+// NOTE: the current version supports 2D slices (row x col) only; support for other
+// dimensions will be added in a later release.
+AsdSip::AspbStatus asdIfftShift(int64_t row, int64_t col, int64_t batch, int64_t dist, double scale,
+                                const aclTensor* input, aclTensor* output, void* stream, void* workspace = nullptr);
 } // namespace AsdSip
 
 #ifdef __cplusplus
