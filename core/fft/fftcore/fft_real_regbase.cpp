@@ -11,6 +11,7 @@
 #include "params/fft_real_regbase.h"
 #include "params/fft_c2c_large.h"
 #include "fft_c2c_coefficients.h"
+#include "fft_real_optimized_plan.h"
 #include "ops.h"
 #include <mki/utils/platform/platform_info.h>
 #include <mki/utils/rt/rt.h>
@@ -24,6 +25,20 @@ using namespace AsdSip;
 using namespace Mki;
 namespace {
 enum class Slot { Input, Output, Scratch, CoreWork };
+fft::real::Descriptor SelectRealDescriptor(unsigned n, unsigned batch, asdFftType type, bool forward,
+                                           int optimizedConfig)
+{
+    const auto kind = type == asdFftType::ASCEND_FFT_C2R ? fft::real::Kind::C2R : fft::real::Kind::R2C;
+    const auto cores = PlatformInfo::Instance().GetCoreNum(CoreType::CORE_TYPE_VECTOR);
+    // Only the bounded 1D/2D axis policy supplies an optimized configuration.
+    // Default-zero construction preserves all other callers.
+    if (optimizedConfig != 0) {
+        if (PlatformInfo::Instance().GetPlatformType() != PlatformType::ASCEND_950)
+            throw std::invalid_argument("real FFT Optimized requires Ascend950");
+        return fft::real::SelectOptimized(n, batch, kind, !forward, cores, optimizedConfig);
+    }
+    return fft::real::Select(n, batch, kind, !forward, cores);
+}
 struct RealStage {
     LaunchParam launch;
     RunInfo run;
@@ -42,18 +57,16 @@ struct FftRealRegBaseCore::Impl {
     fft::real::Descriptor descriptor;
     std::vector<std::shared_ptr<FFTensor>> coefficients;
     std::vector<std::unique_ptr<RealStage>> stages;
-    Impl(unsigned n, unsigned batch, asdFftType type, bool forward)
-        : descriptor(fft::real::Select(n, batch,
-                                       type == asdFftType::ASCEND_FFT_C2R ? fft::real::Kind::C2R : fft::real::Kind::R2C,
-                                       !forward, PlatformInfo::Instance().GetCoreNum(CoreType::CORE_TYPE_VECTOR)))
+    Impl(unsigned n, unsigned batch, asdFftType type, bool forward, int optimizedConfig)
+        : descriptor(SelectRealDescriptor(n, batch, type, forward, optimizedConfig))
     {}
 };
 
 FftRealRegBaseCore::FftRealRegBaseCore(unsigned nDone, unsigned nDoing, unsigned nLeft, unsigned batch, asdFftType type,
-                                       bool forward)
+                                       bool forward, int optimizedConfig)
     : FFTCoreBase(type == asdFftType::ASCEND_FFT_C2R ? kFftC2RRegBase : kFftR2CRegBase, nDone, nDoing, nLeft, batch,
                   type, forward),
-      impl_(std::make_unique<Impl>(nDoing, batch, type, forward))
+      impl_(std::make_unique<Impl>(nDoing, batch, type, forward, optimizedConfig))
 {}
 FftRealRegBaseCore::~FftRealRegBaseCore() = default;
 
@@ -73,7 +86,8 @@ bool FftRealRegBaseCore::PreAllocateInDevice()
         problemDesc.nLeft != 1)
         return false;
     auto cache = [&](unsigned role, const std::function<std::vector<float>()>& build) {
-        CoeffKey key = {coreType, role, {d.n}, problemDesc.forward};
+        // Optimized's shorter boundary table must never alias the original cached table.
+        CoeffKey key = {coreType, role == 1 && d.optimizedConfig != 0 ? 101U : role, {d.n}, problemDesc.forward};
         auto tensor = FFTensorCache::getCoeff(key, [&build]() -> FFTensor* {
             const auto values = build();
             auto result = std::make_unique<FFTensor>();
@@ -88,7 +102,9 @@ bool FftRealRegBaseCore::PreAllocateInDevice()
         return tensor;
     };
     auto dummy = cache(0, [] { return std::vector<float>(1, 0); });
-    auto boundary = cache(1, [&] { return fft::real::BuildBoundaryTwiddles(d); });
+    auto boundary = cache(1, [&] {
+        return d.optimizedConfig ? fft::real::BuildOptimizedBoundaryTwiddles(d) : fft::real::BuildBoundaryTwiddles(d);
+    });
     auto local = cache(2, [&] { return fft::c2c::BuildLocalTwiddles(d.core); });
     auto initialize = [&](std::unique_ptr<RealStage> stage, const char* name) {
         auto* operation = Ops::Instance().GetOperationByName(name);
@@ -116,7 +132,8 @@ bool FftRealRegBaseCore::PreAllocateInDevice()
         return true;
     };
     auto realStage = [&](S kind, Slot input, Slot output) {
-        OpParam::FftRealRegBase p{d.n, d.batch, d.inverse ? 1 : 0, d.kind == fft::real::Kind::C2R ? 1 : 0, kind};
+        OpParam::FftRealRegBase p{d.n,  d.batch,          d.inverse ? 1 : 0, d.kind == fft::real::Kind::C2R ? 1 : 0,
+                                  kind, d.optimizedConfig};
         auto stage = std::make_unique<RealStage>();
         stage->input = input;
         stage->output = output;
@@ -165,7 +182,7 @@ bool FftRealRegBaseCore::PreAllocateInDevice()
         return true;
     };
     if (d.IsFused()) {
-        if (!realStage(S::Fused, Slot::Input, Slot::Output))
+        if (!realStage(d.optimizedConfig ? S::Optimized : S::Fused, Slot::Input, Slot::Output))
             return false;
     } else if (d.kind == fft::real::Kind::R2C) {
         if (!core(Slot::Input, Slot::Scratch) || !realStage(S::Boundary, Slot::Scratch, Slot::Output))
@@ -181,7 +198,9 @@ bool FftRealRegBaseCore::PreAllocateInDevice()
                   << " inverse=" << d.inverse << " launches=" << impl_->stages.size()
                   << " workspace_bytes=" << EstimateWorkspaceSize() << " fft_workspace_bytes=" << d.workspaceBytes
                   << " fused_ub_bytes=" << d.fusedUbBytes << " slots=" << d.fusedUbSlots
-                  << " boundary_tile=" << d.boundaryTilePoints << '\n';
+                  << " boundary_tile=" << d.boundaryTilePoints << " version=" << (d.optimizedConfig ? 2 : 0)
+                  << " config=" << d.optimizedConfig << " paired_boundary=" << (d.optimizedConfig ? 1 : 0)
+                  << " tile_batch=" << d.fusedTileBatch << '\n';
         for (const auto& stage : impl_->stages) {
             std::cerr << "A5_REAL_FFT_STAGE stage=" << stage->kernel->GetName()
                       << " key=" << stage->kernel->GetKernelInfo().GetTilingId()

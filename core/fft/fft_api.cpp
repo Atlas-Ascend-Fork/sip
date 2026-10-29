@@ -53,6 +53,7 @@
 #include "utils/include/utils/fft_common_func.h"
 #include "utils/sip_lock.h"
 #include "utils/assert.h"
+#include "fft1d_optimized_selection.h"
 #include "fft_api.h"
 
 namespace AsdSip {
@@ -676,6 +677,35 @@ void addFFTSteps(FFTPlan& plan, int dim, int64_t batchSize, asdFftType fftType)
     }
     int fftSize = static_cast<int>(plan.fftSizes[dim]);
     int fftStride = plan.fftStrides[dim];
+    const auto kindOf = [](asdFftType type) {
+        return type == asdFftType::ASCEND_FFT_C2C ? fft1d::Kind::C2C :
+               type == asdFftType::ASCEND_FFT_R2C ? fft1d::Kind::R2C :
+               type == asdFftType::ASCEND_FFT_C2R ? fft1d::Kind::C2R :
+                                                    fft1d::Kind::Other;
+    };
+    const auto kind = kindOf(fftType);
+    const bool ascend950 = Mki::PlatformInfo::Instance().GetPlatformType() == Mki::PlatformType::ASCEND_950;
+    int config = 0;
+    if (plan.fftSizes.size() == 1) {
+        config = fft1d::OptimizedConfig(fftSize, batchSize, kind, !plan.isForward(), ascend950, fftStride == 1);
+    } else if (plan.fftSizes.size() == 2) {
+        config = fft1d::OptimizedSquareConfig(fftSize, plan.fftSizes[1 - dim], plan.batchSize, batchSize, kind,
+                                              kindOf(plan.fftType), !plan.isForward(), ascend950, fftStride == 1);
+    }
+    if (config != 0) {
+        std::unique_ptr<FftOperation> core;
+        if (kind == fft1d::Kind::C2C)
+            core.reset(new FftC2CRegBaseCore(1, fftSize, 1, batchSize, fftType, plan.isForward(), config));
+        else
+            core.reset(new FftRealRegBaseCore(1, fftSize, 1, batchSize, fftType, plan.isForward(), config));
+        if (core->init()) {
+            plan.steps.push_back(PlanStep{std::move(core)});
+            return;
+        }
+        // Capability/initialization rejection must not remove the original route.
+        // Exceptions still propagate to the public API's existing error handling.
+        ASDSIP_LOG(WARN) << "Optimized FFT axis unavailable; using original route. N=" << fftSize;
+    }
     std::vector<int64_t> factors = orderedFactorize(fftSize);
     std::vector<int64_t> uniques = deDuplicates(factors);
 

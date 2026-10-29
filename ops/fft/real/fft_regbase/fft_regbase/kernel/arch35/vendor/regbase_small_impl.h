@@ -17,6 +17,10 @@
 
 namespace {
 
+#if defined(SIP_FFT_REGBASE_OPTIMIZED)
+#include "regbase_contiguous_impl.h"
+#endif
+
 constexpr int32_t kComplexPerVector = 64;
 constexpr int32_t kFloatsPerVector = 64;
 constexpr int32_t kComplexLoadFloats = 2 * kFloatsPerVector;
@@ -329,12 +333,20 @@ __simd_callee__ inline void StockhamRadix4LoadTwiddle(__ubuf__ float* twiddles, 
                                                       AscendC::Reg::RegTensor<uint32_t>& index,
                                                       AscendC::Reg::RegTensor<float>& twiddleReal,
                                                       AscendC::Reg::RegTensor<float>& twiddleImag,
-                                                      AscendC::Reg::MaskReg& mask)
+                                                      AscendC::Reg::MaskReg& mask, uint32_t qBase = 0)
 {
     using namespace AscendC;
     static_assert(Power >= 1U && Power <= 3U);
     // Dedicated compact radix-4 table: W, W^2, W^3 planes at base=h-1.
     constexpr uint32_t complexOffset = Quarter - 1U + (Power - 1U) * Quarter;
+#if defined(SIP_FFT_REGBASE_OPTIMIZED)
+    if constexpr (Quarter > 64U) {
+        // qBase is a multiple of 64. A chunk never crosses a coefficient plane.
+        // Quarter-1 gives a -2-float alignment offset: do not use LoadAlign.
+        LoadComplexUnaligned(twiddles + 2U * (complexOffset + (qBase & (Quarter - 1U))), twiddleReal, twiddleImag);
+        return;
+    }
+#endif
     Reg::Adds(index, j, complexOffset, mask);
     Reg::Muls(index, index, uint32_t{2}, mask);
     Reg::Gather(twiddleReal, twiddles, index, mask);
@@ -342,7 +354,7 @@ __simd_callee__ inline void StockhamRadix4LoadTwiddle(__ubuf__ float* twiddles, 
     Reg::Gather(twiddleImag, twiddles, index, mask);
 }
 
-template <uint32_t Quarter>
+template <uint32_t Quarter, bool FullVector>
 __simd_callee__ inline void StockhamRadix4Store(
     __ubuf__ float* output, AscendC::Reg::RegTensor<float>& y0Real, AscendC::Reg::RegTensor<float>& y0Imag,
     AscendC::Reg::RegTensor<float>& y1Real, AscendC::Reg::RegTensor<float>& y1Imag,
@@ -352,6 +364,26 @@ __simd_callee__ inline void StockhamRadix4Store(
     AscendC::Reg::RegTensor<uint32_t>& index, AscendC::Reg::MaskReg& mask, uint32_t qBase)
 {
     using namespace AscendC;
+#if defined(SIP_FFT_REGBASE_OPTIMIZED)
+    if constexpr (Quarter == 1U && FullVector) {
+        // Full-vector stores require 64 active lanes. Smaller N keeps masked Scatter.
+        // Two interleave levels turn four vectors into [y0,y1,y2,y3] per q.
+        Reg::Interleave(y0Real, y2Real, y0Real, y2Real);
+        Reg::Interleave(y1Real, y3Real, y1Real, y3Real);
+        Reg::Interleave(y0Real, y1Real, y0Real, y1Real);
+        Reg::Interleave(y2Real, y3Real, y2Real, y3Real);
+        Reg::Interleave(y0Imag, y2Imag, y0Imag, y2Imag);
+        Reg::Interleave(y1Imag, y3Imag, y1Imag, y3Imag);
+        Reg::Interleave(y0Imag, y1Imag, y0Imag, y1Imag);
+        Reg::Interleave(y2Imag, y3Imag, y2Imag, y3Imag);
+        __ubuf__ float* dst = output + 8U * qBase;
+        Reg::StoreAlign<float, Reg::StoreDist::DIST_INTLV_B32>(dst, y0Real, y0Imag, mask);
+        Reg::StoreAlign<float, Reg::StoreDist::DIST_INTLV_B32>(dst + 128, y1Real, y1Imag, mask);
+        Reg::StoreAlign<float, Reg::StoreDist::DIST_INTLV_B32>(dst + 256, y2Real, y2Imag, mask);
+        Reg::StoreAlign<float, Reg::StoreDist::DIST_INTLV_B32>(dst + 384, y3Real, y3Imag, mask);
+        return;
+    }
+#endif
     if constexpr (Quarter >= static_cast<uint32_t>(kComplexPerVector)) {
         // Every q chunk stays inside one Stockham block, so all four outputs
         // are full contiguous 64-complex ranges. StoreAlign ignores mask and
@@ -398,6 +430,25 @@ __simd_callee__ inline void StockhamRadix4StageBody(__ubuf__ float* input, __ubu
     static_assert(Quarter >= 1U && Quarter <= static_cast<uint32_t>(N / 4));
     static_assert((Quarter & (Quarter - 1U)) == 0U);
 
+    // Cache the short-period coefficient vectors across chunks and rows.
+#if defined(SIP_FFT_REGBASE_OPTIMIZED)
+    constexpr bool cacheTwiddles = Quarter > 1U && Quarter <= 64U && N >= 512;
+#else
+    constexpr bool cacheTwiddles = false;
+#endif
+    Reg::RegTensor<float> cached1Real, cached1Imag, cached2Real, cached2Imag, cached3Real, cached3Imag;
+    if constexpr (cacheTwiddles) {
+        uint32_t lanes = 64;
+        Reg::MaskReg cacheMask = Reg::UpdateMask<float>(lanes);
+        Reg::RegTensor<uint32_t> lane, periodMask, cacheJ, cacheIndex;
+        Reg::Arange<int32_t>(reinterpret_cast<Reg::RegTensor<int32_t>&>(lane), 0);
+        Reg::Duplicate(periodMask, Quarter - 1U, cacheMask);
+        Reg::And(cacheJ, lane, periodMask, cacheMask);
+        StockhamRadix4LoadTwiddle<Quarter, 1U>(twiddles, cacheJ, cacheIndex, cached1Real, cached1Imag, cacheMask);
+        StockhamRadix4LoadTwiddle<Quarter, 2U>(twiddles, cacheJ, cacheIndex, cached2Real, cached2Imag, cacheMask);
+        StockhamRadix4LoadTwiddle<Quarter, 3U>(twiddles, cacheJ, cacheIndex, cached3Real, cached3Imag, cacheMask);
+    }
+
     constexpr uint16_t qChunkCount = static_cast<uint16_t>(((N / 4) + kComplexPerVector - 1) / kComplexPerVector);
     constexpr uint32_t activeButterflies = (N / 4 < kComplexPerVector) ? N / 4 : kComplexPerVector;
 
@@ -439,32 +490,49 @@ __simd_callee__ inline void StockhamRadix4StageBody(__ubuf__ float* input, __ubu
                 Reg::LoadAlign<float, Reg::LoadDist::DIST_DINTLV_B32>(x3Real, x3Imag, x0 + 3 * N / 2);
                 StockhamRadix4Butterfly<Inverse>(x0Real, x0Imag, x1Real, x1Imag, x2Real, x2Imag, x3Real, x3Imag,
                                                  twiddleReal, twiddleImag, mask);
-                StockhamRadix4Store<Quarter>(transformOutput, x3Real, x3Imag, x1Real, x1Imag, x0Real, x0Imag,
-                                             twiddleReal, twiddleImag, q, j, index, mask, qBase);
+                StockhamRadix4Store<Quarter, activeButterflies == kComplexPerVector>(
+                    transformOutput, x3Real, x3Imag, x1Real, x1Imag, x0Real, x0Imag, twiddleReal, twiddleImag, q, j,
+                    index, mask, qBase);
             } else {
                 // Reuse one source pair, one twiddle pair, and one temporary
                 // across the three products. This keeps the visible live set
                 // at 16 RegTensors while retaining independent real/imag Mul
                 // chains for instruction scheduling.
                 Reg::LoadAlign<float, Reg::LoadDist::DIST_DINTLV_B32>(sourceReal, sourceImag, x0 + N / 2);
-                StockhamRadix4LoadTwiddle<Quarter, 1U>(twiddles, j, index, twiddleReal, twiddleImag, mask);
-                StockhamRadix4ComplexMultiply(x1Real, x1Imag, sourceReal, sourceImag, twiddleReal, twiddleImag,
-                                              temporary, mask);
+                if constexpr (cacheTwiddles) {
+                    StockhamRadix4ComplexMultiply(x1Real, x1Imag, sourceReal, sourceImag, cached1Real, cached1Imag,
+                                                  temporary, mask);
+                } else {
+                    StockhamRadix4LoadTwiddle<Quarter, 1U>(twiddles, j, index, twiddleReal, twiddleImag, mask, qBase);
+                    StockhamRadix4ComplexMultiply(x1Real, x1Imag, sourceReal, sourceImag, twiddleReal, twiddleImag,
+                                                  temporary, mask);
+                }
 
                 Reg::LoadAlign<float, Reg::LoadDist::DIST_DINTLV_B32>(sourceReal, sourceImag, x0 + N);
-                StockhamRadix4LoadTwiddle<Quarter, 2U>(twiddles, j, index, twiddleReal, twiddleImag, mask);
-                StockhamRadix4ComplexMultiply(x2Real, x2Imag, sourceReal, sourceImag, twiddleReal, twiddleImag,
-                                              temporary, mask);
+                if constexpr (cacheTwiddles) {
+                    StockhamRadix4ComplexMultiply(x2Real, x2Imag, sourceReal, sourceImag, cached2Real, cached2Imag,
+                                                  temporary, mask);
+                } else {
+                    StockhamRadix4LoadTwiddle<Quarter, 2U>(twiddles, j, index, twiddleReal, twiddleImag, mask, qBase);
+                    StockhamRadix4ComplexMultiply(x2Real, x2Imag, sourceReal, sourceImag, twiddleReal, twiddleImag,
+                                                  temporary, mask);
+                }
 
                 Reg::LoadAlign<float, Reg::LoadDist::DIST_DINTLV_B32>(sourceReal, sourceImag, x0 + 3 * N / 2);
-                StockhamRadix4LoadTwiddle<Quarter, 3U>(twiddles, j, index, twiddleReal, twiddleImag, mask);
-                StockhamRadix4ComplexMultiply(x3Real, x3Imag, sourceReal, sourceImag, twiddleReal, twiddleImag,
-                                              temporary, mask);
+                if constexpr (cacheTwiddles) {
+                    StockhamRadix4ComplexMultiply(x3Real, x3Imag, sourceReal, sourceImag, cached3Real, cached3Imag,
+                                                  temporary, mask);
+                } else {
+                    StockhamRadix4LoadTwiddle<Quarter, 3U>(twiddles, j, index, twiddleReal, twiddleImag, mask, qBase);
+                    StockhamRadix4ComplexMultiply(x3Real, x3Imag, sourceReal, sourceImag, twiddleReal, twiddleImag,
+                                                  temporary, mask);
+                }
 
                 StockhamRadix4Butterfly<Inverse>(x0Real, x0Imag, x1Real, x1Imag, x2Real, x2Imag, x3Real, x3Imag,
                                                  sourceReal, sourceImag, mask);
-                StockhamRadix4Store<Quarter>(transformOutput, x3Real, x3Imag, x1Real, x1Imag, x0Real, x0Imag,
-                                             sourceReal, sourceImag, q, j, index, mask, qBase);
+                StockhamRadix4Store<Quarter, activeButterflies == kComplexPerVector>(
+                    transformOutput, x3Real, x3Imag, x1Real, x1Imag, x0Real, x0Imag, sourceReal, sourceImag, q, j,
+                    index, mask, qBase);
             }
         }
     }

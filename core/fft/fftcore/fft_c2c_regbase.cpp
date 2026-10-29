@@ -10,7 +10,11 @@
 #include <cmath>
 #include <stdexcept>
 #include <vector>
+#include <algorithm>
 #include <mki/utils/rt/rt.h>
+#include <mki/utils/platform/platform_info.h>
+#include "fft_c2c_regbase_optimized_plan.h"
+#include "fft_c2c_coefficients.h"
 #include "fftcore/fft_c2c_regbase_core.h"
 #include "log/log.h"
 #include "ops.h"
@@ -38,13 +42,31 @@ bool FftC2CRegBaseCore::PreAllocateInDevice()
 {
     const int64_t n = problemDesc.nDoing;
     const double sign = problemDesc.forward ? -1.0 : 1.0;
-    CoeffKey key = {coreType, 0, {n}, problemDesc.forward};
-    twiddles = FFTensorCache::getCoeff(key, [n, sign]() -> FFTensor* {
+    // Optimized uses compact radix-4 coefficients at N>=512. It must not share the
+    // original radix-2 cache entry even though both tables contain N complex values.
+    // At N<=8192 BuildLocalTwiddles depends only on N and direction. Batch/core
+    // count changes scheduling, not coefficients, including N/2+1 real-2D columns.
+    CoeffKey key = {coreType, optimizedConfig_ ? 202U : 0U, {n}, problemDesc.forward};
+    const int config = optimizedConfig_;
+    const unsigned batch = problemDesc.batch;
+    twiddles = FFTensorCache::getCoeff(key, [n, sign, config, batch]() -> FFTensor* {
         auto tensor = std::make_unique<FFTensor>();
         tensor->desc = {TENSOR_DTYPE_FLOAT, TENSOR_FORMAT_ND, {2 * n}, {}, 0};
         tensor->dataSize = static_cast<size_t>(2 * n) * sizeof(float);
         auto* values = new float[2 * n]();
         tensor->hostData = values;
+        if (config != 0) {
+            const auto cores = static_cast<uint32_t>(PlatformInfo::Instance().GetCoreNum(CoreType::CORE_TYPE_VECTOR));
+            const auto descriptor = fft::c2c::SelectRegBaseOptimized(static_cast<int32_t>(n), batch, sign > 0, cores,
+                                                                     config);
+            const auto table = fft::c2c::BuildLocalTwiddles(descriptor.core);
+            if (table.size() != static_cast<size_t>(2 * n)) {
+                // A radix-2 table cannot substitute for the optimized radix-4 layout.
+                throw std::logic_error("optimized C2C twiddle table size mismatch");
+            }
+            std::copy(table.begin(), table.end(), values);
+            return tensor.release();
+        }
         constexpr double twoPi = 6.283185307179586476925286766559;
         for (int64_t length = 2; length <= n; length *= 2) {
             const int64_t half = length / 2;
@@ -58,7 +80,7 @@ bool FftC2CRegBaseCore::PreAllocateInDevice()
         return tensor.release();
     });
 
-    OpParam::FftC2CRegBase param = {n, problemDesc.batch, problemDesc.forward ? 0 : 1};
+    OpParam::FftC2CRegBase param = {n, problemDesc.batch, problemDesc.forward ? 0 : 1, optimizedConfig_};
     Tensor input;
     input.desc = {TENSOR_DTYPE_COMPLEX64, TENSOR_FORMAT_ND, {problemDesc.batch, n}, {}, 0};
     input.dataSize = static_cast<size_t>(problemDesc.batch) * n * 2 * sizeof(float);

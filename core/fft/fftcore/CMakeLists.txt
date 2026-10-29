@@ -57,3 +57,5 @@ target_link_libraries(fft_core PUBLIC fft_utils)
 target_link_libraries(fft_core PUBLIC fft_operation)
 
 target_include_directories(fft_core PRIVATE ${PROJECT_SOURCE_DIR}/ops/fft/real/fft_regbase/include)
+
+target_include_directories(fft_core PRIVATE ${PROJECT_SOURCE_DIR}/ops/fft/c2c/fft_regbase/fft_regbase/optimized)

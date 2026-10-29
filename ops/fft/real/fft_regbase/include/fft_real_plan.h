@@ -32,6 +32,8 @@ struct Descriptor {
     size_t workspaceBytes = 0, boundaryTwiddleBytes = 0;
     uint32_t fusedBlocks = 0, fusedTileBatch = 0, fusedUbSlots = 0;
     size_t fusedUbBytes = 0;
+    // Zero preserves the original implementation; nonzero is a frozen Optimized configuration.
+    int32_t optimizedConfig = 0;
     bool IsFused() const { return variant == Variant::FusedUb; }
     int Launches() const { return IsFused() ? 1 : core.Launches() + 1; }
 };

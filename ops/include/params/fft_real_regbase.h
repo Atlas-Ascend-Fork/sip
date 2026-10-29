@@ -11,25 +11,27 @@
 #include <cstdint>
 #include <sstream>
 #include "fft_real_plan.h"
+#include "fft_real_optimized_plan.h"
 
 namespace AsdSip::OpParam {
-enum class FftRealStage : int32_t { Fused, Boundary, Small };
+enum class FftRealStage : int32_t { Fused, Boundary, Small, Optimized };
 struct FftRealRegBase {
     int32_t fftN;
     int64_t batchSize;
     int32_t isInverse;
     int32_t isC2R;
     FftRealStage stage;
+    int32_t optimizedConfig = 0;
     bool operator==(const FftRealRegBase& p) const
     {
         return fftN == p.fftN && batchSize == p.batchSize && isInverse == p.isInverse && isC2R == p.isC2R &&
-               stage == p.stage;
+               stage == p.stage && optimizedConfig == p.optimizedConfig;
     }
     std::string ToString() const
     {
         std::ostringstream text;
         text << "FftRealRegBase N=" << fftN << " B=" << batchSize << " inverse=" << isInverse << " c2r=" << isC2R
-             << " stage=" << static_cast<int>(stage);
+             << " stage=" << static_cast<int>(stage) << " optimized_config=" << optimizedConfig;
         return text.str();
     }
 };
@@ -37,6 +39,11 @@ inline fft::real::Descriptor RealDescriptor(const FftRealRegBase& p, uint32_t co
 {
     if ((p.isInverse != 0 && p.isInverse != 1) || (p.isC2R != 0 && p.isC2R != 1))
         throw std::invalid_argument("Invalid real FFT kind or direction");
+    if (p.stage == FftRealStage::Optimized)
+        return fft::real::SelectOptimized(p.fftN, p.batchSize, p.isC2R ? fft::real::Kind::C2R : fft::real::Kind::R2C,
+                                          p.isInverse != 0, cores, p.optimizedConfig);
+    if (p.optimizedConfig != 0)
+        throw std::invalid_argument("Original real FFT stages cannot carry a Optimized configuration");
     return fft::real::Select(p.fftN, p.batchSize, p.isC2R ? fft::real::Kind::C2R : fft::real::Kind::R2C,
                              p.isInverse != 0, cores);
 }
@@ -49,6 +56,8 @@ inline const char* RealKernelName(FftRealStage stage)
             return "FftRealRegBaseBoundaryKernel";
         case FftRealStage::Small:
             return "FftRealRegBaseSmallKernel";
+        case FftRealStage::Optimized:
+            return "FftRealRegBaseOptimizedKernel";
     }
     return "";
 }
@@ -68,6 +77,8 @@ inline int64_t RealCoefficientFloats(const FftRealRegBase& p, const fft::real::D
 }
 inline uint64_t RealTilingKey(const FftRealRegBase& p, const fft::real::Descriptor& d)
 {
+    if (p.stage == FftRealStage::Optimized)
+        return 1000000U + 128U * p.fftN + 8U * d.optimizedConfig + 4U * p.isC2R + (d.fusedUbSlots == 2 ? 1U : 0U);
     if (p.stage == FftRealStage::Boundary)
         return 2 * d.boundaryTilePoints + p.isC2R;
     if (p.stage == FftRealStage::Small)

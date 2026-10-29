@@ -15,8 +15,9 @@
 class FftC2CRegBaseCore : public FFTCoreBase {
 public:
     FftC2CRegBaseCore(unsigned nDone, unsigned nDoing, unsigned nLeft, unsigned batch, AsdSip::asdFftType fftType,
-                      bool forward)
-        : FFTCoreBase(FFTCoreType::kFftC2CRegBase, nDone, nDoing, nLeft, batch, fftType, forward)
+                      bool forward, int optimizedConfig = 0)
+        : FFTCoreBase(FFTCoreType::kFftC2CRegBase, nDone, nDoing, nLeft, batch, fftType, forward),
+          optimizedConfig_(optimizedConfig)
     {}
     ~FftC2CRegBaseCore() override;
     size_t EstimateWorkspaceSize() override;
@@ -26,6 +27,7 @@ public:
 private:
     bool PreAllocateInDevice() override;
     std::shared_ptr<AsdSip::FFTensor> twiddles;
+    const int optimizedConfig_;
 };
 
 #endif

@@ -33,7 +33,11 @@ public:
                 return nullptr;
             return GetKernelByName(OpParam::FftLargeKernelName(p.stage));
         }
-        return GetKernelByName("FftC2CRegBaseC64Kernel");
+        if (launchParam.GetParam().Type() != typeid(OpParam::FftC2CRegBase))
+            return nullptr;
+        const auto& param = AnyCast<OpParam::FftC2CRegBase>(launchParam.GetParam());
+        return GetKernelByName(param.optimizedConfig == 0 ? "FftC2CRegBaseC64Kernel" :
+                                                            "FftC2CRegBaseOptimizedC64Kernel");
     }
 
     int64_t GetInputNum(const Any& specificParam) const override
@@ -54,8 +58,12 @@ protected:
         ASDSIP_CHECK(launchParam.GetInTensorCount() == 2 && outTensors.size() == 1, "RegBase tensor count is invalid",
                      return Status::FailStatus(ERROR_INFERSHAPE_ERROR));
         const auto& param = AnyCast<OpParam::FftC2CRegBase>(launchParam.GetParam());
-        ASDSIP_CHECK(OpParam::IsFftC2CRegBaseSupported(param.fftN) && param.batchSize > 0,
-                     "RegBase shape is unsupported", return Status::FailStatus(ERROR_INFERSHAPE_ERROR));
+        const bool supported = param.optimizedConfig == 0 ?
+                                   OpParam::IsFftC2CRegBaseSupported(param.fftN) :
+                                   ((param.optimizedConfig == 1 || param.optimizedConfig == 2) &&
+                                    OpParam::IsFftC2CRegBaseOptimizedSupported(param.fftN));
+        ASDSIP_CHECK(supported && param.batchSize > 0, "RegBase shape is unsupported",
+                     return Status::FailStatus(ERROR_INFERSHAPE_ERROR));
         outTensors[0].desc.dtype = TENSOR_DTYPE_COMPLEX64;
         outTensors[0].desc.format = launchParam.GetInTensor(0).desc.format;
         outTensors[0].desc.dims = {param.batchSize, param.fftN};

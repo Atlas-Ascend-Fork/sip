@@ -13,6 +13,7 @@ if(BUILD_FftRealRegBaseOperation)
     target_include_directories(FftRealRegBaseOperation PRIVATE ${real_regbase_dir}/include ${real_large})
 endif()
 set(real_dependencies ${real_regbase_dir}/include/fft_real_plan.h
+    ${real_regbase_dir}/include/fft_real_optimized_plan.h
     ${PROJECT_SOURCE_DIR}/ops/include/params/fft_real_regbase_tiling.h
     ${real_vendor}/regbase_small.h ${real_large}/fft_c2c_plan.h
     ${real_vendor}/regbase_small_impl.h ${real_vendor}/regbase_real_fused_impl.h
@@ -30,3 +31,9 @@ foreach(stage IN ITEMS fused boundary small)
         CACHE_POLICY compiler-default INCLUDE_DIRECTORIES ${real_large} ${PROJECT_SOURCE_DIR}/ops/include
         DEPENDS ${real_dependencies})
 endforeach()
+add_kernel(fft_real_regbase_optimized ascend950 vector
+    fft_regbase/kernel/arch35/fft_real_regbase_optimized.asc FftRealRegBaseOptimizedKernel
+    CACHE_POLICY compiler-default INCLUDE_DIRECTORIES ${real_large} ${PROJECT_SOURCE_DIR}/ops/include
+    DEPENDS ${real_dependencies} ${real_vendor}/regbase_real_optimized_impl.h
+        ${real_vendor}/regbase_contiguous_impl.h
+)

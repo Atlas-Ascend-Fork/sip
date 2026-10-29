@@ -9,6 +9,7 @@
  */
 #include "fft_regbase_tiling.h"
 #include "fft_regbase_tiling_data.h"
+#include "../optimized/fft_c2c_regbase_optimized_plan.h"
 #include "params/fft_c2c_regbase.h"
 #include <mki/utils/platform/platform_info.h>
 #include <algorithm>
@@ -27,13 +28,40 @@ AspbStatus FftC2CRegBaseTiling(const LaunchParam& launchParam, KernelInfo& kerne
                      launchParam.GetParam().Type() == typeid(OpParam::FftC2CRegBase),
                  "RegBase requires Ascend 950 and valid parameters", return ErrorType::ACL_ERROR_INVALID_PARAM);
     const auto& param = AnyCast<OpParam::FftC2CRegBase>(launchParam.GetParam());
-    ASDSIP_CHECK(OpParam::IsFftC2CRegBaseSupported(param.fftN) && param.batchSize > 0, "RegBase shape is unsupported",
-                 return ErrorType::ACL_ERROR_INVALID_PARAM);
+    const bool supported = param.optimizedConfig == 0 ?
+                               OpParam::IsFftC2CRegBaseSupported(param.fftN) :
+                               ((param.optimizedConfig == 1) && OpParam::IsFftC2CRegBaseOptimizedSupported(param.fftN));
+    ASDSIP_CHECK(supported && param.batchSize > 0 && (param.isInverse == 0 || param.isInverse == 1),
+                 "RegBase shape is unsupported", return ErrorType::ACL_ERROR_INVALID_PARAM);
     auto* tiling = reinterpret_cast<FftC2CRegBaseTilingData*>(kernelInfo.GetTilingHostAddr());
     ASDSIP_CHECK(tiling != nullptr, "RegBase tiling allocation is missing", return ErrorType::ACL_ERROR_INVALID_PARAM);
     const uint32_t aivCount = static_cast<uint32_t>(PlatformInfo::Instance().GetCoreNum(CoreType::CORE_TYPE_VECTOR));
     ASDSIP_CHECK(aivCount > 0, "RegBase requires a positive physical AIV count",
                  return ErrorType::ACL_ERROR_INVALID_PARAM);
+
+    if (param.optimizedConfig != 0) {
+        try {
+            const auto d = fft::c2c::SelectRegBaseOptimized(static_cast<int32_t>(param.fftN), param.batchSize,
+                                                            param.isInverse != 0, aivCount, param.optimizedConfig);
+            *tiling = {param.batchSize, d.core.n, d.core.tilePoints};
+            kernelInfo.SetBlockDim(d.core.phaseABlocks);
+            kernelInfo.SetTilingId(d.tilingKey);
+            kernelInfo.GetScratchSizes() = {0};
+            const char* trace = std::getenv("ASDSIP_FFT_PLAN_TRACE");
+            if (trace != nullptr && std::strcmp(trace, "1") == 0) {
+                std::cerr << "A5_C2C_Optimized N=" << d.core.n << " effective_batch=" << param.batchSize
+                          << " inverse=" << param.isInverse << " config=" << d.config
+                          << " tile_points=" << d.core.tilePoints << " block_dim=" << d.core.phaseABlocks
+                          << " DB=" << (d.doubleBuffer ? 1 : 0)
+                          << " variant=" << fft::c2c::RegBaseOptimizedVariantName(d)
+                          << " ub_bytes=" << d.core.phaseAUbBytes << " key=" << d.tilingKey << '\n';
+            }
+            return ErrorType::ACL_SUCCESS;
+        } catch (const std::exception& error) {
+            ASDSIP_LOG(ERROR) << "C2C RegBase Optimized tiling failed: " << error.what();
+            return ErrorType::ACL_ERROR_INVALID_PARAM;
+        }
+    }
 
     const int32_t n = static_cast<int32_t>(param.fftN);
     const int32_t tilePoints = n <= 256 ? 256 : std::max(1024, n);

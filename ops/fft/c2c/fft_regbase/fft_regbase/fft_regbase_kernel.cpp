@@ -20,8 +20,9 @@ using namespace Mki;
 
 class FftC2CRegBaseC64Kernel : public KernelBase {
 public:
-    explicit FftC2CRegBaseC64Kernel(const std::string& kernelName, const BinHandle* handle) noexcept
-        : KernelBase(kernelName, handle)
+    explicit FftC2CRegBaseC64Kernel(const std::string& kernelName, const BinHandle* handle,
+                                    bool optimized = false) noexcept
+        : KernelBase(kernelName, handle), optimized_(optimized)
     {}
 
     bool CanSupport(const LaunchParam& launchParam) const override
@@ -33,8 +34,11 @@ public:
         ASDSIP_CHECK(launchParam.GetInTensorCount() == 2 && launchParam.GetOutTensorCount() == 1,
                      "RegBase requires two inputs and one output", return false);
         const auto& param = AnyCast<OpParam::FftC2CRegBase>(launchParam.GetParam());
-        ASDSIP_CHECK(OpParam::IsFftC2CRegBaseSupported(param.fftN) && param.batchSize > 0 &&
-                         (param.isInverse == 0 || param.isInverse == 1),
+        const bool supported = optimized_ ?
+                                   ((param.optimizedConfig == 1) &&
+                                    OpParam::IsFftC2CRegBaseOptimizedSupported(param.fftN)) :
+                                   (param.optimizedConfig == 0 && OpParam::IsFftC2CRegBaseSupported(param.fftN));
+        ASDSIP_CHECK(supported && param.batchSize > 0 && (param.isInverse == 0 || param.isInverse == 1),
                      "RegBase parameters are unsupported", return false);
         ASDSIP_CHECK(param.batchSize <= std::numeric_limits<int64_t>::max() / (param.fftN * 8),
                      "RegBase signal byte count overflows", return false);
@@ -65,7 +69,18 @@ public:
                      "RegBase tiling failed", return Status::FailStatus(ERROR_INVALID_VALUE));
         return Status::OkStatus();
     }
+
+private:
+    bool optimized_;
+};
+
+class FftC2CRegBaseOptimizedC64Kernel : public FftC2CRegBaseC64Kernel {
+public:
+    explicit FftC2CRegBaseOptimizedC64Kernel(const std::string& kernelName, const BinHandle* handle) noexcept
+        : FftC2CRegBaseC64Kernel(kernelName, handle, true)
+    {}
 };
 
 REG_KERNEL_BASE(FftC2CRegBaseC64Kernel);
+REG_KERNEL_BASE(FftC2CRegBaseOptimizedC64Kernel);
 } // namespace AsdSip

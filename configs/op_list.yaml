@@ -218,6 +218,8 @@ DddSepOperation:
         ascend910b: true
 
 FftC2CRegBaseOperation:
+    FftC2CRegBaseOptimizedC64Kernel:
+        ascend950: true
     FftC2CRegBaseC64Kernel:
         ascend950: true
     FftC2CRegBaseLargeAKernel:
@@ -268,6 +270,8 @@ InterpByCoeffOperation:
         ascend910b: true
 
 FftRealRegBaseOperation:
+    FftRealRegBaseOptimizedKernel:
+        ascend950: true
     FftRealRegBaseFusedKernel:
         ascend950: true
     FftRealRegBaseBoundaryKernel:

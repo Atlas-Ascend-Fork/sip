@@ -27,6 +27,17 @@ add_kernel(fft_c2c_regbase ascend950 vector
         ${CMAKE_CURRENT_LIST_DIR}/fft_regbase/tiling/fft_regbase_tiling_data.h
 )
 
+set(c2c_optimized_vendor ${PROJECT_SOURCE_DIR}/ops/fft/real/fft_regbase/fft_regbase/kernel/arch35/vendor)
+set(c2c_optimized_large ${CMAKE_CURRENT_LIST_DIR}/fft_regbase/large)
+add_kernel(fft_c2c_regbase_optimized ascend950 vector
+    fft_regbase/optimized/fft_c2c_regbase_optimized.asc FftC2CRegBaseOptimizedC64Kernel
+    CACHE_POLICY compiler-default INCLUDE_DIRECTORIES ${c2c_optimized_vendor} ${c2c_optimized_large}
+    DEPENDS ${c2c_optimized_vendor}/regbase_small_impl.h ${c2c_optimized_vendor}/regbase_small.h
+        ${c2c_optimized_large}/fft_c2c_plan.h
+        ${CMAKE_CURRENT_LIST_DIR}/fft_regbase/tiling/fft_regbase_tiling_data.h
+        ${c2c_optimized_vendor}/regbase_contiguous_impl.h
+)
+
 set(large_dir ${CMAKE_CURRENT_LIST_DIR}/fft_regbase/large)
 set(large_depends ${large_dir}/regbase_large_impl.h ${large_dir}/regbase_large.h
     ${large_dir}/fft_c2c_plan.h)

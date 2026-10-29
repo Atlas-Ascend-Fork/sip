@@ -64,7 +64,8 @@ public:
             return false;
         try {
             const auto d = OpParam::RealDescriptor(p, 1);
-            if ((stage_ == FftRealStage::Fused) != d.IsFused() || (stage_ == FftRealStage::Small && d.core.Large()))
+            if (((stage_ == FftRealStage::Fused || stage_ == FftRealStage::Optimized) != d.IsFused()) ||
+                (stage_ == FftRealStage::Small && d.core.Large()))
                 return false;
             for (int i = 0; i < 4; ++i) {
                 const auto& tensor = i == 3 ? launch.GetOutTensor(0) : launch.GetInTensor(i);
@@ -103,9 +104,9 @@ public:
         auto* t = reinterpret_cast<FftRealRegBaseTiling*>(kernelInfo_.GetTilingHostAddr());
         *t = {p.batchSize, d.core.n, d.core.tilePoints, p.fftN, p.isInverse, p.isC2R, d.boundaryTilePoints};
         kernelInfo_.SetTilingId(OpParam::RealTilingKey(p, d));
-        kernelInfo_.SetBlockDim(stage_ == FftRealStage::Fused    ? d.fusedBlocks :
-                                stage_ == FftRealStage::Boundary ? d.boundaryBlocks :
-                                                                   d.core.phaseABlocks);
+        kernelInfo_.SetBlockDim(stage_ == FftRealStage::Fused || stage_ == FftRealStage::Optimized ? d.fusedBlocks :
+                                stage_ == FftRealStage::Boundary                                   ? d.boundaryBlocks :
+                                                                                                     d.core.phaseABlocks);
         // Static UB arrays, matching donor <<<blocks,0,stream>>> launches.
         kernelInfo_.SetLocalMemorySize(0);
         kernelInfo_.GetScratchSizes() = {0};
@@ -129,4 +130,5 @@ REG_OPERATION(FftRealRegBaseOperation);
 REAL_KERNEL(FftRealRegBaseFusedKernel, Fused);
 REAL_KERNEL(FftRealRegBaseBoundaryKernel, Boundary);
 REAL_KERNEL(FftRealRegBaseSmallKernel, Small);
+REAL_KERNEL(FftRealRegBaseOptimizedKernel, Optimized);
 } // namespace AsdSip
