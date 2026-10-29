@@ -52,13 +52,17 @@ AspbStatus asdBlasCgemvBatchedShapeCheck(CgemvBatchedImplParam implParam)
         for (uint64_t d = 0; d < xstorageDimsNum; ++d) {
             xTotalElems *= xstorageDims[d];
         }
-        xShapeOk = xTotalElems >= implParam.batchCount * implParam.n;
+        // x 元素数需求随 trans 变化：N 需 n 个，T/C 需 m 个（issue 实测：trans='c'
+        // 且 m>n 时合法调用被 m-only 校验误拒）
+        int64_t xNeedPerBatch = (implParam.trans == asdBlasOperation_t::ASDBLAS_OP_N) ? implParam.n : implParam.m;
+        xShapeOk = xTotalElems >= implParam.batchCount * xNeedPerBatch;
     }
     if (!xShapeOk) {
         delete[] xstorageDims;
         xstorageDims = nullptr;
         ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH)
-            << "blas asdBlasCgemvBatched get wrong x tensor num (need >= batchCount*n elements).";
+            << "blas asdBlasCgemvBatched get wrong x tensor num (need >= batchCount *"
+            << (implParam.trans == asdBlasOperation_t::ASDBLAS_OP_N ? "n" : "m") << " elements).";
         return ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH;
     }
 
@@ -79,13 +83,17 @@ AspbStatus asdBlasCgemvBatchedShapeCheck(CgemvBatchedImplParam implParam)
         for (uint64_t d = 0; d < ystorageDimsNum; ++d) {
             yTotalElems *= ystorageDims[d];
         }
-        yShapeOk = yTotalElems >= implParam.batchCount * implParam.m;
+        // y 元素数需求随 trans 变化：N 需 m 个，T/C 需 n 个（issue 实测：trans='c'
+        // 且 m>n 时 y=n 的合法调用被误拒——kernel IS_TRANS 路径本就只写 n 元素）
+        int64_t yNeedPerBatch = (implParam.trans == asdBlasOperation_t::ASDBLAS_OP_N) ? implParam.m : implParam.n;
+        yShapeOk = yTotalElems >= implParam.batchCount * yNeedPerBatch;
     }
     if (!yShapeOk) {
         delete[] ystorageDims;
         ystorageDims = nullptr;
         ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH)
-            << "blas asdBlasCgemvBatched get wrong y tensor num (need >= batchCount*m elements).";
+            << "blas asdBlasCgemvBatched get wrong y tensor num (need >= batchCount *"
+            << (implParam.trans == asdBlasOperation_t::ASDBLAS_OP_N ? "m" : "n") << " elements).";
         return ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH;
     }
 

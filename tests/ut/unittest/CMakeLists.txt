@@ -134,6 +134,9 @@ add_library(test_src_cdotc OBJECT ${TEST_SRC_CDOTC})
 aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/blas/ssyr TEST_SRC_SSYR)
 add_library(test_src_ssyr OBJECT ${TEST_SRC_SSYR})
 
+aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/blas/cgemv_batched TEST_SRC_CGEMV_BATCHED)
+add_library(test_src_cgemv_batched OBJECT ${TEST_SRC_CGEMV_BATCHED})
+
 # aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/blas/cgemv TEST_SRC_CGEMV)
 # add_library(test_src_cgemv OBJECT ${TEST_SRC_CGEMV})
 
@@ -216,6 +219,7 @@ add_executable(ops_unittest
     # $<TARGET_OBJECTS:test_src_sswap>
     # $<TARGET_OBJECTS:test_src_cswap>
     $<TARGET_OBJECTS:test_src_ssyr>
+    $<TARGET_OBJECTS:test_src_cgemv_batched>
     $<TARGET_OBJECTS:test_src_cmatinv_batched>
     $<TARGET_OBJECTS:test_src_smatinv_batched>
     # $<TARGET_OBJECTS:test_src_cgemv>
