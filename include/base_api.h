@@ -15,13 +15,17 @@
 #include "utils/mem_base.h"
 
 namespace AsdSip {
-AsdSip::AspbStatus swapLast2AxesGetWorkspaceSize(size_t &size);
+AsdSip::AspbStatus swapLast2AxesGetWorkspaceSize(size_t& size);
 
-AsdSip::AspbStatus swapLast2Axes(const aclTensor *inTensor, aclTensor *outTensor, void *stream,
-                                 void *workspace = nullptr);
+AsdSip::AspbStatus swapLast2Axes(const aclTensor* inTensor, aclTensor* outTensor, void* stream,
+                                 void* workspace = nullptr);
 
-AsdSip::AspbStatus asdMul(int n, const aclTensor *x, const aclTensor *y, aclTensor *z, void *stream,
-                          void *workspace = nullptr);
+AsdSip::AspbStatus asdMul(int n, const aclTensor* x, const aclTensor* y, aclTensor* z, void* stream,
+                          void* workspace = nullptr);
 
-}
+AsdSip::AspbStatus solveGetWorkspaceSize(size_t& size);
+
+AsdSip::AspbStatus solve(const aclTensor* a, const aclTensor* b, aclTensor* x, void* stream, void* workspace = nullptr);
+
+} // namespace AsdSip
 #endif

@@ -35,6 +35,43 @@ def swap_last2_axes(x: torch.Tensor) -> torch.Tensor:
     return torch.ops.torch_sip.swap_last2_axes(x)
 
 
+class _SolveFn(torch.autograd.Function):
+    """solve 的自动微分包装: 反向唤起 solve_backward。
+
+    反向解析式: gB = solve(Aᵀ, gX); gA = -(gB·Xᵀ)。
+    """
+
+    @staticmethod
+    def forward(ctx, A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
+        with torch.no_grad():
+            X = torch.ops.torch_sip.solve_forward(A, B)
+        ctx.save_for_backward(A, X)
+        return X
+
+    @staticmethod
+    def backward(ctx, grad_X: torch.Tensor):
+        A, X = ctx.saved_tensors
+        gB, gA = torch.ops.torch_sip.solve_backward(A, X, grad_X)
+        return gA, gB  # 与 forward 入参 (A, B) 顺序一致
+
+
+def solve(A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
+    """批量求解线性方程组 A·X = B (fp32, n∈[2,256]).
+
+    支持自动微分: A/B 任一 requires_grad 时走 _SolveFn (反向调 solve_backward);
+    无梯度需求时直通 solve_forward。
+
+    Args:
+        A: 系数矩阵 [batch, n, n]
+        B: 右端项 [batch, n, nrhs]
+    Returns:
+        X: 解 [batch, n, nrhs]
+    """
+    if torch.is_grad_enabled() and (A.requires_grad or B.requires_grad):
+        return _SolveFn.apply(A, B)
+    return torch.ops.torch_sip.solve_forward(A, B)
+
+
 def asd_blas_asum(x: torch.Tensor) -> torch.Tensor:
     return torch.ops.torch_sip.asd_blas_asum(x)
 
@@ -517,3 +554,8 @@ def npu_inv_backward(y: torch.Tensor, grad_y: torch.Tensor):
     y 为正向阶段 npu_inv(a) 在 no_grad 下的输出 (调用方保存到反传阶段); dy 为上游产生的 dL/dy。
     """
     return _npu_inv_impl.npu_inv_backward(y, grad_y)
+
+
+def solve_backward(A: torch.Tensor, X: torch.Tensor, gX: torch.Tensor) -> tuple:
+    """solve 反向: gB = solve(Aᵀ, gX), gA = -(gB @ Xᵀ)"""
+    return torch.ops.torch_sip.solve_backward(A, X, gX)

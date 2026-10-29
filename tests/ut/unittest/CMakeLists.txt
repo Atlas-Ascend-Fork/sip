@@ -26,6 +26,9 @@ add_library(test_src OBJECT ${TEST_SRC})
 aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/base/conj TEST_SRC_CONJ)
 add_library(test_src_conj OBJECT ${TEST_SRC_CONJ})
 
+aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/base/solve TEST_SRC_SOLVE)
+add_library(test_src_solve OBJECT ${TEST_SRC_SOLVE})
+
 aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/fft/1d/c2r TEST_SRC_FFT_C2R)
 add_library(test_src_fft_c2r OBJECT ${TEST_SRC_FFT_C2R})
 
@@ -189,6 +192,7 @@ add_executable(ops_unittest
     # $<TARGET_OBJECTS:test_src_swaplast2axes>
     # $<TARGET_OBJECTS:test_src_function>
     $<TARGET_OBJECTS:test_src_conj>
+    $<TARGET_OBJECTS:test_src_solve>
     $<TARGET_OBJECTS:test_src_fft_c2r>
     $<TARGET_OBJECTS:test_src_fft_c2c>
     $<TARGET_OBJECTS:test_src_fft_r2c>

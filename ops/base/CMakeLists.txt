@@ -11,6 +11,7 @@
 add_subdirectory(conj)
 add_subdirectory(swaplast2axes)
 add_subdirectory(mul)
+add_subdirectory(solve)
 
 set(operations_objects ${ops_objects} PARENT_SCOPE)
 

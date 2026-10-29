@@ -68,6 +68,9 @@ StrmmOperation:
 StrmvOperation:
     StrmvF32Kernel:
         ascend910b: true
+SolveOperation:
+    SolveFp32Kernel:
+        ascend910b: true
 SwapOperation:
     CswapC64Kernel:
         ascend910b: true
