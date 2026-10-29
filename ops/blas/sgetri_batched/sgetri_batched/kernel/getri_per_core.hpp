@@ -544,24 +544,15 @@ __aicore__ inline void custom_getri_per_core(int orgM, int orgN, int blockM, int
             optr.Process2(srcOffset, 0, blockM_i);
             p2_mte3_mte2(); // transpose 回写(MTE3) -> 行交换读(MTE2)
 
-            // b) U12 = Lpanel^-1 * A[面板行, 尾列] (正号)
-            //    + Schur: A[下方行, 尾列] -= L[i,p] * U12[p, :]
-            //    (R2 时序修正: 必须在 pivot swap 之前 —— 主路径时序为
-            //     分解 -> Schur -> swap(下一轮开头)。v1/v2 把 swap 放在
-            //     Schur 前, U12 读到的面板行已被交换, 与 L 面板行序错位)
-            if (offsetN + 16 < N2) {
-                int w = N2 - offsetN - 16;
-                p2_mte3_mte2(); // 面板 CopyOut(MTE3) -> U12 读(MTE2)
-                pslv.Process(aReal, aReal, offsetN, offsetN + 16, w, false, 16);
-                p2_mte3_mte2(); // U12 写回(MTE3) -> Schur 读(MTE2)
-                tail.Lower(offsetN, 16, offsetN + 16, N2);
-                p2_mte3_mte2(); // Schur 写回(MTE3) -> swap 读(MTE2)
-            }
+            // b) 应用面板 i 的 pivot 行交换（对齐主路径 lu_custom.hpp 时序：
+            //    上一面板 swap 先于本段 U12/Schur 执行, swap 写(MTE3) ->
+            //    U12 读(MTE2) 经下方屏障衔接）
 
-            // c) 应用面板 i 的 pivot 行交换 (主路径 block8/block10 职责,
-            //    时序在 Schur 之后 / 下一面板分解之前):
-            //    A 尾列段 [offsetN+16,N2) + L 列段 [0,offsetN) + eye 全行
-            //    (面板列自身已在 LUCustom1 内部换好, 不重复 swap)
+            // c) 应用面板 i 的 pivot 行交换 (主路径 block8/block10 职责):
+            //    A 尾列段 [offsetN+16,N2)（面板列 [offsetN,offsetN+16) 已在
+            //    LUCustom1 内部 getf2 物理换行, 不重复 swap —— 原实现从
+            //    offsetN 开始, 面板列被双重置换, L/U 因子与 W 行序错位,
+            //    issue #301）+ L 列段 [0,offsetN) + eye 全行
             DataCacheCleanAndInvalid<uint32_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(wG[offsetN]);
             // 读取边界契约: steps = min(realM, realN) 与 LUCustom1 本面板
             // 写入条数 t = min(realM, realN) (getf2.hpp, 调用参数同为
@@ -580,17 +571,30 @@ __aicore__ inline void custom_getri_per_core(int orgM, int orgN, int blockM, int
                 PipeBarrier<PIPE_ALL>();
                 for (int j = offsetN; j < offsetN + steps; ++j) {
                     int p = static_cast<int>(wIn.GetValue(j - offsetN));
-                    // A 段对齐主路径 (lu_custom.hpp:209): 行基址 offset+j,
-                    // 段长 N-offset —— j 为绝对行, 行 offset+j 是面板下方
-                    // 对应行 (含面板右侧全部列)。
-                    opswap.Process(offsetN + j * strideN, offsetN + p * strideN, N2 - offsetN);
+                    // A 尾列段基址 offsetN+16（面板右边界, 对齐主路径
+                    // lu_custom.hpp:225 的 offset）—— 尾列为面板右侧全部列;
+                    // 末面板无尾列段时跳过（L 列段与 eye 段仍需交换）
+                    if (offsetN + 16 < N2) {
+                        opswap.Process(offsetN + 16 + j * strideN, offsetN + 16 + p * strideN, N2 - offsetN - 16);
+                    }
                     opswap.Process(j * strideN, p * strideN, offsetN);
                     opswap.ProcessEye(j * strideN, p * strideN, N2);
                 }
                 PipeBarrier<PIPE_ALL>();
                 wInQue.FreeTensor(wIn);
             }
-            p2_mte3_mte2(); // swap 写(MTE3) -> 下一面板 Process1 读(MTE2)
+            p2_mte3_mte2(); // swap 写(MTE3) -> U12 读(MTE2)
+
+            // d) U12 = Lpanel^-1 * A[面板行, 尾列] (正号)
+            //    + Schur: A[下方行, 尾列] -= L[i,p] * U12[p, :]
+            //    （基于已 swap 的尾列数据；主路径同为 swap -> trsm/Schur 时序）
+            if (offsetN + 16 < N2) {
+                int w = N2 - offsetN - 16;
+                pslv.Process(aReal, aReal, offsetN, offsetN + 16, w, false, 16);
+                p2_mte3_mte2(); // U12 写回(MTE3) -> Schur 读(MTE2)
+                tail.Lower(offsetN, 16, offsetN + 16, N2);
+                p2_mte3_mte2(); // Schur 写回(MTE3) -> 下一面板 Process1 读(MTE2)
+            }
         }
         p2_mte3_mte2();
         tbufPool.Reset();

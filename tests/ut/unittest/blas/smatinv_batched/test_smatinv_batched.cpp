@@ -16,6 +16,7 @@
 
 #include <gtest/gtest.h>
 #include <vector>
+#include <random>
 #include "test_common.h"
 #include "mki/utils/status/status.h"
 #include "mki/utils/log/log.h"
@@ -57,6 +58,22 @@ std::vector<float> MakeDiagDominant(int64_t n, int64_t batch, float scale)
 std::vector<float> MakeZeros(int64_t n, int64_t batch)
 {
     return std::vector<float>(static_cast<size_t>(batch * n * n), 0.0f);
+}
+
+// 非对角占优普通随机矩阵（固定种子，确定性；issue #302）：大幅非对角元素
+// 触发真实行交换（partial pivot），覆盖 pivot 应用路径
+std::vector<float> MakeRandomGeneral(int64_t n, int64_t batch, uint32_t seed)
+{
+    std::mt19937 gen(seed);
+    std::uniform_real_distribution<float> distr(-8.0f, 8.0f);
+    std::vector<float> a(static_cast<size_t>(batch * n * n), 0.0f);
+    for (size_t i = 0; i < a.size(); i++) {
+        a[i] = distr(gen);
+        if (std::fabs(a[i]) < 0.25f) {
+            a[i] = (a[i] >= 0) ? 0.25f : -0.25f; // 避免过小元素造成病态
+        }
+    }
+    return a;
 }
 
 // 残差检查：max|A @ Ainv - I|，host 侧朴素乘法
@@ -124,6 +141,63 @@ TEST(TestBlasSmatinvBatchedPositive, InverseF32N64)
 
     float residual = CheckInversion(aHost, ainvOut, TEST_N, TEST_BATCH);
     EXPECT_LT(residual, RESIDUAL_TOL);
+
+    asdBlasDestroy(handle);
+    aclDestroyTensor(aclA);
+    aclDestroyTensor(aclAinv);
+    aclrtFree(aAddr);
+    aclrtFree(ainvAddr);
+    if (workspaceAddr != nullptr) {
+        aclrtFree(workspaceAddr);
+    }
+
+    TensorContext context;
+    OpTestEnd(deviceId, context, stream);
+}
+
+// 非对角占优随机矩阵：触发真实行交换（W[j]!=j），覆盖 pivot 应用路径（issue #302）
+TEST(TestBlasSmatinvBatchedPositive, InverseF32RandomN64)
+{
+    int deviceId = 0;
+    MkiRtStream stream = OpTestInit(deviceId);
+
+    std::vector<float> aHost = MakeRandomGeneral(TEST_N, TEST_BATCH, 20260101u);
+    std::vector<float> ainvHost = MakeZeros(TEST_N, TEST_BATCH);
+    aclTensor* aclA = nullptr;
+    aclTensor* aclAinv = nullptr;
+    void* aAddr = nullptr;
+    void* ainvAddr = nullptr;
+    ASSERT_EQ(
+        CreateAclTensor(aHost, std::vector<int64_t>{TEST_BATCH, TEST_N, TEST_N}, &aAddr, aclDataType::ACL_FLOAT, &aclA),
+        0);
+    ASSERT_EQ(CreateAclTensor(ainvHost, std::vector<int64_t>{TEST_BATCH, TEST_N, TEST_N}, &ainvAddr,
+                              aclDataType::ACL_FLOAT, &aclAinv),
+              0);
+
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeSmatinvBatchedPlan(handle, TEST_N, TEST_BATCH), AsdSip::ErrorType::ACL_SUCCESS);
+
+    size_t workSize = 0;
+    ASSERT_EQ(asdBlasGetWorkspaceSize(handle, workSize), AsdSip::ErrorType::ACL_SUCCESS);
+    void* workspaceAddr = nullptr;
+    if (workSize > 0) {
+        ASSERT_EQ(aclrtMalloc(&workspaceAddr, static_cast<int64_t>(workSize), ACL_MEM_MALLOC_HUGE_FIRST), 0);
+        ASSERT_EQ(asdBlasSetWorkspace(handle, workspaceAddr), AsdSip::ErrorType::ACL_SUCCESS);
+    }
+    aclrtStream aclStream = static_cast<aclrtStream>(stream);
+    ASSERT_EQ(asdBlasSetStream(handle, aclStream), AsdSip::ErrorType::ACL_SUCCESS);
+
+    ASSERT_EQ(asdBlasSmatinvBatched(handle, TEST_N, aclA, TEST_N, aclAinv, TEST_N, nullptr, TEST_BATCH),
+              AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(aclrtSynchronizeStream(stream), 0);
+
+    size_t bytes = static_cast<size_t>(TEST_BATCH * TEST_N * TEST_N) * sizeof(float);
+    std::vector<float> ainvOut(static_cast<size_t>(TEST_BATCH * TEST_N * TEST_N), 0.0f);
+    ASSERT_EQ(aclrtMemcpy(ainvOut.data(), bytes, ainvAddr, bytes, ACL_MEMCPY_DEVICE_TO_HOST), 0);
+
+    float residual = CheckInversion(aHost, ainvOut, TEST_N, TEST_BATCH);
+    EXPECT_LT(residual, 0.1f); // 随机矩阵条件数更大，残差阈值放宽至 0.1
 
     asdBlasDestroy(handle);
     aclDestroyTensor(aclA);

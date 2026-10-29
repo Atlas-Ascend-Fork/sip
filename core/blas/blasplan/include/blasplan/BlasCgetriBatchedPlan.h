@@ -35,8 +35,8 @@ public:
     int64_t GetBatchSize() const { return batchSize; }
 
 private:
-    void GenBatchWAclTensor();
-    void GenWorkAclTensor();
+    AsdSip::AspbStatus GenBatchWAclTensor();
+    AsdSip::AspbStatus GenWorkAclTensor();
     void GenOffsetAndEyeMatData(std::vector<uint32_t>& gatherBuf1, std::vector<uint32_t>& gatherBuf2,
                                 std::vector<uint32_t>& gatherBuf3, std::vector<float>& eyeBuf) const;
     void FreeTensorData(Tensor& input) const;

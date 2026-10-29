@@ -83,6 +83,12 @@ AsdSip::AspbStatus asdConvolve(const aclTensor* signal, const aclTensor* kernel,
     ASDSIP_ECHECK(dataType == op::DataType::DT_COMPLEX64 || dataType == op::DataType::DT_COMPLEX32,
                   "asdConvolve get wrong output tensor dtype.", ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
 
+    // signal 与 output 必须同 dtype（issue #304）：param.dataType 仅由 output 决定，
+    // 混用 complex64/complex32 时 kernel 以错误元素宽度解读 signal 缓冲，输出整体
+    // 错误且无报错
+    ASDSIP_ECHECK(signal->GetDataType() == output->GetDataType(),
+                  "asdConvolve signal and output tensor dtype mismatch.", ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
+
     OpDesc opDesc;
     opDesc.opName = "ConvolveOperation";
     AsdSip::OpParam::Convolve param;

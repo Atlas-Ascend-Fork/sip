@@ -87,7 +87,7 @@ void BlasCgetriBatchedPlan::GenOffsetAndEyeMatData(std::vector<uint32_t>& gather
     }
 }
 
-void BlasCgetriBatchedPlan::GenBatchWAclTensor()
+AsdSip::AspbStatus BlasCgetriBatchedPlan::GenBatchWAclTensor()
 {
     int64_t blockN = BASE_BLOCK_ELENUM;
     int64_t N = this->n;
@@ -108,11 +108,20 @@ void BlasCgetriBatchedPlan::GenBatchWAclTensor()
     wBatchTensor.desc = {TENSOR_DTYPE_UINT32, TENSOR_FORMAT_ND, {wEleNum}, {}, 0};
     wBatchTensor.hostData = wBatchData.data();
     wBatchTensor.dataSize = wEleNum * sizeof(uint32_t);
-    MallocTensorInDevice(wBatchTensor);
-    toAclTensor(wBatchTensor, wBatchAcl);
+    if (!MallocTensorInDevice(wBatchTensor).Ok()) {
+        ASDSIP_LOG(ERROR) << "BlasCgetriBatchedPlan wBatchTensor malloc failed";
+        FreeTensor();
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
+    if (!toAclTensor(wBatchTensor, wBatchAcl).Ok()) {
+        ASDSIP_LOG(ERROR) << "BlasCgetriBatchedPlan wBatchTensor toAclTensor failed";
+        FreeTensor();
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
+    return ErrorType::ACL_SUCCESS;
 }
 
-void BlasCgetriBatchedPlan::GenWorkAclTensor()
+AsdSip::AspbStatus BlasCgetriBatchedPlan::GenWorkAclTensor()
 {
     int64_t tileM = TILE_ELENUM;
     int64_t N = this->n;
@@ -148,20 +157,43 @@ void BlasCgetriBatchedPlan::GenWorkAclTensor()
     aWorkTensor.desc = {TENSOR_DTYPE_FLOAT, TENSOR_FORMAT_ND, {aMatWorkEleNum}, {}, 0};
     aWorkTensor.hostData = aWorkData.data();
     aWorkTensor.dataSize = aMatWorkEleNum * sizeof(float);
-    MallocTensorInDevice(aWorkTensor);
-    toAclTensor(aWorkTensor, aWorkAcl);
+    if (!MallocTensorInDevice(aWorkTensor).Ok()) {
+        ASDSIP_LOG(ERROR) << "BlasCgetriBatchedPlan aWorkTensor malloc failed";
+        FreeTensor();
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
+    if (!toAclTensor(aWorkTensor, aWorkAcl).Ok()) {
+        ASDSIP_LOG(ERROR) << "BlasCgetriBatchedPlan aWorkTensor toAclTensor failed";
+        FreeTensor();
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
 
     workGmTensor.desc = {TENSOR_DTYPE_FLOAT, TENSOR_FORMAT_ND, {workEleNum}, {}, 0};
     workGmTensor.hostData = workGmData.data();
     workGmTensor.dataSize = workEleNum * sizeof(float);
-    MallocTensorInDevice(workGmTensor);
-    toAclTensor(workGmTensor, workGmAcl);
+    if (!MallocTensorInDevice(workGmTensor).Ok()) {
+        ASDSIP_LOG(ERROR) << "BlasCgetriBatchedPlan workGmTensor malloc failed";
+        FreeTensor();
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
+    if (!toAclTensor(workGmTensor, workGmAcl).Ok()) {
+        ASDSIP_LOG(ERROR) << "BlasCgetriBatchedPlan workGmTensor toAclTensor failed";
+        FreeTensor();
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
+    return ErrorType::ACL_SUCCESS;
 }
 
 AsdSip::AspbStatus BlasCgetriBatchedPlan::CreateTensor()
 {
-    GenBatchWAclTensor();
-    GenWorkAclTensor();
+    AsdSip::AspbStatus genStatus = GenBatchWAclTensor();
+    if (genStatus != ErrorType::ACL_SUCCESS) {
+        return genStatus;
+    }
+    genStatus = GenWorkAclTensor();
+    if (genStatus != ErrorType::ACL_SUCCESS) {
+        return genStatus;
+    }
 
     int64_t blockN = BASE_BLOCK_ELENUM;
     int64_t tileM = TILE_ELENUM;
@@ -185,26 +217,58 @@ AsdSip::AspbStatus BlasCgetriBatchedPlan::CreateTensor()
     gather1Offset.desc = {TENSOR_DTYPE_UINT32, TENSOR_FORMAT_ND, {gatherEleNum}, {}, 0};
     gather1Offset.hostData = gatherOffset1.data();
     gather1Offset.dataSize = gatherEleNum * sizeof(uint32_t);
-    MallocTensorInDevice(gather1Offset);
-    toAclTensor(gather1Offset, gather1OffsetAcl);
+    if (!MallocTensorInDevice(gather1Offset).Ok()) {
+        ASDSIP_LOG(ERROR) << "BlasCgetriBatchedPlan gather1Offset malloc failed";
+        FreeTensor();
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
+    if (!toAclTensor(gather1Offset, gather1OffsetAcl).Ok()) {
+        ASDSIP_LOG(ERROR) << "BlasCgetriBatchedPlan gather1Offset toAclTensor failed";
+        FreeTensor();
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
 
     gather2Offset.desc = {TENSOR_DTYPE_UINT32, TENSOR_FORMAT_ND, {gatherEleNum}, {}, 0};
     gather2Offset.hostData = gatherOffset2.data();
     gather2Offset.dataSize = gatherEleNum * sizeof(uint32_t);
-    MallocTensorInDevice(gather2Offset);
-    toAclTensor(gather2Offset, gather2OffsetAcl);
+    if (!MallocTensorInDevice(gather2Offset).Ok()) {
+        ASDSIP_LOG(ERROR) << "BlasCgetriBatchedPlan gather2Offset malloc failed";
+        FreeTensor();
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
+    if (!toAclTensor(gather2Offset, gather2OffsetAcl).Ok()) {
+        ASDSIP_LOG(ERROR) << "BlasCgetriBatchedPlan gather2Offset toAclTensor failed";
+        FreeTensor();
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
 
     gather3Offset.desc = {TENSOR_DTYPE_UINT32, TENSOR_FORMAT_ND, {gatherEleNum}, {}, 0};
     gather3Offset.hostData = gatherOffset3.data();
     gather3Offset.dataSize = gatherEleNum * sizeof(uint32_t);
-    MallocTensorInDevice(gather3Offset);
-    toAclTensor(gather3Offset, gather3OffsetAcl);
+    if (!MallocTensorInDevice(gather3Offset).Ok()) {
+        ASDSIP_LOG(ERROR) << "BlasCgetriBatchedPlan gather3Offset malloc failed";
+        FreeTensor();
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
+    if (!toAclTensor(gather3Offset, gather3OffsetAcl).Ok()) {
+        ASDSIP_LOG(ERROR) << "BlasCgetriBatchedPlan gather3Offset toAclTensor failed";
+        FreeTensor();
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
 
     eyeBatchMatTensor.desc = {TENSOR_DTYPE_FLOAT, TENSOR_FORMAT_ND, {batchNum, eyeMatEleNum}, {}, 0};
     eyeBatchMatTensor.hostData = eyeBatchMatData.data();
     eyeBatchMatTensor.dataSize = batchNum * eyeMatEleNum * sizeof(float);
-    MallocTensorInDevice(eyeBatchMatTensor);
-    toAclTensor(eyeBatchMatTensor, eyeBatchMatAcl);
+    if (!MallocTensorInDevice(eyeBatchMatTensor).Ok()) {
+        ASDSIP_LOG(ERROR) << "BlasCgetriBatchedPlan eyeBatchMatTensor malloc failed";
+        FreeTensor();
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
+    if (!toAclTensor(eyeBatchMatTensor, eyeBatchMatAcl).Ok()) {
+        ASDSIP_LOG(ERROR) << "BlasCgetriBatchedPlan eyeBatchMatTensor toAclTensor failed";
+        FreeTensor();
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
 
     return ErrorType::ACL_SUCCESS;
 }

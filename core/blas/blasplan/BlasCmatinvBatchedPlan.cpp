@@ -21,10 +21,10 @@
 static constexpr int ELEMENT_NUM_PER_BLOCK = 8;
 static constexpr int ELEMENT_NUM_PER_REPEAT = 64;
 static constexpr uint32_t BASE_COMPLEX64_NUM = 8192; // 64kb / 8b
-static constexpr uint32_t MAX_COMPUTE_NUM = 128; // max compute num per repeat
+static constexpr uint32_t MAX_COMPUTE_NUM = 128;     // max compute num per repeat
 
 namespace AsdSip {
-BlasCmatinvBatchedPlan::BlasCmatinvBatchedPlan(int64_t n): BlasPlan(), n{n}
+BlasCmatinvBatchedPlan::BlasCmatinvBatchedPlan(int64_t n) : BlasPlan(), n{n}
 {
     uniMatReal.data = nullptr;
     uniMatReal.hostData = nullptr;
@@ -61,12 +61,12 @@ AsdSip::AspbStatus BlasCmatinvBatchedPlan::CreateTensor()
 
     errno_t rc;
     for (uint32_t i = 0; i < computeNumPerRepeat; i++) {
-        rc = memcpy_s(static_cast<float *>(uniBatchRealData.data() + N * alignedN * i),
-            N * alignedN * sizeof(float), uniMatRealData.data(), N * alignedN * sizeof(float));
+        rc = memcpy_s(static_cast<float*>(uniBatchRealData.data() + N * alignedN * i), N * alignedN * sizeof(float),
+                      uniMatRealData.data(), N * alignedN * sizeof(float));
         ASDSIP_ECHECK(rc == EOK, "Repeat uniMatRealData by memcpy_s failed.", ErrorType::ACL_ERROR_INTERNAL_ERROR);
 
-        rc = memcpy_s(static_cast<float *>(uniBatchImagData.data() + N * alignedN * i),
-            N * alignedN * sizeof(float), uniMatImagData.data(), N * alignedN * sizeof(float));
+        rc = memcpy_s(static_cast<float*>(uniBatchImagData.data() + N * alignedN * i), N * alignedN * sizeof(float),
+                      uniMatImagData.data(), N * alignedN * sizeof(float));
         ASDSIP_ECHECK(rc == EOK, "Repeat uniMatImagData by memcpy_s failed.", ErrorType::ACL_ERROR_INTERNAL_ERROR);
     }
 
@@ -89,20 +89,44 @@ AsdSip::AspbStatus BlasCmatinvBatchedPlan::CreateTensor()
     uniMatReal.desc = {TENSOR_DTYPE_FLOAT, TENSOR_FORMAT_ND, {computeNumPerRepeat, N, alignedN}, {}, 0};
     uniMatReal.hostData = uniBatchRealData.data();
     uniMatReal.dataSize = N * alignedN * computeNumPerRepeat * sizeof(float);
-    MallocTensorInDevice(uniMatReal);
-    toAclTensor(uniMatReal, uniMatAclReal);
+    if (!MallocTensorInDevice(uniMatReal).Ok()) {
+        ASDSIP_LOG(ERROR) << "BlasCmatinvBatchedPlan uniMatReal malloc failed";
+        FreeTensor();
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
+    if (!toAclTensor(uniMatReal, uniMatAclReal).Ok()) {
+        ASDSIP_LOG(ERROR) << "BlasCmatinvBatchedPlan uniMatReal toAclTensor failed";
+        FreeTensor();
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
 
     uniMatImag.desc = {TENSOR_DTYPE_FLOAT, TENSOR_FORMAT_ND, {computeNumPerRepeat, N, alignedN}, {}, 0};
     uniMatImag.hostData = uniBatchImagData.data();
     uniMatImag.dataSize = N * alignedN * computeNumPerRepeat * sizeof(float);
-    MallocTensorInDevice(uniMatImag);
-    toAclTensor(uniMatImag, uniMatAclImag);
+    if (!MallocTensorInDevice(uniMatImag).Ok()) {
+        ASDSIP_LOG(ERROR) << "BlasCmatinvBatchedPlan uniMatImag malloc failed";
+        FreeTensor();
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
+    if (!toAclTensor(uniMatImag, uniMatAclImag).Ok()) {
+        ASDSIP_LOG(ERROR) << "BlasCmatinvBatchedPlan uniMatImag toAclTensor failed";
+        FreeTensor();
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
 
     offsetTensor.desc = {TENSOR_DTYPE_UINT32, TENSOR_FORMAT_ND, {offsetSize}, {}, 0};
     offsetTensor.hostData = offsetData.data();
     offsetTensor.dataSize = offsetSize * sizeof(uint32_t);
-    MallocTensorInDevice(offsetTensor);
-    toAclTensor(offsetTensor, offsetAclTensor);
+    if (!MallocTensorInDevice(offsetTensor).Ok()) {
+        ASDSIP_LOG(ERROR) << "BlasCmatinvBatchedPlan offsetTensor malloc failed";
+        FreeTensor();
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
+    if (!toAclTensor(offsetTensor, offsetAclTensor).Ok()) {
+        ASDSIP_LOG(ERROR) << "BlasCmatinvBatchedPlan offsetTensor toAclTensor failed";
+        FreeTensor();
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
 
     return ErrorType::ACL_SUCCESS;
 }
@@ -140,8 +164,5 @@ AsdSip::AspbStatus BlasCmatinvBatchedPlan::FreeTensor()
     return ErrorType::ACL_SUCCESS;
 }
 
-BlasCmatinvBatchedPlan::~BlasCmatinvBatchedPlan()
-{
-    BlasPlan::DestroyPlanData();
-}
-}
+BlasCmatinvBatchedPlan::~BlasCmatinvBatchedPlan() { BlasPlan::DestroyPlanData(); }
+} // namespace AsdSip

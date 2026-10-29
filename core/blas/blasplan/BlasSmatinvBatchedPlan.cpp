@@ -62,8 +62,14 @@ AsdSip::AspbStatus BlasSmatinvBatchedPlan::CreateTensor()
     uniMatReal.desc = {TENSOR_DTYPE_FLOAT, TENSOR_FORMAT_ND, {computeNumPerRepeat, N, alignedN}, {}, 0};
     uniMatReal.hostData = uniBatchRealData.data();
     uniMatReal.dataSize = N * alignedN * computeNumPerRepeat * sizeof(float);
-    MallocTensorInDevice(uniMatReal);
-    toAclTensor(uniMatReal, uniMatAclReal);
+    if (!MallocTensorInDevice(uniMatReal).Ok()) {
+        ASDSIP_LOG(ERROR) << "BlasSmatinvBatchedPlan uniMatReal malloc failed";
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
+    if (!toAclTensor(uniMatReal, uniMatAclReal).Ok()) {
+        ASDSIP_LOG(ERROR) << "BlasSmatinvBatchedPlan uniMatReal toAclTensor failed";
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
 
     return ErrorType::ACL_SUCCESS;
 }
