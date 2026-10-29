@@ -194,6 +194,13 @@ __aicore__ __inline__ __attribute__((always_inline)) void sdot_process_aiv(
         SET_FLAG(V, MTE2, EVENT_ID0);
         WAIT_FLAG(V, MTE2, EVENT_ID0);
 
+        // MTE3→MTE2 屏障（issue 实测偶发 inf）：workspace 的写入（本核零写/
+        // 部分和写、其它核部分和写）均为 MTE3；core 0 以 MTE2 回读前若缺
+        // 同核 MTE3→MTE2 屏障，读可能先于写落地，取到未初始化 HBM 垃圾
+        // （inf 位型），且跨核序已由 FftsCrossCoreSync/WaitFlagDev 保证
+        SET_FLAG(MTE3, MTE2, EVENT_ID1);
+        WAIT_FLAG(MTE3, MTE2, EVENT_ID1);
+
         copy_vec_gm2ub(ub_result, gm_workpsace, vec_core_num);
 
         SET_FLAG(MTE2, V, EVENT_ID0);
