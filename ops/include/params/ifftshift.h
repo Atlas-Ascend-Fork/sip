@@ -50,10 +50,23 @@ struct IfftShift {
     int64_t dist;
     double scale;
 
+    // -Wfloat-equal 规避（对齐 cal.h/cgerc.h 等兄弟参数头的 FloatEqual 模式）：
+    // scale 为 double，operator== 直接 == 比较触发告警；参数相等性判断按
+    // 1e-6 容差处理
+    bool FloatEqual(double a, double b) const
+    {
+        double closeTo0 = 1e-6;
+        if (a > b) {
+            return a - b < closeTo0;
+        } else {
+            return b - a < closeTo0;
+        }
+    };
+
     bool operator==(const IfftShift& other) const
     {
         return this->row == other.row && this->col == other.col && this->batch == other.batch &&
-               this->dist == other.dist && this->scale == other.scale;
+               this->dist == other.dist && FloatEqual(this->scale, other.scale);
     }
 
     std::string ToString() const
