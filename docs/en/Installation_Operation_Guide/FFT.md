@@ -8,3 +8,4 @@
 - [FFT_3D](../API_Reference/FFT/FFT_3D.md)
 - [Istft](../API_Reference/FFT/Istft.md)
 - [FftShift](../API_Reference/FFT/FftShift.md)
+- [IfftShift](../API_Reference/FFT/IfftShift.md)
