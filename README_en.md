@@ -1,5 +1,7 @@
 # Huawei AscendSiPBoost Signal Processing Acceleration Library
 
+English | [简体中文](./README.md)
+
 🔥 [2025/10] The AscendSiPBoost project (hereinafter referred to as the SiP library) is launched for the first time.
 
 ## Table of Contents

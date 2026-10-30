@@ -1,4 +1,5 @@
 # Huawei AscendSiPBoost 信号处理加速库
+简体中文 | [English](./README_en.md)
 
 🔥 [2025/10] AscendSiPBoost项目（下文简称为SiP库）首次上线。
 
