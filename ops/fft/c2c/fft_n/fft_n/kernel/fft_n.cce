@@ -556,7 +556,7 @@ __aicore__ __inline__ void PartitionMulDev(
     }
 }
 
-__aicore__ __inline__ void SeperateRIzZLayOut(__gm__ float *__restrict__ gm_input, __gm__ float *__restrict__ gm_output,
+__aicore__ __inline__ void SeparateRIzZLayOut(__gm__ float *__restrict__ gm_input, __gm__ float *__restrict__ gm_output,
                                               int32_t inputN, int32_t M, int32_t N, int32_t batchSize)
 {
     int32_t N0 = M < 128 ? 256 : 128;
@@ -565,7 +565,7 @@ __aicore__ __inline__ void SeperateRIzZLayOut(__gm__ float *__restrict__ gm_inpu
 
     AscendC::GlobalTensor<float> gm_input_tensor;
     AscendC::GlobalTensor<float> gm_output_tensor;
- 
+
     gm_input_tensor.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(gm_input));
     gm_output_tensor.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(gm_output));
 
@@ -657,7 +657,7 @@ __aicore__ __inline__ void SeperateRIzZLayOut(__gm__ float *__restrict__ gm_inpu
     }
 }
 
-__aicore__ __inline__ void SeperateRIwithCalculation(__gm__ float *__restrict__ gm_input,
+__aicore__ __inline__ void SeparateRIwithCalculation(__gm__ float *__restrict__ gm_input,
                                                      __gm__ float *__restrict__ gm_t_matrix,
                                                      __gm__ float *__restrict__ gm_output, int32_t fftDirection,
                                                      int32_t inputN, int32_t M, int32_t N, int32_t batchSize)
@@ -797,7 +797,7 @@ __aicore__ __inline__ void SeperateRIwithCalculation(__gm__ float *__restrict__ 
         SET_FLAG(MTE2, V, event_id);
         WAIT_FLAG(MTE2, V, event_id);
 
-        // seperate RI
+        // separate RI
         vec_vreduce(reinterpret_cast<__ubuf__ uint32_t *>((uintptr_t)(output_ub.GetPhyAddr())),
                     reinterpret_cast<__ubuf__ uint32_t *>((uintptr_t)(input1_ub.GetPhyAddr())), M * N0, 1);
         vec_vreduce(reinterpret_cast<__ubuf__ uint32_t *>((uintptr_t)(output_ub.GetPhyAddr())) + M / 2 * N0,
@@ -878,7 +878,7 @@ __aicore__ __inline__ void SeperateRIwithCalculation(__gm__ float *__restrict__ 
     WAIT_FLAG(MTE3, MTE2, EVENT_ID1);
 }
 
-__aicore__ __inline__ void SeperateRI(__gm__ float *__restrict__ gm_input, __gm__ float *__restrict__ gm_output,
+__aicore__ __inline__ void SeparateRI(__gm__ float *__restrict__ gm_input, __gm__ float *__restrict__ gm_output,
                                       int32_t inputN, int32_t batchSize)
 {
     AscendC::GlobalTensor<float> gm_input_tensor;
@@ -2200,7 +2200,7 @@ __aicore__ __inline__ void complex_mul_stride(__gm__ float *__restrict__ gm_a, _
     AscendC::GlobalTensor<float> gm_a_tensor;
     AscendC::GlobalTensor<float> gm_b_tensor;
     AscendC::GlobalTensor<float> gm_c_tensor;
- 
+
     gm_a_tensor.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(gm_a));
     gm_b_tensor.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(gm_b));
     gm_c_tensor.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(gm_c));
@@ -2468,7 +2468,7 @@ __aicore__ __inline__ void combine_RI(__gm__ float *__restrict__ gm_input, __gm_
     AscendC::GlobalTensor<float> gm_input_tensor;
     AscendC::GlobalTensor<float> gm_output_tensor;
     AscendC::GlobalTensor<uint32_t> gm_index_tensor;
- 
+
     gm_input_tensor.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(gm_input));
     gm_output_tensor.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(gm_output));
     gm_index_tensor.SetGlobalBuffer(reinterpret_cast<__gm__ uint32_t *>(gm_index));
@@ -2885,14 +2885,14 @@ extern "C" __global__ __aicore__ void fft_n(__gm__ uint8_t *__restrict__ ffts_ad
 
                     if (N1 != 2) {
                         if (N < 65536) {
-                            SeperateRI(gm_input + addrBias, gm_output + addrBias, inputN, iBatch);
+                            SeparateRI(gm_input + addrBias, gm_output + addrBias, inputN, iBatch);
                         } else {
-                            SeperateRIzZLayOut(gm_input + addrBias, gm_output + addrBias, inputN, M, N, iBatch);
+                            SeparateRIzZLayOut(gm_input + addrBias, gm_output + addrBias, inputN, M, N, iBatch);
                         }
                         FftsCrossCoreSync<PIPE_MTE3, INTER_CORE_SYNC_MODE>(INTER_CORE_SYNC_FLAG_ID);
                         WaitFlagDev(INTER_CORE_SYNC_FLAG_ID);
                     } else {
-                        SeperateRIwithCalculation(gm_input + addrBias, gm_t_matrix + inputN, gm_output + addrBias,
+                        SeparateRIwithCalculation(gm_input + addrBias, gm_t_matrix + inputN, gm_output + addrBias,
                                                   fftDirection, inputN, 4, inputN / 2, iBatch);
 
                         config = 1 | (INTER_CORE_SYNC_MODE << 4) | (INTER_CORE_SYNC_FLAG_ID << 8);

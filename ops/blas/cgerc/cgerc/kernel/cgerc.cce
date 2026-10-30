@@ -67,7 +67,7 @@ __aicore__ __inline__ __attribute__((always_inline)) void copy_vec_ub2gm(
         nBurst, lenBurst, leftPaddingNum, rightPaddingNum, srcGap, dstGap);
 }
 
-__aicore__ __inline__ __attribute__((always_inline)) void copy_seperate_c64(
+__aicore__ __inline__ __attribute__((always_inline)) void copy_separate_c64(
     AscendC::LocalTensor<float> ub_in,
     AscendC::LocalTensor<float> ub_sep,
     AscendC::GlobalTensor<float> x,
@@ -198,7 +198,7 @@ __aicore__ __inline__ __attribute__((always_inline)) void process(
             curr_compute_row_num = max_data_count;
 
         PIPE_BARRIER(ALL);
-        copy_seperate_c64(ub_out_ping, ub_in, y[row_block_idx * max_data_count * 2], curr_compute_row_num * 2);
+        copy_separate_c64(ub_out_ping, ub_in, y[row_block_idx * max_data_count * 2], curr_compute_row_num * 2);
         PIPE_BARRIER(ALL);
 
         uint64_t calNum = curr_compute_row_num;
@@ -253,12 +253,12 @@ extern "C" __global__ __aicore__ void cgerc(__gm__ float *__restrict__ d_x, __gm
     AscendC::GlobalTensor<float> d_y_tensor;
     AscendC::GlobalTensor<float> d_A_tensor;
     AscendC::GlobalTensor<uint32_t> d_offset_tensor;
- 
+
     d_x_tensor.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(d_x));
     d_y_tensor.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(d_y));
     d_A_tensor.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(d_A));
     d_offset_tensor.SetGlobalBuffer(reinterpret_cast<__gm__ uint32_t *>(d_offset));
-    
+
     if (calNum > 0) {
         process(d_x_tensor, d_y_tensor, d_offset_tensor, d_A_tensor, alphaReal, alphaImag, m, n, offset, calNum);
     }
