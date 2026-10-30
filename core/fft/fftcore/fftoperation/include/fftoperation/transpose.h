@@ -16,12 +16,16 @@
 class Transpose : public FftOperation {
 public:
     Transpose(int axis0, int axis1, Mki::SVector<int64_t> dims);
+    ~Transpose() override;
     bool init() override;
-    void Run(Tensor &input, Tensor &output, void *stream, workspace::Workspace &workspace) override;
-    void Run(void *input, void *output, void *stream, workspace::Workspace &workspace) override;
+    void Run(Tensor& input, Tensor& output, void* stream, workspace::Workspace& workspace) override;
+    void Run(void* input, void* output, void* stream, workspace::Workspace& workspace) override;
     size_t EstimateWorkspaceSize() override;
 
 protected:
+    bool TryInitTiled();
+    bool RunTiled(void* input, void* output, void* stream);
+    size_t tiledBytes_ = 0;
     int axis0_;
     int axis1_;
     Mki::SVector<int64_t> dims_;

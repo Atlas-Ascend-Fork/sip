@@ -656,6 +656,9 @@ void addFFTTransposeStep(FFTPlan& plan, int axis0, int axis1, const SVector<int6
     plan.steps.push_back(PlanStep{});
     PlanStep& step = plan.steps.back();
     step.operation = std::unique_ptr<FftOperation>(std::make_unique<Transpose>(axis0, axis1, dims));
+    if (!step.operation->init()) {
+        throw std::runtime_error("initialize transpose failed");
+    }
 }
 
 void addFFTSteps(FFTPlan& plan, int dim, int64_t batchSize, asdFftType fftType)

@@ -287,3 +287,7 @@ FftRealStockhamOperation:
         ascend950: true
     FftRealStockhamR2CKernel:
         ascend950: true
+
+FftTransposeOperation:
+    FftTransposeKernel:
+        ascend950: true

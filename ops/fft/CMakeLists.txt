@@ -28,6 +28,7 @@ add_subdirectory(real/fft_stockham)
 add_subdirectory(c2c3d/ddd_sep)
 add_subdirectory(fftshift)
 add_subdirectory(ifftshift)
+add_subdirectory(transpose)
 
 
 set(operations_objects ${operations_objects} ${ops_objects} PARENT_SCOPE)
