@@ -9,9 +9,11 @@
  */
 
 #include <cstdio>
+#include <cstdlib>
 
 #include "gtest/gtest.h"
 #include "acl/acl.h"
+#include "mki/utils/rt/rt.h"
 // #include "acl_meta.h"
 
 #define CHECK_RET(cond, return_expr) \
@@ -42,10 +44,11 @@ void loop() { RUN_ALL_TESTS(); }
 
 #elif GTEST_OS_QURT
 
-GTEST_API_ int main() {
-  printf("Running main() from %s\n", __FILE__);
-  testing::InitGoogleTest();
-  return RUN_ALL_TESTS();
+GTEST_API_ int main()
+{
+    printf("Running main() from %s\n", __FILE__);
+    testing::InitGoogleTest();
+    return RUN_ALL_TESTS();
 }
 #else
 
@@ -61,7 +64,26 @@ int Init()
     return 0;
 }
 
-GTEST_API_ int main(int argc, char **argv) {
+// UT 用例间设备保持 (ASDSIP_UT_KEEP_DEVICE=1, 见 test_util/util.cpp): 用例结束不复位设备,
+// 全部用例结束后在此统一复位一次, 归还设备资源 (规避 atexit, G.FUU.04)。
+class UtKeepDeviceEnvironment : public testing::Environment {
+public:
+    void TearDown() override
+    {
+        const char* keep = std::getenv("ASDSIP_UT_KEEP_DEVICE");
+        if (keep == nullptr || keep[0] != '1') {
+            return;
+        }
+        const char* envDeviceId = std::getenv("ASDSIP_DEVICE_ID");
+        int devId = (envDeviceId != nullptr && envDeviceId[0] != '\0') ? std::atoi(envDeviceId) : 0;
+        printf("[Custom] reset kept device %d\n", devId);
+        Mki::MkiRtDeviceResetCurrent(devId);
+        aclrtResetDevice(devId);
+    }
+};
+
+GTEST_API_ int main(int argc, char** argv)
+{
     printf("[Custom] Running main() from %s\n", __FILE__);
 
     int deviceId = 0;
@@ -72,6 +94,7 @@ GTEST_API_ int main(int argc, char **argv) {
     printf("[Custom] init acl device finished\n");
 
     testing::InitGoogleTest(&argc, argv);
+    testing::AddGlobalTestEnvironment(new UtKeepDeviceEnvironment);
     auto runRes = RUN_ALL_TESTS();
     ret = aclFinalize();
     CHECK_RET(ret == ::ACL_SUCCESS, LOG_PRINT("aclFinalize failed. ERROR: %d\n", ret); return ret);

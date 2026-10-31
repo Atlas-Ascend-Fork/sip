@@ -134,6 +134,22 @@ static int OpTestGetDeviceId(int deviceId)
 }
 
 /**
+ * @brief UT 用例间设备保持开关 (ASDSIP_UT_KEEP_DEVICE=1 时生效)。
+ *        背景单用例 ~4s 中 ~3.2s 耗在 OpTestEnd 的设备复位上: MkiRtDeviceResetCurrent/
+ *        aclrtResetDevice 触发 TsdClient hccp/computer 进程 Close 握手 (实测 2.5~3.8s),
+ *        下一用例 OpTestInit 又重新 Open (再加 ~0.2s)。153 例累计浪费约 8 分钟。
+ *        开启后用例结束仅销毁 stream/释放显存, 不复位设备; 全部用例结束后由
+ *        custom_main.cpp 注册的 gtest 全局环境 (testing::Environment::TearDown,
+ *        RUN_ALL_TESTS 返回前调用) 统一复位一次, 保证设备资源归还, 规避 atexit
+ *        (G.FUU.04)。CI 加速用, 默认关闭保持原行为。
+ */
+static bool UtKeepDeviceEnabled()
+{
+    const char* keep = std::getenv("ASDSIP_UT_KEEP_DEVICE");
+    return keep != nullptr && keep[0] == '1';
+}
+
+/**
  * @brief 设置deviceid并创造stream.
  */
 static MkiRtStream OpTestInit(int deviceId)
@@ -230,6 +246,9 @@ static void OpTestEnd(int deviceId, TensorContext& tensorContext, MkiRtStream& s
 {
     deviceId = OpTestGetDeviceId(deviceId);
     OpTestCleanup(tensorContext, stream);
+    if (UtKeepDeviceEnabled()) {
+        return;
+    }
     int ret = MkiRtDeviceResetCurrent(deviceId);
     ASDSIP_LOG_IF(ret != 0, ERROR) << "MkiRtDeviceResetCurrent fail";
 }
@@ -240,6 +259,9 @@ static void OpTestEnd(int deviceId, aclTensorContext& tensorContext, MkiRtStream
     OpTestCleanup(tensorContext);
     int ret = aclrtDestroyStream(stream);
     ASDSIP_LOG_IF(ret != 0, ERROR) << "aclrtDestroyStream fail";
+    if (UtKeepDeviceEnabled()) {
+        return;
+    }
     ret = aclrtResetDevice(deviceId);
     ASDSIP_LOG_IF(ret != 0, ERROR) << "aclrtResetDevice fail";
 }

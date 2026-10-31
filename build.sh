@@ -659,6 +659,120 @@ function fn_run_unittest_proc()
     fi
 }
 
+function fn_ut_compute_filter()
+{
+    # 按变更过滤 UT (CI 提效): llt_action 已把 PR 变更文件清单下载到仓根 pr_filelist.txt。
+    # 两级匹配策略 (fail-closed, 宁多跑不漏测):
+    #   1) 算子级: 取路径中算子目录段(如 ops/blas/dot/sdot/... 的 sdot), 对
+    #      --gtest_list_tests 套件名做包含匹配, 全部算子 token 均有套件命中才过滤执行;
+    #   2) 域级回退: 算子级未全命中时, 若全部变更同属一个域(如 blas/fft/base)且该域
+    #      token 有套件命中, 跑该域全部套件;
+    #   3) 以上任一不满足(改动含公共路径/跨域/未知目录/套件表为空)一律回退全量 UT。
+    # UT_FILTER_MODE=full 强制全量。
+    UT_GTEST_FILTER=""
+    local list_file="${CODE_ROOT}/pr_filelist.txt"
+    local ut_bin="${OUTPUT_DIR}/bin/ops_unittest"
+    [ -f "${list_file}" ] || return 0
+    [ -x "${ut_bin}" ] || return 0
+    if [ "${UT_FILTER_MODE:-auto}" = "full" ]; then
+        return 0
+    fi
+
+    # 收集变更路径; 返回非 0 表示存在公共路径改动, 必须全量
+    local raw path domains=() ops_tokens=() rel seg level1 level2
+    while IFS= read -r raw || [ -n "${raw}" ]; do
+        path=$(printf '%s' "${raw}" | awk '{print $NF}')
+        [ -n "${path}" ] || continue
+        case "${path}" in
+            ops/*)
+                rel="${path#ops/}"; level1="ops" ;;
+            tests/ut/unittest/*)
+                rel="${path#tests/ut/unittest/}"; level1="ut" ;;
+            *) echo "ut-filter: ${path} 不在算子/UT 目录内, 回退全量 UT"; return 0 ;;
+        esac
+        # level2 = 域 (blas/fft/base/filter/interp...), level3+ 才含算子段
+        level2=$(printf '%s' "${rel}" | cut -d/ -f1)
+        domains+=("${level2}")
+        if [ "${level1}" = "ut" ]; then
+            # ut 侧: <domain>/<op>/... 与 ops 侧同构; 域下即算子段
+            seg=$(printf '%s' "${rel}" | cut -d/ -f2)
+            case "${seg}" in
+                ""|*.*) seg="" ;;
+            esac
+            [ -n "${seg}" ] && ops_tokens+=("${seg}")
+        else
+            seg=$(printf '%s' "${rel}" | cut -d/ -f2)
+            case "${seg}" in
+                ""|*.*) seg="" ;;
+            esac
+            [ -n "${seg}" ] && ops_tokens+=("${seg}")
+        fi
+    done < "${list_file}"
+    [ ${#domains[@]} -ge 1 ] || return 0
+
+    # 跨域或域为空段 → 全量
+    local uniq_domains
+    uniq_domains=$(printf '%s\n' "${domains[@]}" | sort -u | tr '\n' ' ')
+    local ndom
+    ndom=$(printf '%s\n' "${domains[@]}" | sort -u | wc -l)
+    if [ ${ndom} -ne 1 ]; then
+        echo "ut-filter: 变更跨域(${uniq_domains}), 回退全量 UT"
+        return 0
+    fi
+    local domain="${domains[0]}"
+    [ ${#ops_tokens[@]} -ge 1 ] || { echo "ut-filter: 无算子段, 回退全量 UT"; return 0; }
+
+    local suites
+    suites=$(env LD_LIBRARY_PATH="${OUTPUT_DIR}/lib:${LD_LIBRARY_PATH:-}" \
+        "${ut_bin}" --gtest_list_tests 2>/dev/null | grep -E '^[A-Za-z_][A-Za-z0-9_]*\.' | sed 's/[[:space:]].*//')
+    [ -n "${suites}" ] || { echo "ut-filter: 套件列表为空, 回退全量 UT"; return 0; }
+
+    # 收录去重辅助: 已在 matched 中的套件不再追加
+    local matched="" c s ls hit
+    collect_hits() {
+        hit=0
+        for s in ${suites}; do
+            ls=$(printf '%s' "${s}" | tr '[:upper:]' '[:lower:]')
+            case "${ls}" in
+                *"$1"*)
+                    hit=1
+                    case "${matched}" in
+                        *"::${s%%.}.*::"*) ;;
+                        *) matched="${matched}${s%%.}.*::" ;;
+                    esac
+                    ;;
+            esac
+        done
+    }
+
+    # 第一级: 算子 token 精确命中(去重算子 token)
+    local uniq_ops
+    uniq_ops=$(printf '%s\n' "${ops_tokens[@]}" | sort -u)
+    local all_op_hit=1
+    while IFS= read -r c; do
+        [ -n "${c}" ] || continue
+        collect_hits "${c}"
+        [ ${hit} -eq 1 ] || { all_op_hit=0; break; }
+    done <<< "${uniq_ops}"
+
+    if [ ${all_op_hit} -eq 1 ] && [ -n "${matched}" ]; then
+        UT_GTEST_FILTER="${matched%::}"
+        export UT_GTEST_FILTER
+        echo "ut-filter: 算子级过滤生效: ${UT_GTEST_FILTER}"
+        return 0
+    fi
+
+    # 第二级: 域级回退(仅当同域)
+    collect_hits "${domain}"
+    if [ ${hit} -eq 1 ] && [ -n "${matched}" ]; then
+        UT_GTEST_FILTER="${matched%::}"
+        export UT_GTEST_FILTER
+        echo "ut-filter: 域级过滤生效(${domain}): ${UT_GTEST_FILTER}"
+        return 0
+    fi
+    echo "ut-filter: 算子/域 token 均无套件命中(${uniq_ops}), 回退全量 UT"
+}
+
 function fn_run_unittest()
 {
     echo " CURRENT DIRECTORY: $(pwd)"
@@ -666,6 +780,19 @@ function fn_run_unittest()
     echo " UT OUTPUT_DIR=${OUTPUT_DIR}"
 
     export LD_LIBRARY_PATH=$OUTPUT_DIR/lib/:$LD_LIBRARY_PATH
+
+    # 用例间设备保持 (CI 提效): 单用例 ~4s 中 ~3.2s 耗在用例结束的设备复位上
+    # (TsdClient hccp/computer 进程 Close 握手实测 2.5~3.8s, 下一用例再重新 Open)。
+    # 开启后用例结束仅销毁 stream/释放显存, 设备由 custom_main.cpp 注册的 gtest
+    # 全局环境在 RUN_ALL_TESTS 结束时统一复位一次; 153 例累计可省约 8 分钟。
+    # 默认开启, ASDSIP_UT_KEEP_DEVICE=0 关闭。
+    export ASDSIP_UT_KEEP_DEVICE="${ASDSIP_UT_KEEP_DEVICE:-1}"
+
+    fn_ut_compute_filter
+    local filter_args=()
+    if [ -n "${UT_GTEST_FILTER}" ]; then
+        filter_args=(--gtest_filter="${UT_GTEST_FILTER}")
+    fi
 
     # UT 分片并行（CI 提效：完整构建+UT 总时长要求 < 20min，串行 UT 约 460s 起）。
     # gtest 原生分片（GTEST_TOTAL_SHARDS/GTEST_SHARD_INDEX）把用例集切成 N 份，
@@ -686,7 +813,7 @@ function fn_run_unittest()
     local shards="${UT_SHARDS:-2}"
     if [ "${shards}" -le 1 ] 2>/dev/null; then
         fn_run_unittest_proc "${ut_ids[0]}" \
-            $OUTPUT_DIR/bin/ops_unittest --gtest_output=xml:test_detail.xml
+            $OUTPUT_DIR/bin/ops_unittest --gtest_output=xml:test_detail.xml "${filter_args[@]}"
         cp test_detail.xml unittest_result.xml
         return
     fi
@@ -707,6 +834,7 @@ function fn_run_unittest()
         GTEST_TOTAL_SHARDS=${shards} GTEST_SHARD_INDEX=${idx} \
             fn_run_unittest_proc "${dev_id}" \
             $OUTPUT_DIR/bin/ops_unittest --gtest_output=xml:test_detail_shard_${idx}.xml \
+            "${filter_args[@]}" \
             > ut_shard_${idx}.log 2>&1 &
         pids+=($!)
     done
@@ -726,7 +854,7 @@ function fn_run_unittest()
         # 失败时串行复跑一次确认，复跑通过则视为环境偶发（结果以串行为准）
         echo "parallel run failed, retrying serially for confirmation..."
         fn_run_unittest_proc "${ut_ids[0]}" \
-            $OUTPUT_DIR/bin/ops_unittest --gtest_output=xml:test_detail.xml
+            $OUTPUT_DIR/bin/ops_unittest --gtest_output=xml:test_detail.xml "${filter_args[@]}"
         ret=$?
         cp test_detail.xml unittest_result.xml
         exit ${ret}
