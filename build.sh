@@ -779,8 +779,7 @@ function fn_build()
             git clone https://gitcode.com/cann/ascend-boost-comm.git -b master
         fi
         cd $CODE_ROOT/
-        rm -rf MKI_PATH
-        rm -rf COMPILER_PATH
+        rm -rf "${MKI_PATH}" "${COMPILER_PATH}"
         fn_build_mki
         cp -r ${THIRD_PARTY_DIR}/ascend-boost-comm/output/mki ${THIRD_PARTY_DIR}/
         cp -r ${THIRD_PARTY_DIR}/ascend-boost-comm/3rdparty/compiler ${THIRD_PARTY_DIR}/

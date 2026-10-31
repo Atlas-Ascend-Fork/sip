@@ -595,6 +595,20 @@ function upgrade() {
     print "INFO" "Ascend-cann-asdsip upgrade success!"
 }
 
+function print_usage() {
+    local help_file="$(dirname "$0")/help.info"
+    if [ -f "${help_file}" ]; then
+        cat "${help_file}"
+    else
+        echo "Usage: bash install.sh [options]"
+        echo "  --install                         Install run mode"
+        echo "  --install-path=<path>             Install to specific path"
+        echo "  --uninstall                       Uninstall run mode"
+        echo "  --install-for-all                 Install for all users"
+        echo "  --upgrade                         Upgrade run mode"
+    fi
+}
+
 function main() {
     parse_script_args $*
     if [ "${uninstall_flag}" == "y" ]; then
@@ -609,8 +623,12 @@ function main() {
         install_process
         chmod_authority
         print "INFO" "Ascend-cann-asdsip install success!"
+    else
+        print_usage
     fi
-    chmod 440 ${log_file}
+    if [ -f "${log_file}" ]; then
+        chmod 440 "${log_file}"
+    fi
 }
 
 main $*

@@ -1,3 +1,12 @@
+# ----------------------------------------------------------------------------
+# Copyright (c) 2026 Huawei Technologies Co., Ltd.
+# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+# CANN Open Software License Agreement Version 2.0 (the "License").
+# Please refer to the License for details. You may not use this file except in compliance with the License.
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+# See LICENSE in the root of the software repository for the full text of the License.
+# ----------------------------------------------------------------------------
 cmake_minimum_required(VERSION 3.16)
 
 set(CMAKE_ASC_ARCHITECTURES "dav-3510" CACHE STRING "NPU architecture: dav-3510")
@@ -55,4 +64,10 @@ if(EXISTS $ENV{ASCEND_HOME_PATH}/lib64/libunified_dlog.so)
     target_link_libraries(fft_2d_r2c_4096x4096 PRIVATE unified_dlog)
 endif()
 
-target_link_libraries(fft_2d_r2c_4096x4096 PRIVATE $ENV{ASCEND_HOME_PATH}/x86_64-linux/devlib/libascend_hal.so)
+# HAL 库路径按主机架构推导（对齐主仓 build.sh 的 ${HOSTTYPE}-linux 惯例），
+# 避免 aarch64 环境链接到不存在的 x86_64-linux 路径
+set(ASDSIP_HOST_ARCH_LINUX "x86_64-linux")
+if(CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+    set(ASDSIP_HOST_ARCH_LINUX "aarch64-linux")
+endif()
+target_link_libraries(fft_2d_r2c_4096x4096 PRIVATE $ENV{ASCEND_HOME_PATH}/${ASDSIP_HOST_ARCH_LINUX}/devlib/libascend_hal.so)
