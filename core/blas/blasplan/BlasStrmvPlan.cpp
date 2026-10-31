@@ -21,28 +21,22 @@ using namespace Mki;
 namespace AsdSip {
 constexpr int64_t BYTES_1k = 1024;
 BlasStrmvPlan::BlasStrmvPlan(asdBlasFillMode_t uplo, asdBlasOperation_t trans, int64_t n)
-    : BlasPlan(),
-      uplo{uplo},
-      trans{trans},
-      n{n}
+    : BlasPlan(), uplo{uplo}, trans{trans}, n{n}
 {
     maskTensor.data = nullptr;
     maskTensor.hostData = nullptr;
 };
 
-AsdSip::AspbStatus BlasStrmvPlan::CreateTensor()
-{
-    return SetMaskTensor();
-}
+AsdSip::AspbStatus BlasStrmvPlan::CreateTensor() { return SetMaskTensor(); }
 
-AsdSip::AspbStatus  BlasStrmvPlan::SetMaskTensor()
+AsdSip::AspbStatus BlasStrmvPlan::SetMaskTensor()
 {
     int64_t m0 = M0_DEFAULT_SIZE;
 
-    float *uploMatrixHost = nullptr;
+    float* uploMatrixHost = nullptr;
     try {
         uploMatrixHost = new float[m0 * m0];
-    } catch (std::bad_alloc &e) {
+    } catch (std::bad_alloc& e) {
         ASDSIP_LOG(ERROR) << "BlasStrmvPlan failed: " << e.what();
         return ErrorType::ACL_ERROR_INTERNAL_ERROR;
     }
@@ -72,6 +66,11 @@ AsdSip::AspbStatus  BlasStrmvPlan::SetMaskTensor()
     uploMatrixHost = nullptr;
 
     toAclTensor(maskTensor, maskAclTensor);
+    if (maskAclTensor == nullptr) {
+        ASDSIP_LOG(ERROR) << "BlasStrmvPlan convert to aclTensor fail.";
+        FreeTensor();
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
     return ErrorType::ACL_SUCCESS;
 }
 
@@ -82,19 +81,13 @@ AsdSip::AspbStatus BlasStrmvPlan::FreeTensor()
         maskTensor.data = nullptr;
     }
     if (maskTensor.hostData != nullptr) {
-        delete[] static_cast<float *>(maskTensor.hostData);
+        delete[] static_cast<float*>(maskTensor.hostData);
         maskTensor.hostData = nullptr;
     }
     return ErrorType::ACL_SUCCESS;
 }
 
-BlasStrmvPlan::~BlasStrmvPlan()
-{
-    BlasPlan::DestroyPlanData();
-}
+BlasStrmvPlan::~BlasStrmvPlan() { BlasPlan::DestroyPlanData(); }
 
-int64_t BlasStrmvPlan::GetWorkspaceSize()
-{
-    return n * sizeof(float) + BYTES_1k;
-}
-}
+int64_t BlasStrmvPlan::GetWorkspaceSize() { return n * sizeof(float) + BYTES_1k; }
+} // namespace AsdSip

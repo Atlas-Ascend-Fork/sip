@@ -28,10 +28,24 @@ AspbStatus MakeComplex(const Tensor& realTensor, const Tensor& imagTensor, Tenso
     aclTensor* aclImagTensor = nullptr;
     aclTensor* outAclTensor = nullptr;
     toAclTensor(realTensor, aclRealTensor);
+    if (aclRealTensor == nullptr) {
+        ASDSIP_LOG(ERROR) << "Fail to convert real mki tensor to acltensor.";
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
     toAclTensor(imagTensor, aclImagTensor);
+    if (aclImagTensor == nullptr) {
+        aclDestroyTensor(aclRealTensor);
+        ASDSIP_LOG(ERROR) << "Fail to convert imag mki tensor to acltensor.";
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
     std::vector<aclTensor*> tmp{aclRealTensor, aclImagTensor};
     aclTensorList* tensorList = aclCreateTensorList(tmp.data(), tmp.size());
     toAclTensor(outTensor, outAclTensor);
+    if (outAclTensor == nullptr) {
+        aclDestroyTensorList(tensorList);
+        ASDSIP_LOG(ERROR) << "Fail to convert out mki out tensor to acltensor.";
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
 
     auto ret = aclnnStackGetWorkspaceSize(tensorList, dim, outAclTensor, &workspaceSize, &executor);
     if (ret != ::ACL_SUCCESS) {

@@ -44,10 +44,24 @@ AspbStatus Concat(const Tensor& inTensorA, const Tensor& inTensorB, Tensor& outT
     aclTensor* inAclTensorB = nullptr;
     aclTensor* outAclTensor = nullptr;
     toAclTensor(inTensorA, inAclTensorA);
+    if (inAclTensorA == nullptr) {
+        ASDSIP_LOG(ERROR) << "Fail to convert in mki A tensor to acltensor.";
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
     toAclTensor(inTensorB, inAclTensorB);
+    if (inAclTensorB == nullptr) {
+        aclDestroyTensor(inAclTensorA);
+        ASDSIP_LOG(ERROR) << "Fail to convert in mki B tensor to acltensor.";
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
     std::vector<aclTensor*> tmp{inAclTensorA, inAclTensorB};
     aclTensorList* tensorList = aclCreateTensorList(tmp.data(), tmp.size());
     toAclTensor(outTensor, outAclTensor);
+    if (outAclTensor == nullptr) {
+        aclDestroyTensorList(tensorList);
+        ASDSIP_LOG(ERROR) << "Fail to convert out mki out tensor to acltensor.";
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
 
     auto ret = aclnnCatGetWorkspaceSize(tensorList, concatDim, outAclTensor, &workspaceSize, &executor);
     if (ret != ::ACL_SUCCESS) {

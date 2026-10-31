@@ -41,7 +41,7 @@ AsdSip::AspbStatus UnfoldGrad(const Mki::Tensor& inTensor, Mki::Tensor& outTenso
     }
 
     auto inputSizes = aclCreateIntArray(sizes.data(), sizes.size());
-    if (outAclTensor == nullptr) {
+    if (inputSizes == nullptr) {
         aclDestroyTensor(inAclTensor);
         aclDestroyTensor(outAclTensor);
         ASDSIP_LOG(ERROR) << "Fail to convert vector to aclArray.";
@@ -71,7 +71,7 @@ AsdSip::AspbStatus UnfoldGrad(const Mki::Tensor& inTensor, Mki::Tensor& outTenso
     aclDestroyTensor(inAclTensor);
     aclDestroyTensor(outAclTensor);
     aclDestroyIntArray(inputSizes);
-    ASDSIP_LOG(INFO) << "Execute Reverse success.";
+    ASDSIP_LOG(INFO) << "Execute UnfoldGrad success.";
     return ErrorType::ACL_SUCCESS;
 }
 } // namespace AsdSip

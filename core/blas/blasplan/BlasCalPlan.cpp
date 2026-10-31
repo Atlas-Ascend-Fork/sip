@@ -60,6 +60,11 @@ AsdSip::AspbStatus BlasCalPlan::SetMaskTensor()
         return ErrorType::ACL_ERROR_INTERNAL_ERROR;
     }
     toAclTensor(maskTensor, maskAclTensor);
+    if (maskAclTensor == nullptr) {
+        ASDSIP_LOG(ERROR) << "BlasCalPlan convert to aclTensor fail.";
+        FreeTensor();
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
     return ErrorType::ACL_SUCCESS;
 };
 

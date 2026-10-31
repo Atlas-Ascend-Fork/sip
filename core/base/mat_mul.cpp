@@ -35,8 +35,23 @@ AspbStatus MatMul(const Tensor& inATensor, const Tensor& inBTensor, Tensor& outT
     aclTensor* inBAclTensor = nullptr;
     aclTensor* outAclTensor = nullptr;
     toAclTensor(inATensor, inAAclTensor);
+    if (inAAclTensor == nullptr) {
+        ASDSIP_LOG(ERROR) << "Fail to convert in mki A tensor to acltensor.";
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
     toAclTensor(inBTensor, inBAclTensor);
+    if (inBAclTensor == nullptr) {
+        aclDestroyTensor(inAAclTensor);
+        ASDSIP_LOG(ERROR) << "Fail to convert in mki B tensor to acltensor.";
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
     toAclTensor(outTensor, outAclTensor);
+    if (outAclTensor == nullptr) {
+        aclDestroyTensor(inAAclTensor);
+        aclDestroyTensor(inBAclTensor);
+        ASDSIP_LOG(ERROR) << "Fail to convert out mki out tensor to acltensor.";
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
 
     auto ret = aclnnMatmulGetWorkspaceSize(inAAclTensor, inBAclTensor, outAclTensor, cubeMathType, &workspaceSize,
                                            &executor);
