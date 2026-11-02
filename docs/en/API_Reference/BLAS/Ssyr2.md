@@ -2,10 +2,10 @@
 
 <!-- md-trans-meta sourceCommit=1074e415eb8c220568bce5dd2d6061f7c6ec51a5 translatedAt=2026-10-10T12:19:14.820Z pushedAt=2026-10-14T07:00:28.158Z -->
 
-## Applicable Product
+## Applicable Products
 
 <!-- npu="950" id1 -->
-- <term>Ascend 950PR/Ascend 950DT products</term>: Not supported
+- <term>Ascend 950PR&950DT products</term>: Not supported
 <!-- end id1 -->
 
 <!-- npu="A3" id2 -->

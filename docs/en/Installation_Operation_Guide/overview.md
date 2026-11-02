@@ -29,5 +29,5 @@ The following figure shows the position of the AscendSiPBoost in the Ascend oper
   <!-- end id2 -->
 
   <!-- npu="950" id3 -->
-  <term>Ascend 950PR/Ascend 950DT products</term>
+  <term>Ascend 950PR&950DT products</term>
   <!-- end id3 -->
