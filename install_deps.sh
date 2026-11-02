@@ -101,7 +101,7 @@ install_python() {
             if grep -q "release 7" /etc/redhat-release; then
                 run_command sudo $PKG_MANAGER install -y centos-release-scl
                 run_command sudo $PKG_MANAGER install -y rh-python38 rh-python38-python-devel
-                run_command source /opt/rh/rh-python38/enable
+                source /opt/rh/rh-python38/enable
                 echo "Need to execute 'source /opt/rh/rh-python38/enable' to activate python3.8"
             else
                 run_command sudo $PKG_MANAGER install -y python3 python3-pip python3-devel
@@ -170,7 +170,7 @@ install_gcc() {
             if grep -q "release 7" /etc/redhat-release; then
                 run_command sudo $PKG_MANAGER install -y centos-release-scl
                 run_command sudo $PKG_MANAGER install -y devtoolset-9-gcc devtoolset-9-gcc-c++
-                run_command source /opt/rh/devtoolset-9/enable
+                source /opt/rh/devtoolset-9/enable
                 echo "Need to execute 'source /opt/rh/devtoolset-9/enable' to activate GCC9"
             else
                 run_command sudo $PKG_MANAGER install -y gcc gcc-c++
