@@ -27,7 +27,8 @@ FFTCacheValue FFTMixCache::get(FFTCacheKey& cacheKey)
         return tmp.second;
     }
 
-    if (static_cast<int>(list.size()) >= capacity) {
+    // 空表守卫与 BlasMixCache 对齐：capacity<=0 时 list 可能为空，front()/pop_front() 为 UB
+    if (static_cast<int>(list.size()) >= capacity && !list.empty()) {
         destroyFftHandle(list.front().second.handle);
         list.pop_front();
     }
@@ -50,7 +51,8 @@ void FFTMixCache::setCapacity(int64_t maxSize)
     }
 
     capacity = maxSize;
-    while (static_cast<int>(list.size()) > capacity) {
+    // 空表守卫与 BlasMixCache 对齐：maxSize<0 时清空后 0 > maxSize 仍成立，对空表 pop_front 为 UB
+    while (static_cast<int>(list.size()) > capacity && !list.empty()) {
         destroyFftHandle(list.front().second.handle);
         list.pop_front();
     }

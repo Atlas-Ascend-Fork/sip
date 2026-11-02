@@ -49,6 +49,9 @@ add_library(test_src_fft_c2c_3d OBJECT ${TEST_SRC_FFT_C2C_3D})
 aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/fft/istft TEST_SRC_FFT_ISTFT)
 add_library(test_src_fft_istft OBJECT ${TEST_SRC_FFT_ISTFT})
 
+aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/fft/fftmixcache TEST_SRC_FFT_MIXCACHE)
+add_library(test_src_fft_mixcache OBJECT ${TEST_SRC_FFT_MIXCACHE})
+
 aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/base/asd_mul TEST_SRC_ASD_MUL)
 add_library(test_src_asd_mul OBJECT ${TEST_SRC_ASD_MUL})
 
@@ -191,6 +194,7 @@ add_executable(ops_unittest
     $<TARGET_OBJECTS:test_src_fft_c2c_2d>
     $<TARGET_OBJECTS:test_src_fft_c2c_3d>
     $<TARGET_OBJECTS:test_src_fft_istft>
+    $<TARGET_OBJECTS:test_src_fft_mixcache>
     # $<TARGET_OBJECTS:test_src_swaplast2axes>
     # $<TARGET_OBJECTS:test_src_function>
     $<TARGET_OBJECTS:test_src_conj>
