@@ -51,26 +51,32 @@ struct FftC2CArch35 {
     int64_t radixListLen;
     int32_t isInverse;
     bool isMixedRadix;
+    bool isGemm = false; // 第 4 步:true=GEMM 短维 pass(2 入张量)或收尾转置 pass(1 入张量,fftM 经 radixListLen 携带)
+    bool isNFused = false; // N 维融合 pass:2 入张量(数据+ex89 twiddle 表),fftM 经 radixListLen
+                           // 携带
+    bool isHybrid = false; // 混合核:2 入张量(数据+W 垫宽),radixListLen 携带 2D fftN(瓦片行数),fftN 字段携带 2D
+                           // fftM
 
-    bool operator==(const FftC2CArch35 &other) const
+    bool operator==(const FftC2CArch35& other) const
     {
         return this->fftN == other.fftN && this->batchSize == other.batchSize &&
                this->radixListLen == other.radixListLen && this->isInverse == other.isInverse &&
-               this->isMixedRadix == other.isMixedRadix;
+               this->isMixedRadix == other.isMixedRadix && this->isGemm == other.isGemm &&
+               this->isNFused == other.isNFused && this->isHybrid == other.isHybrid;
     }
 
     std::string ToString() const
     {
         std::stringstream ss;
         ss << "OpName: FftC2CArch35"
-           << ", fftN:" << fftN << ", batchSize:" << batchSize
-           << ", radixListLen:" << radixListLen << ", isInverse:" << isInverse
-           << ", isMixedRadix:" << isMixedRadix;
+           << ", fftN:" << fftN << ", batchSize:" << batchSize << ", radixListLen:" << radixListLen
+           << ", isInverse:" << isInverse << ", isMixedRadix:" << isMixedRadix << ", isGemm:" << isGemm
+           << ", isNFused:" << isNFused << ", isHybrid:" << isHybrid;
         return ss.str();
     }
 };
 
-}  // namespace OpParam
-}  // namespace AsdSip
+} // namespace OpParam
+} // namespace AsdSip
 
 #endif

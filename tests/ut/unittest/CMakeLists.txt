@@ -39,6 +39,8 @@ aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/fft/1d/r2c TEST_SRC_FFT_R2C)
 add_library(test_src_fft_r2c OBJECT ${TEST_SRC_FFT_R2C})
 
 aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/fft/2d/c2c TEST_SRC_FFT_C2C_2D)
+# 构建器自包含(悬空期);plan 接线后可移除
+list(APPEND TEST_SRC_FFT_C2C_2D $ENV{CODE_ROOT}/core/fft/utils/fft_gemm_coeffs.cpp)
 add_library(test_src_fft_c2c_2d OBJECT ${TEST_SRC_FFT_C2C_2D})
 
 aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/fft/3d/c2c TEST_SRC_FFT_C2C_3D)

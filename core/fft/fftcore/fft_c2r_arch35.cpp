@@ -36,7 +36,7 @@ size_t FftC2RCoreArch35::EstimateWorkspaceSize()
         // C2R needs ping-pong buffers: 2 * batch * fftN * sizeof(complex<float>)
         int64_t singleBufferSize = static_cast<int64_t>(problemDesc.batch) * static_cast<int64_t>(problemDesc.nDoing) *
                                    2 * sizeof(float);
-        int64_t workspaceSize = 2 * singleBufferSize; // ws0 + ws1
+        int64_t workspaceSize = getAlignedSize(2 * singleBufferSize); // ws0 + ws1,allocate 内部 32B 上取整
         ASDSIP_LOG(INFO) << "ASCEND_950 FftC2RCoreArch35 workspace size: " << workspaceSize;
         return static_cast<size_t>(workspaceSize);
     }

@@ -10,6 +10,7 @@
 
 #include <gtest/gtest.h>
 #include <complex>
+#include <fstream>
 #include <random>
 #include <string>
 #include "test_common.h"
@@ -24,6 +25,7 @@ using namespace AsdSip;
 using namespace Mki;
 
 namespace {
+
 constexpr double C2C2D_RTOL = 1e-3;
 constexpr double C2C2D_ATOL = 1e-4;
 
@@ -151,4 +153,13 @@ TEST(TestFftC2C2d, TestC2C2DForwardBatch2) { RunFftC2C2DTest(32, 48, 2, asdFftDi
 TEST(TestFftC2C2d, TestC2C2DForwardRadix7x13)
 {
     RunFftC2C2DTest(112, 104, 1, asdFftDirection::ASCEND_FFT_FORWARD, "_p");
+}
+
+TEST(TestFftC2C2d, TestC2C2DForward500x50)
+{
+    RunFftC2C2DTest(500, 50, 2, asdFftDirection::ASCEND_FFT_FORWARD, "_f500");
+}
+TEST(TestFftC2C2d, TestC2C2DInverse500x50)
+{
+    RunFftC2C2DTest(500, 50, 2, asdFftDirection::ASCEND_FFT_INVERSE, "_i500");
 }

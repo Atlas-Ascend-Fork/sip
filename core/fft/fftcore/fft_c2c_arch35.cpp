@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
  * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
  * CANN Open Software License Agreement Version 2.0 (the "License").
@@ -69,7 +69,7 @@ size_t FftC2CCoreArch35::EstimateWorkspaceSize()
     if (Mki::PlatformInfo::Instance().GetPlatformType() == Mki::PlatformType::ASCEND_950) {
         int64_t singleBufferSize = static_cast<int64_t>(problemDesc.batch) * static_cast<int64_t>(problemDesc.nDoing) *
                                    2 * sizeof(float);
-        int64_t workspaceSize = 2 * singleBufferSize;
+        int64_t workspaceSize = getAlignedSize(2 * singleBufferSize); // allocate 内部 32B 上取整,池须同口径
         ASDSIP_LOG(INFO) << "ASCEND_950 FftC2CCoreArch35 workspace size: " << workspaceSize;
         return static_cast<size_t>(workspaceSize);
     }

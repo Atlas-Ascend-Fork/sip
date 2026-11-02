@@ -60,14 +60,7 @@ add_kernel(fft_c2r_3_even ascend910b mix
     FftC2REven3C64Kernel)
 
 # Ascend 950 (arch35) kernels using Catlass
-# add_kernel(fft_c2r ascend950 vector
-#     fft/kernel/arch35/fft_c2r.cpp
-#     FftC2RC64Kernel
-#     INCLUDE_DIRECTORIES ${CATLASS_INCLUDES})
-
-# Ascend 950 (arch35) kernels using Catlass
 add_kernel(fft_c2r_multi_core ascend950 vector
     fft/kernel/arch35/fft_c2r_multi_core.cpp
     FftC2RC64Kernel
     INCLUDE_DIRECTORIES ${CATLASS_INCLUDES})
-

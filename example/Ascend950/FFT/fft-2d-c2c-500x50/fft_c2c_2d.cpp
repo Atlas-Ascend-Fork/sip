@@ -417,7 +417,7 @@ static bool RunRoundTrip(const FftOptions& options)
         ACL_CHECK(aclrtFree(dShiftFwd));
         ACL_CHECK(aclrtFree(dShiftInv));
         Cleanup(stream, options.deviceId);
-        return;
+        return false;
     }
 
     const uint32_t aicBlockDim = static_cast<uint32_t>(coreNum);

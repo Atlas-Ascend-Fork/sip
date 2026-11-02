@@ -247,6 +247,14 @@ FftC2CArch35Operation:
         ascend950: true
     FftC2CArch35MixC64Kernel:
         ascend950: true
+    FftC2CArch35GemmC64Kernel:
+        ascend950: true
+    FftC2CArch35HybridC64Kernel:
+        ascend950: true
+    FftC2CArch35NFusedC64Kernel:
+        ascend950: true
+    FftC2CArch35TransC64Kernel:
+        ascend950: true
 
 FftShiftOperation:
     FftShiftC64Kernel:

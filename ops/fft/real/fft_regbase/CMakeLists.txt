@@ -26,10 +26,23 @@ foreach(stage IN ITEMS fused boundary small)
     else()
         set(real_kernel FftRealRegBaseSmallKernel)
     endif()
-    add_kernel(fft_real_regbase_${stage} ascend950 vector
-        fft_regbase/kernel/arch35/fft_real_regbase_${stage}.asc ${real_kernel}
-        CACHE_POLICY compiler-default INCLUDE_DIRECTORIES ${real_large} ${PROJECT_SOURCE_DIR}/ops/include
-        DEPENDS ${real_dependencies})
+    # 展开为字面类名(扫描器不解析 CMake 变量;见交接文档十四章)
+    if(stage STREQUAL "fused")
+        add_kernel(fft_real_regbase_fused ascend950 vector
+            fft_regbase/kernel/arch35/fft_real_regbase_${stage}.asc FftRealRegBaseFusedKernel
+            CACHE_POLICY compiler-default INCLUDE_DIRECTORIES ${real_large} ${PROJECT_SOURCE_DIR}/ops/include
+            DEPENDS ${real_dependencies})
+    elseif(stage STREQUAL "boundary")
+        add_kernel(fft_real_regbase_boundary ascend950 vector
+            fft_regbase/kernel/arch35/fft_real_regbase_${stage}.asc FftRealRegBaseBoundaryKernel
+            CACHE_POLICY compiler-default INCLUDE_DIRECTORIES ${real_large} ${PROJECT_SOURCE_DIR}/ops/include
+            DEPENDS ${real_dependencies})
+    else()
+        add_kernel(fft_real_regbase_small ascend950 vector
+            fft_regbase/kernel/arch35/fft_real_regbase_${stage}.asc FftRealRegBaseSmallKernel
+            CACHE_POLICY compiler-default INCLUDE_DIRECTORIES ${real_large} ${PROJECT_SOURCE_DIR}/ops/include
+            DEPENDS ${real_dependencies})
+    endif()
 endforeach()
 add_kernel(fft_real_regbase_optimized ascend950 vector
     fft_regbase/kernel/arch35/fft_real_regbase_optimized.asc FftRealRegBaseOptimizedKernel

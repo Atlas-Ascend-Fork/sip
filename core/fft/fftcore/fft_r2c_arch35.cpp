@@ -36,7 +36,7 @@ size_t FftR2CCoreArch35::EstimateWorkspaceSize()
         int64_t fftSize = isOdd ? static_cast<int64_t>(problemDesc.nDoing) :
                                   (static_cast<int64_t>(problemDesc.nDoing) / 2);
         int64_t singleBufferSize = static_cast<int64_t>(problemDesc.batch) * fftSize * 2 * sizeof(float);
-        int64_t workspaceSize = 2 * singleBufferSize;
+        int64_t workspaceSize = getAlignedSize(2 * singleBufferSize); // allocate 内部 32B 上取整,池须同口径
         ASDSIP_LOG(INFO) << "ASCEND_950 FftR2CCoreArch35 workspace size: " << workspaceSize;
         return static_cast<size_t>(workspaceSize);
     }

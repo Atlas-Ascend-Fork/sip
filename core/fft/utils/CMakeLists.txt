@@ -8,7 +8,7 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------
 
-add_library(fft_utils STATIC rotate.cpp fft_mode.cpp fftensor_cache.cpp workspace.cpp)
+add_library(fft_utils STATIC rotate.cpp fft_mode.cpp fftensor_cache.cpp workspace.cpp fft_gemm_coeffs.cpp)
 
 target_include_directories(fft_utils PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 

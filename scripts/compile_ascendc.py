@@ -213,9 +213,9 @@ def get_asc_tool(name):
 
 
 def gen_compile_cmd_asc(args, dst: str, compile_options):
-    if args.soc != "ascend950" or args.channel not in ("vector", "mix"):
+    if args.soc != "ascend950" or args.channel not in ("vector", "mix", "cube"):
         raise ValueError(
-            "ASC device-only integration supports A5 vector and mixed kernels"
+            "ASC device-only integration supports A5 vector, mixed and cube kernels"
         )
     if args.cache_policy != "compiler-default":
         raise ValueError(
@@ -283,6 +283,8 @@ def gen_json(args, kernels):
         json_template["coreType"] = "AiCore"
         json_template["core_type"] = "AIC"
         json_template["magic"] = "RT_DEV_BINARY_MAGIC_ELF_AICUBE"
+        # AICUBE 装载路径按 kernelName 定位入口函数(与 CANN TBE 单核 schema 一致)
+        json_template["kernelName"] = kernels[0] if kernels else args.kernel
     elif args.channel == "vector":
         json_template["coreType"] = "VectorCore"
         json_template["core_type"] = "AIV"

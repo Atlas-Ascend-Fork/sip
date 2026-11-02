@@ -21,18 +21,17 @@ class FftC2C2DCoreArch35 : public FFTCoreBase {
 public:
     FftC2C2DCoreArch35(int64_t fftN, int64_t fftM, int64_t batch, AsdSip::asdFftType fftType, bool forward,
                        int32_t mode)
-        : FFTCoreBase(FFTCoreType::kFftC2C2DArch35, 1, static_cast<unsigned>(fftN), 1,
-              static_cast<unsigned>(batch), fftType, forward),
+        : FFTCoreBase(FFTCoreType::kFftC2C2DArch35, 1, static_cast<unsigned>(fftN), 1, static_cast<unsigned>(batch),
+                      fftType, forward),
           fftN(fftN),
           fftM(fftM),
           mode(mode)
-    {
-    }
+    {}
     ~FftC2C2DCoreArch35() override { DestroyInDevice(); }
 
     size_t EstimateWorkspaceSize() override;
-    void Run(Tensor &input, Tensor &output, void *stream, workspace::Workspace &workspace) override {}
-    void Run(void *input, void *output, void *stream, workspace::Workspace &workspace) override;
+    void Run(Tensor& input, Tensor& output, void* stream, workspace::Workspace& workspace) override {}
+    void Run(void* input, void* output, void* stream, workspace::Workspace& workspace) override;
 
 private:
     bool PreAllocateInDevice() override;
@@ -53,10 +52,25 @@ private:
     std::shared_ptr<AsdSip::FFTensor> dftMatrixN;
     bool useMixedM{false};
     bool useMixedN{false};
+    bool useGemmM{false};
+    bool useFusedN{false};
+    bool useHybrid{false}; // 混合核(开关 ASDSIP_HYBRID_PASS):替代 GEMM pass,下游 TRANS/NFused 不变
+    bool gemmWarmupDone{false};
+    bool hybridWarmupDone{false};
     std::unique_ptr<Mki::Kernel> kernelM;
     std::unique_ptr<Mki::Kernel> kernelN;
-    std::vector<uint8_t *> tilingMDeviceAddrs;
-    std::vector<uint8_t *> tilingNDeviceAddrs;
+    std::unique_ptr<Mki::Kernel> kernelGemm;
+    std::unique_ptr<Mki::Kernel> kernelTrans;
+    std::unique_ptr<Mki::Kernel> kernelNFused;
+    std::unique_ptr<Mki::Kernel> kernelHybrid;
+    std::vector<uint8_t*> tilingMDeviceAddrs;
+    std::vector<uint8_t*> tilingNDeviceAddrs;
+    std::vector<uint8_t*> tilingGemmDeviceAddrs;
+    std::vector<uint8_t*> tilingTransDeviceAddrs;
+    std::vector<uint8_t*> tilingNFusedDeviceAddrs;
+    std::vector<uint8_t*> tilingHybridDeviceAddrs;
+    std::shared_ptr<AsdSip::FFTensor> twNFused;
+    std::shared_ptr<AsdSip::FFTensor> hybridCoeff; // [W 垫宽 | ex89 双向 tw] 拼接 coeff
     std::string opName{"FftC2CArch35Operation"};
 };
 
