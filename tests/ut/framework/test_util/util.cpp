@@ -451,7 +451,7 @@ inline std::string GetElementDtype(TensorDType dtype)
         case TENSOR_DTYPE_COMPLEX32:
             return "complex32";
         case TENSOR_DTYPE_UINT8:
-            return "uint5";
+            return "uint8";
         // 添加其他需要的类型
         default:
             return "unknown"; // 未知类型

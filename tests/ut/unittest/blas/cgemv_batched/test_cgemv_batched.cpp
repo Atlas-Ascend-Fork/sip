@@ -51,22 +51,28 @@ int CreateC64(const std::vector<std::complex<float>>& host, const std::vector<in
     return 0;
 }
 
-// 单用例跑三种 trans：host 双精度 golden + NPU 输出逐元素相对误差校验
+// 单用例跑三种 trans：host 双精度 golden + NPU 输出逐元素相对误差校验。
+// x/y 元素数契约随 trans 变化（与 asdBlasCgemvBatchedShapeCheck 一致）：
+// OP_N 需 x=n/y=m，OP_T/OP_C 需 x=m/y=n
 void RunCgemvBatchedCase(asdBlasOperation_t trans, int64_t m, int64_t n, int64_t batch, uint32_t seed)
 {
     MkiRtStream stream = OpTestInit(0);
 
+    const bool isNonTrans = (trans == asdBlasOperation_t::ASDBLAS_OP_N);
+    const int64_t xPerBatch = isNonTrans ? n : m;
+    const int64_t yPerBatch = isNonTrans ? m : n;
+
     std::vector<std::complex<float>> a = MakeRandomC64(batch * m * n, seed);
-    std::vector<std::complex<float>> x = MakeRandomC64(batch * m, seed + 1);
-    std::vector<std::complex<float>> y(static_cast<size_t>(batch * n), {0.0f, 0.0f});
+    std::vector<std::complex<float>> x = MakeRandomC64(batch * xPerBatch, seed + 1);
+    std::vector<std::complex<float>> y(static_cast<size_t>(batch * yPerBatch), {0.0f, 0.0f});
 
     aclTensor* aclA = nullptr;
     aclTensor* aclX = nullptr;
     aclTensor* aclY = nullptr;
     void *aAddr = nullptr, *xAddr = nullptr, *yAddr = nullptr;
     ASSERT_EQ(CreateC64(a, {batch, m, n}, &aAddr, &aclA), 0);
-    ASSERT_EQ(CreateC64(x, {batch, m, 1}, &xAddr, &aclX), 0);
-    ASSERT_EQ(CreateC64(y, {batch, n, 1}, &yAddr, &aclY), 0);
+    ASSERT_EQ(CreateC64(x, {batch, xPerBatch, 1}, &xAddr, &aclX), 0);
+    ASSERT_EQ(CreateC64(y, {batch, yPerBatch, 1}, &yAddr, &aclY), 0);
 
     asdBlasHandle handle = nullptr;
     ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
@@ -79,34 +85,46 @@ void RunCgemvBatchedCase(asdBlasOperation_t trans, int64_t m, int64_t n, int64_t
     ASSERT_EQ(st, AsdSip::ErrorType::ACL_SUCCESS);
     ASSERT_EQ(aclrtSynchronizeStream(aclStream), 0);
 
-    size_t yBytes = static_cast<size_t>(batch * n) * sizeof(std::complex<float>);
-    std::vector<std::complex<float>> yOut(static_cast<size_t>(batch * n));
+    size_t yBytes = static_cast<size_t>(batch * yPerBatch) * sizeof(std::complex<float>);
+    std::vector<std::complex<float>> yOut(static_cast<size_t>(batch * yPerBatch));
     ASSERT_EQ(aclrtMemcpy(yOut.data(), yBytes, yAddr, yBytes, ACL_MEMCPY_DEVICE_TO_HOST), 0);
 
     constexpr double kRelTol = 1e-5;
-    for (int64_t bi = 0; bi < batch; bi++) {
-        for (int64_t j = 0; j < n; j++) {
-            std::complex<double> sum(0.0, 0.0);
+    if (isNonTrans) {
+        // OP_N: y[i] = Σ_j a[i][j]*x[j]，输出 m 元素，x/y 均按 n/m 口径取值
+        for (int64_t bi = 0; bi < batch; bi++) {
             for (int64_t i = 0; i < m; i++) {
-                std::complex<double> av = a[(bi * m + i) * n + j];
-                std::complex<double> xv = x[bi * m + i];
-                if (trans == asdBlasOperation_t::ASDBLAS_OP_C) {
-                    sum += std::conj(av) * xv;
-                } else if (trans == asdBlasOperation_t::ASDBLAS_OP_T) {
-                    sum += av * xv;
-                } else {
-                    // OP_N: y[i] = Σ_j a[i][j]*x[j]
+                std::complex<double> sum(0.0, 0.0);
+                for (int64_t j = 0; j < n; j++) {
+                    sum += a[(bi * m + i) * n + j] * x[bi * n + j];
                 }
+                std::complex<double> actual = yOut[bi * m + i];
+                double rel = std::abs(actual - sum) / (std::abs(sum) + 1e-10);
+                ASSERT_LT(rel, kRelTol) << "trans=N"
+                                        << " b=" << bi << " i=" << i << " actual=(" << actual.real() << ","
+                                        << actual.imag() << ") expect=(" << sum.real() << "," << sum.imag() << ")";
             }
-            std::complex<double> expect = sum;
-            std::complex<double> actual = yOut[bi * n + j];
-            if (trans == asdBlasOperation_t::ASDBLAS_OP_N) {
-                continue; // OP_N 输出为 m 元素，独立负例覆盖，本用例聚焦 T/C
+        }
+    } else {
+        // OP_T/OP_C: y[j] = Σ_i a[i][j]*(x[i] 或 conj(x[i]))，输出 n 元素
+        for (int64_t bi = 0; bi < batch; bi++) {
+            for (int64_t j = 0; j < n; j++) {
+                std::complex<double> sum(0.0, 0.0);
+                for (int64_t i = 0; i < m; i++) {
+                    std::complex<double> av = a[(bi * m + i) * n + j];
+                    std::complex<double> xv = x[bi * m + i];
+                    if (trans == asdBlasOperation_t::ASDBLAS_OP_C) {
+                        sum += std::conj(av) * xv;
+                    } else {
+                        sum += av * xv;
+                    }
+                }
+                std::complex<double> actual = yOut[bi * n + j];
+                double rel = std::abs(actual - sum) / (std::abs(sum) + 1e-10);
+                ASSERT_LT(rel, kRelTol) << "trans=" << (trans == asdBlasOperation_t::ASDBLAS_OP_C ? "C" : "T")
+                                        << " b=" << bi << " j=" << j << " actual=(" << actual.real() << ","
+                                        << actual.imag() << ") expect=(" << sum.real() << "," << sum.imag() << ")";
             }
-            double rel = std::abs(actual - expect) / (std::abs(expect) + 1e-10);
-            ASSERT_LT(rel, kRelTol) << "trans=" << (trans == asdBlasOperation_t::ASDBLAS_OP_C ? "C" : "T")
-                                    << " b=" << bi << " j=" << j << " actual=(" << actual.real() << "," << actual.imag()
-                                    << ") expect=(" << expect.real() << "," << expect.imag() << ")";
         }
     }
 
@@ -131,4 +149,9 @@ TEST(TestBlasCgemvBatchedTrans, ConjTransM12N6)
 TEST(TestBlasCgemvBatchedTrans, TransM12N6)
 {
     RunCgemvBatchedCase(asdBlasOperation_t::ASDBLAS_OP_T, 12, 6, 1, 20260102u);
+}
+
+TEST(TestBlasCgemvBatchedTrans, NonTransM12N6)
+{
+    RunCgemvBatchedCase(asdBlasOperation_t::ASDBLAS_OP_N, 12, 6, 1, 20260103u);
 }
