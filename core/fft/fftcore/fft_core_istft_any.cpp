@@ -50,22 +50,17 @@ struct UnfoldParams {
 };
 
 // 计算out expected signal len
+// 前置约束：调用链位于 IstftParamsCheck 之后，center 已被强制 true、lengthOpt
+// 已被强制 0（见 core/fft/istft.cpp 的检查改写），本函数仅承载 center=true 路径。
+// 原 lengthOpt>0 与 center=false 两分支为不可达死代码，且 center=false 公式
+// 有误（end-start+len 为 2 倍长度）；若后续放开 center=false/lengthOpt 支持，
+// 需重新设计公式（本函数与 core/fft/istft.cpp 同款副本，两处必须同步修改）。
 int64_t ComputerExpectedSliceSignalLen(struct IstftDesc& istftAnyParms)
 {
-    const bool center = istftAnyParms.center;
     const int64_t nFft = istftAnyParms.nFft;
-    int64_t expectedOutputSignalLen = nFft + istftAnyParms.hopLengthOpt * (istftAnyParms.nFrames - 1);
-    const auto lengthOpt = istftAnyParms.lengthOpt;
-    const auto start = center ? nFft / 2 : 0;
-    const auto end = [&]() -> int64_t {
-        if (lengthOpt > 0) {
-            return start + lengthOpt;
-        }
-        if (center) {
-            return -(nFft / 2);
-        }
-        return expectedOutputSignalLen;
-    }();
+    const int64_t expectedOutputSignalLen = nFft + istftAnyParms.hopLengthOpt * (istftAnyParms.nFrames - 1);
+    const int64_t start = nFft / 2;
+    const int64_t end = -(nFft / 2);
     return end - start + expectedOutputSignalLen;
 }
 

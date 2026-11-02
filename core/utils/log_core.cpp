@@ -13,7 +13,6 @@
 #include <cstring>
 #include <unordered_map>
 #include <iostream>
-#include <algorithm>
 #include <mutex>
 #include <vector>
 #include "utils/env.h"
@@ -52,7 +51,12 @@ static LogLevel GetLogLevelFromEnv()
         return LogLevel::ERROR;
     }
     std::string envLogLevel(env);
-    std::transform(envLogLevel.begin(), envLogLevel.end(), envLogLevel.begin(), ::toupper);
+    // levelMap 键全为数字串（"0"~"4"，函数头注释语义）：数字无大小写形式，无需
+    // 逐字符 ::toupper（对数字串为无效变换，且对 >=0x80 字节传有符号 char 为 UB）。
+    // 仅接受纯数字串，其余（含字母与非 ASCII）直接按非法值回落 ERROR
+    if (envLogLevel.find_first_not_of("0123456789") != std::string::npos) {
+        return LogLevel::ERROR;
+    }
     static std::unordered_map<std::string, LogLevel> levelMap{{"0", LogLevel::DEBUG},
                                                               {"1", LogLevel::INFO},
                                                               {"2", LogLevel::WARN},
@@ -109,6 +113,12 @@ static LogLevel GetModuleLogLevelFromEnv(bool& isSet)
     }
 
     if (!isSet) {
+        return LogLevel::ERROR;
+    }
+
+    // 与 GetLogLevelFromEnv 口径一致：levelMap 键全为数字串，仅接受纯数字串，
+    // 其余按非法值回落 ERROR
+    if (envLogLevel.find_first_not_of("0123456789") != std::string::npos) {
         return LogLevel::ERROR;
     }
 
