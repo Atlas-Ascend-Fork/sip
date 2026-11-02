@@ -25,7 +25,8 @@ namespace {
 constexpr float ATOL = 0.001;
 constexpr float RTOL = 0.001;
 
-std::string GetSdotOutputDirectory() {
+std::string GetSdotOutputDirectory()
+{
     const char* current_dir_env = std::getenv("CURRENT_DIR");
     if (current_dir_env) {
         return std::string(current_dir_env);
@@ -66,7 +67,8 @@ TEST(TestBlasSdot, TestSdotCase0)
     Tensor resultTensor = context.inTensors[2];
 
     for (size_t i = 0; i < context.inTensors.size(); i++) {
-        std::string filename = GetElementDtype(context.inTensors[i].desc.dtype) + "_input_" + std::to_string(i) + ".bin";
+        std::string filename = GetElementDtype(context.inTensors[i].desc.dtype) + "_input_" + std::to_string(i) +
+                               ".bin";
         if (SaveTensorToBin(context.inTensors[i], destPath + "/sdot_data/" + filename)) {
             std::cout << "Tensor saved successfully: " << filename << std::endl;
         } else {
@@ -77,12 +79,12 @@ TEST(TestBlasSdot, TestSdotCase0)
     std::string gen_data_cmd = "cd " + ShellQuote(destPath + "/sdot_data/") + " && python3 gen_data.py";
     system(gen_data_cmd.c_str());
 
-    aclTensor *aclInputX = nullptr;
-    aclTensor *aclInputY = nullptr;
-    aclTensor *aclResult = nullptr;
-    void *inputXDeviceAddr = nullptr;
-    void *inputYDeviceAddr = nullptr;
-    void *resultDeviceAddr = nullptr;
+    aclTensor* aclInputX = nullptr;
+    aclTensor* aclInputY = nullptr;
+    aclTensor* aclResult = nullptr;
+    void* inputXDeviceAddr = nullptr;
+    void* inputYDeviceAddr = nullptr;
+    void* resultDeviceAddr = nullptr;
 
     std::vector<float> inputXHostData(n);
     float* inputXDataPtr = static_cast<float*>(inputTensorX.hostData);
@@ -119,7 +121,7 @@ TEST(TestBlasSdot, TestSdotCase0)
     blasStatus = asdBlasGetWorkspaceSize(handle, workSize);
     ASSERT_EQ(blasStatus, AsdSip::ErrorType::ACL_SUCCESS);
 
-    void *workspaceAddr = nullptr;
+    void* workspaceAddr = nullptr;
     if (workSize > 0) {
         ret = aclrtMalloc(&workspaceAddr, static_cast<int64_t>(workSize), ACL_MEM_MALLOC_HUGE_FIRST);
         ASSERT_EQ(ret, ::ACL_SUCCESS);
@@ -139,10 +141,7 @@ TEST(TestBlasSdot, TestSdotCase0)
 
     asdBlasDestroy(handle);
 
-    ret = aclrtMemcpy(resultTensor.hostData,
-                      resultTensor.dataSize,
-                      resultDeviceAddr,
-                      resultTensor.dataSize,
+    ret = aclrtMemcpy(resultTensor.hostData, resultTensor.dataSize, resultDeviceAddr, resultTensor.dataSize,
                       ACL_MEMCPY_DEVICE_TO_HOST);
     ASSERT_EQ(ret, ::ACL_SUCCESS);
 
@@ -163,6 +162,8 @@ TEST(TestBlasSdot, TestSdotCase0)
         aclrtFree(workspaceAddr);
     }
 
+    // dot 族 workspace 跨核归约回读对显存页隔离敏感, 保持模式下回退基线复位
+    OpTestMarkResetOnEnd();
     OpTestEnd(deviceId, context, stream);
 
     std::string cmp_data_cmd = "cd " + ShellQuote(destPath + "/sdot_data/") + " && python3 compare_data.py";

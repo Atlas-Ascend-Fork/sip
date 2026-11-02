@@ -149,6 +149,21 @@ static bool UtKeepDeviceEnabled()
     return keep != nullptr && keep[0] == '1';
 }
 
+/* 设备保持模式下仍需在用例结束时复位设备的标记 (见 OpTestMarkResetOnEnd)。 */
+static bool utResetOnEndMarked = false;
+
+/**
+ * @brief 供对显存页隔离敏感的用例 (dot 族: sdot/cdotu/cdotc, 唯一做 workspace
+ *        跨核归约回读的算子族) 在 OpTestEnd 前显式调用, 请求该用例结束时不走
+ *        设备保持而回退基线复位路径。背景: 基线的 aclrtResetDevice 每例销毁并
+ *        重建显存池, 页隔离语义最强; CI 实测 (run#396) 设备保持模式下 cdotu/
+ *        cdotc 偶发回读到未初始化 workspace 页 (输出 nan+infj, 本地 48+ 轮未
+ *        复现的低概率时序问题), 对该族保留基线语义, 代价 3 例约 10s。
+ *        注: 本文件以 #include 方式编入各测试 TU, 标记为 TU 内 static,
+ *        gtest 串行执行用例, 无跨用例竞争。
+ */
+static void OpTestMarkResetOnEnd() { utResetOnEndMarked = true; }
+
 /**
  * @brief 设置deviceid并创造stream.
  */
@@ -246,9 +261,12 @@ static void OpTestEnd(int deviceId, TensorContext& tensorContext, MkiRtStream& s
 {
     deviceId = OpTestGetDeviceId(deviceId);
     OpTestCleanup(tensorContext, stream);
-    if (UtKeepDeviceEnabled()) {
+    // dot 族跨核归约回读对显存页隔离敏感, 用例已标记时回退基线复位 (见 OpTestMarkResetOnEnd)
+    if (UtKeepDeviceEnabled() && !utResetOnEndMarked) {
         return;
     }
+    utResetOnEndMarked = false;
+    LOG_PRINT("[OpTestEnd] dot-family fallback: MkiRtDeviceResetCurrent device %d\n", deviceId);
     int ret = MkiRtDeviceResetCurrent(deviceId);
     ASDSIP_LOG_IF(ret != 0, ERROR) << "MkiRtDeviceResetCurrent fail";
 }
@@ -259,9 +277,14 @@ static void OpTestEnd(int deviceId, aclTensorContext& tensorContext, MkiRtStream
     OpTestCleanup(tensorContext);
     int ret = aclrtDestroyStream(stream);
     ASDSIP_LOG_IF(ret != 0, ERROR) << "aclrtDestroyStream fail";
-    if (UtKeepDeviceEnabled()) {
+    if (UtKeepDeviceEnabled() && !utResetOnEndMarked) {
+        // 收窄跨用例在途写窗口: 设备级同步保证前序异步操作全部落盘
+        ret = aclrtSynchronizeDevice();
+        ASDSIP_LOG_IF(ret != 0, ERROR) << "aclrtSynchronizeDevice fail";
         return;
     }
+    utResetOnEndMarked = false;
+    LOG_PRINT("[OpTestEnd] dot-family fallback: aclrtResetDevice device %d\n", deviceId);
     ret = aclrtResetDevice(deviceId);
     ASDSIP_LOG_IF(ret != 0, ERROR) << "aclrtResetDevice fail";
 }
