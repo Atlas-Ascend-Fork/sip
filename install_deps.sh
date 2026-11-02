@@ -15,13 +15,15 @@ run_command() {
     local cmd="$*"
     echo "Executing command: $cmd"
 
-    if ! output=$("$@" 2>&1); then
+    if output=$("$@" 2>&1); then
+         return 0
+    else
          local exit_code=$?
          echo -e "\nCommand execution failed!"
          echo -e "\nFailed command: $cmd"
          echo -e "\nError output: $output"
          echo -e "\nExit code: $exit_code"
-         exit $exit_code
+         return $exit_code
     fi
 }
 
@@ -279,10 +281,10 @@ install_pigz() {
     echo "Installing pigz..."
     case "$OS" in
         debian|rhel|euler)
-            run_command sudo $PKG_MANAGER install -y pigz
+            run_command sudo $PKG_MANAGER install -y pigz || true
             ;;
         macos)
-            run_command brew install pigz
+            run_command brew install pigz || true
             ;;
     esac
 
@@ -352,10 +354,10 @@ install_dos2unix() {
     echo "Installing dos2unix..."
     case "$OS" in
         debian|rhel|euler)
-            run_command sudo $PKG_MANAGER install -y dos2unix
+            run_command sudo $PKG_MANAGER install -y dos2unix || true
             ;;
         macos)
-            run_command brew install dos2unix
+            run_command brew install dos2unix || true
             ;;
     esac
 
