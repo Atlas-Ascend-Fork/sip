@@ -60,8 +60,6 @@ The SiP library supports multiple Ascend chip architectures. Target chips to com
 ```json
 {
     "targets": {
-        "ascend310b": false,
-        "ascend310p": false,
         "ascend910b": true,
         "ascend950": true
     }
@@ -72,8 +70,6 @@ The meaning of each field is as follows:
 
 | Chip Architecture | Corresponding Product Series |
 | --- | --- |
-| `ascend310b` | Atlas 200I/500 A2 Inference Card |
-| `ascend310p` | Atlas 300I Inference Card |
 | `ascend910b` | Atlas A2 Training/Inference Server |
 | `ascend950` | Ascend 950PR/950DT |
 

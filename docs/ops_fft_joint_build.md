@@ -13,8 +13,8 @@
 
 | 路径 | 一致性 |
 | --- | --- |
-| Ascend910B 全部覆盖路径；Ascend950 混合基路径 | 逐位一致 |
-| Ascend950 radix-2 路径（直调 ops-fft 旧版 kernel） | 数值等价：rel ~2.3e-07，以毒化 + rel err + CPU 锚点验收 |
+| Atlas A2系列产品全部覆盖路径；Ascend 950PR&950DT系列产品混合基路径 | 逐位一致 |
+| Ascend 950PR&950DT系列产品 radix-2 路径（直调 ops-fft 旧版 kernel） | 数值等价：rel ~2.3e-07，以毒化 + rel err + CPU 锚点验收 |
 
 ## 2. 存件版本背景
 
@@ -24,17 +24,17 @@
 
 | 存件 kernel | SiP 现行实现 | 一致性 |
 | --- | --- | --- |
-| Ascend910B 全部 kernel | 同名实现 | 同源未改，逐位一致 |
+| Atlas A2系列产品全部 kernel | 同名实现 | 同源未改，逐位一致 |
 | `fft_c2c_arch35_mix_multi_core`（混合基） | arch35 混合基 | 同源未改，逐位一致 |
 | `fft_c2c_arch35_multi_core`（radix-2） | butterfly 重写版 | 存件为旧版（先 DFT 后乘 twiddle），舍入顺序与 butterfly 不同，仅数值等价；性能低约 14 倍（n=2^21 batch=64：53.3 ms vs 732.8 ms） |
-| —（无对应符号） | RegBase/Packed/Gauss（950 纯 2 幂 n < 2^21）；Stockham/RegBase（950 实变换新调度） | 94ea107 新增，未移植进存件 |
+| —（无对应符号） | RegBase/Packed/Gauss（Ascend 950PR&950DT系列产品纯 2 幂 n < 2^21）；Stockham/RegBase（Ascend 950PR&950DT系列产品实变换新调度） | 94ea107 新增，未移植进存件 |
 
 命名辨析：`fft_c2c_arch35_`**`mix`**`_multi_core`（含 `mix`）为混合基 kernel；`fft_c2c_arch35_multi_core`（不含 `mix`）为 radix-2 旧版 kernel。
 
 由此得到两条路由事实（详见 4.2）：
 
-1. 950 纯 2 幂 n < 2^21 由 `a5::Select` 调度至 RegBase/Packed/Gauss，存件无对应 kernel，不接入本后端；
-2. 950 R2C/C2R 的命中形状全部被 `a5::SelectReal` 优先调度至 Stockham/RegBase，arch35 R2C/C2R core 不会被实例化——直调适配已就位但当前不可达，internal 模式下同样不会走到。
+1. Ascend 950PR&950DT系列产品纯 2 幂 n < 2^21 由 `a5::Select` 调度至 RegBase/Packed/Gauss，存件无对应 kernel，不接入本后端；
+2. Ascend 950PR&950DT系列产品 R2C/C2R 的命中形状全部被 `a5::SelectReal` 优先调度至 Stockham/RegBase，arch35 R2C/C2R core 不会被实例化——直调适配已就位但当前不可达，internal 模式下同样不会走到。
 
 存件 kernel `rfft1_d_fast_dft` 显式不接入：其 tiling（4 指针 + 140B 值传）与 SiP 侧 `DftR2CTilingData`（36B 指针传）不同源，无法安全直调。
 
@@ -57,7 +57,7 @@ bash build.sh --use_ops_fft
 | 源码获取 | 默认 clone 上游 `cann/ops-fft` @ master 至 `3rdparty/ops-fft-src/`（常驻复用，免重复 clone）；`OPS_FFT_SRC_DIR` 指向外部已有源码；`OPS_FFT_SRC_URL`/`OPS_FFT_SRC_REF` 覆盖仓地址与分支 |
 | 兼容补丁 | 上游未修复部分 CANN 环境 bisheng 不再隐含 `tikcfw` 头文件路径前，自动应用 `scripts/patches/ops-fft-tikcfw-include.patch`（已应用时跳过） |
 | 编译 | `bash build.sh --soc=<自动推导> -j<N>`，SoC 复用 3.3 节推导链，产物三件套（soname 链）+ 头文件收编至 `3rdparty/ops-fft/` 制品布局，并自动生成 `manifest.info` |
-| 失败终止 | 源码获取/编译/收编失败、门禁复核不通过、或编译目标不含 Ascend910B/Ascend950 时，构建立即终止 |
+| 失败终止 | 源码获取/编译/收编失败、门禁复核不通过、或编译目标不含 Atlas A2系列产品/Ascend 950PR&950DT系列产品 时，构建立即终止 |
 
 产物落 `3rdparty/ops-fft/` 后仍按门禁逐项复核（`lib/<soc>/manifest.info`）：
 
@@ -68,8 +68,8 @@ bash build.sh --use_ops_fft
 
 ### 3.3 SoC 推导
 
-- 仅启用 Ascend910B/Ascend950 之一：跟随该目标。
-- 两者同时启用：按构建机架构选取（aarch64 → Ascend910B，x86_64 → Ascend950）。
+- 仅启用 Atlas A2系列产品/Ascend 950PR&950DT系列产品 之一：跟随该目标。
+- 两者同时启用：按构建机架构选取（aarch64 → Atlas A2系列产品，x86_64 → Ascend 950PR&950DT系列产品）。
 
 ## 4. 运行
 
@@ -92,7 +92,7 @@ bash build.sh --use_ops_fft
 
 多步 plan 须全部 step 适配才整体接入（如 2D 纵向分解的 `fft_stride`+`fft_b` 组合）；含 Transpose 的多步分解与 core-any 兜底路径不接入。
 
-**Ascend910B**——全部可达，全部逐位一致：
+**Atlas A2系列产品**——全部可达，全部逐位一致：
 
 | 命中条件 | 直调 kernel |
 | --- | --- |
@@ -107,7 +107,7 @@ bash build.sh --use_ops_fft
 | C2R：混合基，n > 1024 | `fft_c2r_1`~`3`（含 `_even`/`_odd`） |
 | 2D C2C 融合：{32,64,128}×{32,64,128} | `dd` |
 
-**Ascend950**：
+**Ascend 950PR&950DT系列产品**：
 
 | 命中条件 | 直调 kernel | 一致性 |
 | --- | --- | --- |
@@ -128,8 +128,8 @@ bash build.sh --use_ops_fft
 source <CANN 安装路径>/set_env.sh
 export ASDSIP_HOME_PATH=<SiP 安装路径>
 cd example/A2/FFT/ops_fft_ab
-bash build.sh            # Ascend910B：n=8192 命中 fft_b
-bash build.sh 15000 4    # Ascend950：混合基 n=15000 命中 arch35 mix
+bash build.sh            # Atlas A2系列产品：n=8192 命中 fft_b
+bash build.sh 15000 4    # Ascend 950PR&950DT系列产品：混合基 n=15000 命中 arch35 mix
 ```
 
 通过标准：输出 `[AB] 双后端输出逐位一致`，且日志出现 `run via ops-fft kernel ... success`。未命中路由或使用 internal-only 安装包时，样例在 ops-fft 阶段直接报错（严格语义）。

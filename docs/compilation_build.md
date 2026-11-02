@@ -58,8 +58,6 @@ SiP库支持多种Ascend芯片架构，通过`build_config.json`的`targets`字�
 ```json
 {
     "targets": {
-        "ascend310b": false,
-        "ascend310p": false,
         "ascend910b": true,
         "ascend950": true
     }
@@ -70,9 +68,7 @@ SiP库支持多种Ascend芯片架构，通过`build_config.json`的`targets`字�
 
 | 芯片架构 | 对应产品系列 |
 | --- | --- |
-| `ascend310b` | Atlas 200I/500 A2 推理卡 |
-| `ascend310p` | Atlas 300I 推理卡 |
-| `ascend910b` | Atlas A2 训练/推理服务器 |
+| `ascend910b` | Atlas A2训练/推理服务器 |
 | `ascend950` | Ascend 950PR/950DT |
 
 将需要编译的目标设置为`true`，不需要编译的目标设置为`false`。
