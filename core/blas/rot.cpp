@@ -34,7 +34,24 @@ AspbStatus asdBlasRotImpl(OpParam::Rot::RotType rotType, asdBlasHandle handle, R
     uint64_t rotStorageDimsNum = 0;
     CHECK_STATUS_WITH_ACL_RETURN(aclGetStorageShape(implParam.x, &storageDims, &rotStorageDimsNum),
                                  "asdBlasRotImpl: aclGetStorageShape");
-    if (*storageDims * COMPLEX_NUM != implParam.elementCount) {
+    // 先判空再解引用（issue #343）：0 维（标量）张量 dimsNum=0 且 dims 为空指针，
+    // 对齐 asdInterpWithCoeff/convolve 的 #245 口径，正常路径零改动
+    if (storageDims == nullptr || rotStorageDimsNum < 1) {
+        delete[] storageDims;
+        storageDims = nullptr;
+        ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH) << "asdBlasRotImpl get 0-dim tensor.";
+        return ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH;
+    }
+    if (*storageDims * COMPLEX_NUM !=
+        implParam.elementCount) { // 先判空再解引用（issue #343）：0 维（标量）张量 dimsNum=0 且 dims 为空指针，
+        // 对齐 asdInterpWithCoeff/convolve 的 #245 口径，正常路径零改动
+        if (storageDims == nullptr || rotStorageDimsNum < 1) {
+            delete[] storageDims;
+            storageDims = nullptr;
+            ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH) << "asdBlasRotImpl get 0-dim tensor.";
+            return ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH;
+        }
+
         delete[] storageDims;
         storageDims = nullptr;
         ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH) << "blas asdBlasRotImpl get wrong x tensor num.";
@@ -107,7 +124,10 @@ AspbStatus asdBlasCsrot(asdBlasHandle handle, const int64_t n, aclTensor* x, con
                   ErrorType::ACL_ERROR_INVALID_PARAM);
     ASDSIP_ECHECK(incy == 1, "blas asdBlasCsrot get incy != 1 (strided access not supported).",
                   ErrorType::ACL_ERROR_INVALID_PARAM);
-    ASDSIP_ECHECK(n > 0 && n <= UINT32_MAX, "blas asdBlasCsrot get n <= 0 or n > 2^32.",
+    // 上限收紧（issue #344）：tiling elementCount 字段为 int32 位宽，host 按 COMPLEX_NUM*n
+    // 下发，n > INT32_MAX/2 时 2n 溢出为负，内核静默空转、接口假成功；
+    // 对齐 sswap/cswap 的 uint32 上限语义
+    ASDSIP_ECHECK(n > 0 && n <= INT32_MAX / 2, "blas asdBlasCsrot get n <= 0 or n > INT32_MAX / 2.",
                   ErrorType::ACL_ERROR_INVALID_PARAM);
     float cosValue = c;
     float sinValue = s;

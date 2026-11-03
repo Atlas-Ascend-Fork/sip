@@ -35,6 +35,14 @@ AspbStatus asdBlasCalImpl(OpParam::Cal::CalType calType, asdBlasHandle handle, C
     uint64_t storageDimsNum = 0;
     CHECK_STATUS_WITH_ACL_RETURN(aclGetStorageShape(implParam.x, &storageDims, &storageDimsNum),
                                  "asdBlasCalImpl: aclGetStorageShape");
+    // 先判空再解引用（issue #343）：0 维（标量）张量 dimsNum=0 且 dims 为空指针，
+    // 对齐 asdInterpWithCoeff/convolve 的 #245 口径，正常路径零改动
+    if (storageDims == nullptr || storageDimsNum < 1) {
+        delete[] storageDims;
+        storageDims = nullptr;
+        ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH) << "asdBlasCalImpl get 0-dim tensor.";
+        return ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH;
+    }
     int64_t xSize = calType == OpParam::Cal::CalType::CAL_CSSCAL ? *storageDims * ELEMENTS_EACH_COMPLEX64 :
                                                                    *storageDims;
     if (xSize != implParam.n) {

@@ -42,6 +42,14 @@ AspbStatus asdBlasDotImpl(asdBlasHandle handle, DotImplParam implParam, int64_t 
         ASDSIP_LOG(ERROR) << "asdBlasDotImpl: aclGetStorageShape fail, aclError code is: " << aclRet;
         return ::ACL_ERROR_INTERNAL_ERROR;
     }
+    // 先判空再解引用（issue #343）：0 维（标量）张量 dimsNum=0 且 dims 为空指针，
+    // 对齐 asdInterpWithCoeff/convolve 的 #245 口径，正常路径零改动
+    if (storageDims == nullptr || dotStorageDimsNum < 1) {
+        delete[] storageDims;
+        storageDims = nullptr;
+        ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH) << "asdBlasDotImpl get 0-dim tensor.";
+        return ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH;
+    }
     checkSize = sdot == 1 ? *storageDims : *storageDims * ELEMENTS_EACH_COMPLEX64;
     if (checkSize != implParam.n) {
         delete[] storageDims;
@@ -58,6 +66,14 @@ AspbStatus asdBlasDotImpl(asdBlasHandle handle, DotImplParam implParam, int64_t 
         delete[] storageDims;
         ASDSIP_LOG(ERROR) << "asdBlasDotImpl: aclGetStorageShape fail, aclError code is: " << aclRet;
         return ::ACL_ERROR_INTERNAL_ERROR;
+    }
+    // 先判空再解引用（issue #343）：0 维（标量）张量 dimsNum=0 且 dims 为空指针，
+    // 对齐 asdInterpWithCoeff/convolve 的 #245 口径，正常路径零改动
+    if (storageDims == nullptr || dotStorageDimsNum < 1) {
+        delete[] storageDims;
+        storageDims = nullptr;
+        ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH) << "asdBlasDotImpl get 0-dim tensor.";
+        return ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH;
     }
     checkSize = sdot == 1 ? *storageDims : *storageDims * ELEMENTS_EACH_COMPLEX64;
     if (checkSize != implParam.n) {

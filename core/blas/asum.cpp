@@ -44,6 +44,14 @@ AspbStatus asdBlasSasumImpl(asdBlasHandle handle, const int64_t n, aclTensor* x,
 
     CHECK_STATUS_WITH_ACL_RETURN(aclGetStorageShape(x, &storageDims, &storageDimsNum),
                                  "asdBlasSasumImpl: aclGetStorageShape");
+    // 先判空再解引用（issue #343）：0 维（标量）张量 dimsNum=0 且 dims 为空指针，
+    // 对齐 asdInterpWithCoeff/convolve 的 #245 口径，正常路径零改动
+    if (storageDims == nullptr || storageDimsNum < 1) {
+        delete[] storageDims;
+        storageDims = nullptr;
+        ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH) << "asdBlasSasumImpl get 0-dim tensor.";
+        return ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH;
+    }
     int64_t xSize = scaSum == 0 ? *storageDims : *storageDims * ELEMENTS_EACH_COMPLEX64;
     if (xSize != n) {
         delete[] storageDims;
@@ -57,7 +65,15 @@ AspbStatus asdBlasSasumImpl(asdBlasHandle handle, const int64_t n, aclTensor* x,
 
     CHECK_STATUS_WITH_ACL_RETURN(aclGetStorageShape(result, &storageDims, &storageDimsNum),
                                  "asdBlasSasumImpl: aclGetStorageShape");
-    if (*storageDims != RESULT_SIZE) {
+    if (*storageDims != RESULT_SIZE) { // 先判空再解引用（issue #343）：0 维（标量）张量 dimsNum=0 且 dims 为空指针，
+        // 对齐 asdInterpWithCoeff/convolve 的 #245 口径，正常路径零改动
+        if (storageDims == nullptr || storageDimsNum < 1) {
+            delete[] storageDims;
+            storageDims = nullptr;
+            ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH) << "asdBlasSasumImpl get 0-dim tensor.";
+            return ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH;
+        }
+
         delete[] storageDims;
         storageDims = nullptr;
         ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_OUTPUT_NOT_MATCH) << "get wrong out tensor num.";

@@ -36,6 +36,14 @@ AspbStatus asdBlasSwapImpl(asdBlasHandle handle, SwapImplParam implParam, int64_
     int64_t checkSize = 0;
     CHECK_STATUS_WITH_ACL_RETURN(aclGetStorageShape(implParam.x, &storageDims, &swapStorageDimsNum),
                                  "asdBlasSwapImpl: aclGetStorageShape");
+    // 先判空再解引用（issue #343）：0 维（标量）张量 dimsNum=0 且 dims 为空指针，
+    // 对齐 asdInterpWithCoeff/convolve 的 #245 口径，正常路径零改动
+    if (storageDims == nullptr || swapStorageDimsNum < 1) {
+        delete[] storageDims;
+        storageDims = nullptr;
+        ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH) << "asdBlasSwapImpl get 0-dim tensor.";
+        return ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH;
+    }
     checkSize = cswap == 1 ? *storageDims * complexNum : *storageDims;
     if (checkSize != implParam.n) {
         delete[] storageDims;
@@ -50,6 +58,14 @@ AspbStatus asdBlasSwapImpl(asdBlasHandle handle, SwapImplParam implParam, int64_
     CHECK_STATUS_WITH_ACL_RETURN(aclGetStorageShape(implParam.y, &storageDims, &swapStorageDimsNum),
                                  "asdBlasSwapImpl: aclGetStorageShape");
     checkSize = cswap == 1 ? *storageDims * complexNum : *storageDims;
+    // 先判空再解引用（issue #343）：0 维（标量）张量 dimsNum=0 且 dims 为空指针，
+    // 对齐 asdInterpWithCoeff/convolve 的 #245 口径，正常路径零改动
+    if (storageDims == nullptr || swapStorageDimsNum < 1) {
+        delete[] storageDims;
+        storageDims = nullptr;
+        ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH) << "asdBlasSwapImpl get 0-dim tensor.";
+        return ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH;
+    }
     if (checkSize != implParam.n) {
         delete[] storageDims;
         storageDims = nullptr;
@@ -147,7 +163,8 @@ AspbStatus asdBlasMakeSwapPlan(asdBlasHandle handle)
         plan = new AsdSip::BlasSwapPlan();
         if (!BlasPlanCache::MakePlan(handle, plan)) {
             delete plan;
-            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM) << "blas handle already bound to a plan, repeated initialization is not allowed.";
+            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM)
+                << "blas handle already bound to a plan, repeated initialization is not allowed.";
             return ErrorType::ACL_ERROR_INVALID_PARAM;
         }
     } catch (const std::exception& e) {
