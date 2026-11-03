@@ -163,13 +163,13 @@ AspbStatus asdBlasStrmv(
     </tr>
     <tr>
       <td>A（aclTensor *）</td>
-      <td>输入/输出</td>
+      <td>输入</td>
       <td><ul><li>对应公式中的'A'。</li><li>数据类型支持FLOAT32。</li><li>数据格式支持ND。</li>
       <li>shape为[n，n]</li></ul></td>
     </tr>
     <tr>
       <td>x（aclTensor *）</td>
-      <td>输入</td>
+      <td>输入/输出</td>
       <td><ul><li>对应公式中的'x'。</li><li>数据类型支持FLOAT32。</li><li>数据格式支持ND。</li>
       <li>shape为[n]</li></ul></td>
     </tr>
