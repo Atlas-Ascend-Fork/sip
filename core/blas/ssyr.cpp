@@ -50,6 +50,17 @@ AspbStatus asdBlasSsyr(asdBlasHandle handle, asdBlasFillMode_t uplo, const int64
 
     ASDSIP_ECHECK(n > 0, "blas asdBlasSsyr get n <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
 
+    // 上界校验（issue #345）：:73 static_cast<uint32_t>(n)/(incx)，超 2^32-1 时
+    // 回绕为错误维度/步长下传内核
+    ASDSIP_ECHECK(n <= UINT32_MAX, "blas asdBlasSsyr get n > 2^32-1.", ErrorType::ACL_ERROR_INVALID_PARAM);
+    ASDSIP_ECHECK(incx <= UINT32_MAX, "blas asdBlasSsyr get incx > 2^32-1.", ErrorType::ACL_ERROR_INVALID_PARAM);
+
+    // 非法枚举显式拒绝（issue #345，对齐 cgemm 的 trans 校验口径）：原三目映射把
+    // 超出枚举域的 uplo 静默映射为 UPPER，按错误模式计算并返回成功
+    ASDSIP_ECHECK(
+        uplo == asdBlasFillMode_t::ASDBLAS_FILL_MODE_UPPER || uplo == asdBlasFillMode_t::ASDBLAS_FILL_MODE_LOWER,
+        "blas asdBlasSsyr get invalid uplo enum.", ErrorType::ACL_ERROR_INVALID_PARAM);
+
     // 负/零步长显式拒绝（issue #243）：内核不支持负步长遍历，原仅打日志后
     // static_cast<uint32_t>(incx) 将负值回绕为超大步长传入内核，产生非法寻址；
     // 对齐 ssyr2/asum 的 <=0 拦截口径

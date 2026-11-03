@@ -167,6 +167,43 @@ void RunSsyrTest(asdBlasFillMode_t uplo, const std::string& uploStr)
     std::cout << "compare result = " << res << std::endl;
     ASSERT_EQ(res, 0);
 }
+// issue #345：uplo 超出枚举域应返回 ACL_ERROR_INVALID_PARAM（原三目映射静默按
+// UPPER 计算）；incx 超 2^32-1 应被上界校验拒绝（原 static_cast<uint32_t> 回绕）
+TEST(TestBlasSsyrEnumGuard, RejectInvalidUploAndIncxBound)
+{
+    int deviceId = 0;
+    MkiRtStream stream = OpTestInit(deviceId);
+
+    const int64_t n = 4;
+    std::vector<float> xHost(n, 1.0f);
+    std::vector<float> aHost(n * n, 0.0f);
+    aclTensor* aclX = nullptr;
+    aclTensor* aclA = nullptr;
+    void* xAddr = nullptr;
+    void* aAddr = nullptr;
+    ASSERT_EQ(CreateAclTensor(xHost, std::vector<int64_t>{n}, &xAddr, aclDataType::ACL_FLOAT, &aclX), 0);
+    ASSERT_EQ(CreateAclTensor(aHost, std::vector<int64_t>{n, n}, &aAddr, aclDataType::ACL_FLOAT, &aclA), 0);
+
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeSsyrPlan(handle), AsdSip::ErrorType::ACL_SUCCESS);
+
+    EXPECT_EQ(asdBlasSsyr(handle, static_cast<asdBlasFillMode_t>(42), n, 1.0f, aclX, 1, aclA, n),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    EXPECT_EQ(asdBlasSsyr(handle, asdBlasFillMode_t::ASDBLAS_FILL_MODE_UPPER, n, 1.0f, aclX,
+                          static_cast<int64_t>(UINT32_MAX) + 1, aclA, n),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+
+    asdBlasDestroy(handle);
+    aclDestroyTensor(aclX);
+    aclDestroyTensor(aclA);
+    aclrtFree(xAddr);
+    aclrtFree(aAddr);
+
+    TensorContext context;
+    OpTestEnd(deviceId, context, stream);
+}
+
 } // namespace
 
 TEST(TestBlasSsyr, TestSsyrLower) { RunSsyrTest(asdBlasFillMode_t::ASDBLAS_FILL_MODE_LOWER, "lower"); }

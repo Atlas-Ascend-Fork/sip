@@ -148,6 +148,9 @@ add_library(test_src_cgemv_batched OBJECT ${TEST_SRC_CGEMV_BATCHED})
 aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/blas/negativedim TEST_SRC_BLAS_NEGATIVEDIM)
 add_library(test_src_blas_negativedim OBJECT ${TEST_SRC_BLAS_NEGATIVEDIM})
 
+aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/blas/ctrmv TEST_SRC_CTRMV)
+add_library(test_src_ctrmv OBJECT ${TEST_SRC_CTRMV})
+
 # aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/blas/cgemv TEST_SRC_CGEMV)
 # add_library(test_src_cgemv OBJECT ${TEST_SRC_CGEMV})
 
@@ -233,7 +236,9 @@ add_executable(ops_unittest
     # $<TARGET_OBJECTS:test_src_cswap>
     $<TARGET_OBJECTS:test_src_ssyr>
     $<TARGET_OBJECTS:test_src_cgemv_batched>
+    $<TARGET_OBJECTS:test_src_cgemv_batched>
     $<TARGET_OBJECTS:test_src_blas_negativedim>
+    $<TARGET_OBJECTS:test_src_ctrmv>
     $<TARGET_OBJECTS:test_src_cmatinv_batched>
     $<TARGET_OBJECTS:test_src_smatinv_batched>
     # $<TARGET_OBJECTS:test_src_cgemv>

@@ -70,7 +70,19 @@ AspbStatus asdBlasCtrmv(asdBlasHandle handle, asdBlasFillMode_t uplo, asdBlasOpe
         transLocal = 1;
     } else if (trans == asdBlasOperation_t::ASDBLAS_OP_C) {
         transLocal = TWO;
+    } else {
+        // 非法枚举显式拒绝（issue #345，对齐 cgemm 的 trans 校验口径）：原 transLocal=-1
+        // 透传 tiling，内核对非 1/2 回落 OP_N，静默按非转置计算并返回成功
+        ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM) << "blas asdBlasCtrmv get invalid trans enum.";
+        return ErrorType::ACL_ERROR_INVALID_PARAM;
     }
+
+    // 非法枚举显式拒绝（issue #345）：原三目映射把非法 uplo/diag 静默映射为 LOWER/UNIT
+    ASDSIP_ECHECK(
+        uplo == asdBlasFillMode_t::ASDBLAS_FILL_MODE_UPPER || uplo == asdBlasFillMode_t::ASDBLAS_FILL_MODE_LOWER,
+        "blas asdBlasCtrmv get invalid uplo enum.", ErrorType::ACL_ERROR_INVALID_PARAM);
+    ASDSIP_ECHECK(diag == asdBlasDiagType_t::ASDBLAS_DIAG_NON_UNIT || diag == asdBlasDiagType_t::ASDBLAS_DIAG_UNIT,
+                  "blas asdBlasCtrmv get invalid diag enum.", ErrorType::ACL_ERROR_INVALID_PARAM);
 
     int64_t uploLocal = (uplo == asdBlasFillMode_t::ASDBLAS_FILL_MODE_LOWER) ? 0 : 1;
     int64_t diagLocal = (diag == asdBlasDiagType_t::ASDBLAS_DIAG_NON_UNIT) ? 0 : 1;
@@ -118,7 +130,8 @@ AspbStatus asdBlasMakeCtrmvPlan(asdBlasHandle handle, asdBlasFillMode_t uplo, in
         plan = new AsdSip::BlasCtrmvPlan(uplo, n);
         if (!BlasPlanCache::MakePlan(handle, plan)) {
             delete plan;
-            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM) << "blas handle already bound to a plan, repeated initialization is not allowed.";
+            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM)
+                << "blas handle already bound to a plan, repeated initialization is not allowed.";
             return ErrorType::ACL_ERROR_INVALID_PARAM;
         }
     } catch (const std::exception& e) {

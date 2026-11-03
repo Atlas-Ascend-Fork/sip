@@ -69,4 +69,55 @@ TEST(TestBlasStrmmNegative, OutputShapeValidation)
     OpTestEnd(deviceId, context, stream);
 }
 
+// issue #345：side/uplo/trans 超出枚举域应返回 ACL_ERROR_INVALID_PARAM，
+// 不再经三目映射静默按 RIGHT/LOWER/转置计算
+TEST(TestBlasStrmmNegative, RejectInvalidSideEnum)
+{
+    int deviceId = 0;
+    MkiRtStream stream = OpTestInit(deviceId);
+
+    const int64_t m = 4;
+    const int64_t n = 4;
+    std::vector<float> aHost(m * m, 1.0f);
+    std::vector<float> bHost(m * n, 1.0f);
+    std::vector<float> cHost(m * n, 0.0f);
+    aclTensor* aclA = nullptr;
+    aclTensor* aclB = nullptr;
+    aclTensor* aclC = nullptr;
+    void* aAddr = nullptr;
+    void* bAddr = nullptr;
+    void* cAddr = nullptr;
+    ASSERT_EQ(CreateAclTensor(aHost, std::vector<int64_t>{m, m}, &aAddr, aclDataType::ACL_FLOAT, &aclA), 0);
+    ASSERT_EQ(CreateAclTensor(bHost, std::vector<int64_t>{m, n}, &bAddr, aclDataType::ACL_FLOAT, &aclB), 0);
+    ASSERT_EQ(CreateAclTensor(cHost, std::vector<int64_t>{m, n}, &cAddr, aclDataType::ACL_FLOAT, &aclC), 0);
+
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeStrmmPlan(handle), AsdSip::ErrorType::ACL_SUCCESS);
+
+    EXPECT_EQ(asdBlasStrmm(handle, static_cast<asdBlasSideMode_t>(42), asdBlasFillMode_t::ASDBLAS_FILL_MODE_LOWER,
+                           asdBlasOperation_t::ASDBLAS_OP_N, asdBlasDiagType_t::ASDBLAS_DIAG_NON_UNIT, m, n, 1.0f, aclA,
+                           m, aclB, n, aclC, n),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    EXPECT_EQ(asdBlasStrmm(handle, asdBlasSideMode_t::ASDBLAS_SIDE_LEFT, static_cast<asdBlasFillMode_t>(42),
+                           asdBlasOperation_t::ASDBLAS_OP_N, asdBlasDiagType_t::ASDBLAS_DIAG_NON_UNIT, m, n, 1.0f, aclA,
+                           m, aclB, n, aclC, n),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    EXPECT_EQ(asdBlasStrmm(handle, asdBlasSideMode_t::ASDBLAS_SIDE_LEFT, asdBlasFillMode_t::ASDBLAS_FILL_MODE_LOWER,
+                           static_cast<asdBlasOperation_t>(42), asdBlasDiagType_t::ASDBLAS_DIAG_NON_UNIT, m, n, 1.0f,
+                           aclA, m, aclB, n, aclC, n),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+
+    asdBlasDestroy(handle);
+    aclDestroyTensor(aclA);
+    aclDestroyTensor(aclB);
+    aclDestroyTensor(aclC);
+    aclrtFree(aAddr);
+    aclrtFree(bAddr);
+    aclrtFree(cAddr);
+
+    TensorContext context;
+    OpTestEnd(deviceId, context, stream);
+}
+
 } // namespace

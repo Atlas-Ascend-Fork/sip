@@ -62,6 +62,18 @@ AspbStatus asdBlasStrmm(asdBlasHandle handle, asdBlasSideMode_t side, asdBlasFil
     ASDSIP_ECHECK(diag == asdBlasDiagType_t::ASDBLAS_DIAG_NON_UNIT, "blas asdBlasStrmm get diag unit.",
                   ErrorType::ACL_ERROR_INVALID_PARAM);
 
+    // 非法枚举显式拒绝（issue #345，对齐 cgemm 的 trans 校验口径）：原三目映射把
+    // 超出枚举域的 side/uplo/trans 静默映射为 RIGHT/LOWER/转置，按错误模式计算
+    // 并返回成功
+    ASDSIP_ECHECK(side == asdBlasSideMode_t::ASDBLAS_SIDE_LEFT || side == asdBlasSideMode_t::ASDBLAS_SIDE_RIGHT,
+                  "blas asdBlasStrmm get invalid side enum.", ErrorType::ACL_ERROR_INVALID_PARAM);
+    ASDSIP_ECHECK(
+        uplo == asdBlasFillMode_t::ASDBLAS_FILL_MODE_UPPER || uplo == asdBlasFillMode_t::ASDBLAS_FILL_MODE_LOWER,
+        "blas asdBlasStrmm get invalid uplo enum.", ErrorType::ACL_ERROR_INVALID_PARAM);
+    ASDSIP_ECHECK(trans == asdBlasOperation_t::ASDBLAS_OP_N || trans == asdBlasOperation_t::ASDBLAS_OP_T ||
+                      trans == asdBlasOperation_t::ASDBLAS_OP_C,
+                  "blas asdBlasStrmm get invalid trans enum.", ErrorType::ACL_ERROR_INVALID_PARAM);
+
     if (lda <= 0) {
         ASDSIP_LOG(INFO) << "blas asdBlasStrmm get lda <= 0.";
     }
@@ -174,7 +186,8 @@ AspbStatus asdBlasMakeStrmmPlan(asdBlasHandle handle)
         plan = new AsdSip::BlasStrmmPlan();
         if (!BlasPlanCache::MakePlan(handle, plan)) {
             delete plan;
-            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM) << "blas handle already bound to a plan, repeated initialization is not allowed.";
+            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM)
+                << "blas handle already bound to a plan, repeated initialization is not allowed.";
             return ErrorType::ACL_ERROR_INVALID_PARAM;
         }
     } catch (const std::exception& e) {
