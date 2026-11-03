@@ -60,7 +60,6 @@ FFTensor* BuildFusedNTwiddleTensor()
     constexpr int32_t kR4T3 = 125;
     constexpr int32_t kTw3 = 100;
     constexpr int32_t kTw4 = 20;
-    constexpr int32_t kW5 = 25;
     constexpr int32_t kPerDir = 1040;
 
     float* host = new float[2 * kPerDir]();
