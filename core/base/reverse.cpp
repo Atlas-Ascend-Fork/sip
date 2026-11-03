@@ -39,6 +39,14 @@ AspbStatus Reverse(const Tensor& inTensor, Tensor& outTensor, SVector<int64_t> a
         return ErrorType::ACL_ERROR_INTERNAL_ERROR;
     }
     auto dims = aclCreateIntArray(axis.data(), axis.size());
+    if (dims == nullptr) {
+        // 判空防护（issue #347，对齐 unfold_grad.cpp 同型调用口径）：创建失败时空指针
+        // 下发 aclnnFlipGetWorkspaceSize 为未定义行为，且已创建的 tensor 泄漏
+        aclDestroyTensor(inAclTensor);
+        aclDestroyTensor(outAclTensor);
+        ASDSIP_LOG(ERROR) << "Fail to convert vector to aclArray.";
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
 
     auto ret = aclnnFlipGetWorkspaceSize(inAclTensor, dims, outAclTensor, &workspaceSize, &executor);
     if (ret != ::ACL_SUCCESS) {

@@ -192,13 +192,25 @@ AsdSip::AspbStatus ConjTiling(const LaunchParam &launchParam, KernelInfo &kernel
     if (maxCore == 0) {
         maxCore = 1;
     }
-    uint32_t size = static_cast<uint32_t>(launchParam.GetInTensor(0).Numel()) * 2;
+    // 元素数全程 int64 计算（issue #346）：先判空与上界，再窄化为 uint32，
+    // 避免 Numel>=2^31 时 uint32 域回绕与空张量 needCoreNum=0 的下溢
+    const int64_t numel = launchParam.GetInTensor(0).Numel();
+    ASDSIP_CHECK(numel > 0, "ConjTiling get empty tensor (Numel <= 0).",
+              return AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    const int64_t size64 = numel * 2;
+    ASDSIP_CHECK(size64 <= static_cast<int64_t>(UINT32_MAX),
+              "ConjTiling get tensor too large (2 * Numel > 2^32-1).",
+              return AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    uint32_t size = static_cast<uint32_t>(size64);
     uint32_t len = (size / maxCore + 7) / 8 * 8;
     uint32_t seqLenLowerBound = 64;
     if (len < seqLenLowerBound) {
         len = seqLenLowerBound;
     }
     uint32_t needCoreNum = (size + len - 1) / len;
+    if (needCoreNum == 0) {
+        needCoreNum = 1;
+    }
     uint32_t tail = size - len * (needCoreNum - 1);
 
     ConjTilingData *tilingDataPtr = reinterpret_cast<AsdSip::ConjTilingData *>(kernelInfo.GetTilingHostAddr());
