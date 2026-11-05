@@ -43,7 +43,8 @@ at::Tensor solve(const at::Tensor& A, const at::Tensor& B)
     auto sip_stream = c10_npu::getCurrentNPUStream().stream(false);
 
     size_t workspace_size = 0;
-    AsdSip::solveGetWorkspaceSize(workspace_size);
+    TORCH_CHECK(AsdSip::solveGetWorkspaceSize(workspace_size) == AsdSip::ErrorType::ACL_SUCCESS,
+                "solve: get workspace size failed.");
     at::Tensor workspace_tensor;
     void* workspace_addr = nullptr;
     if (workspace_size != 0) {
