@@ -65,7 +65,7 @@ static AspbStatus SolveShapeCheck(const aclTensor* a, const aclTensor* b, const 
     return ErrorType::ACL_SUCCESS;
 }
 
-// 外部 aclTensor 接口: 求解 A·X = B (fp32/ND, n∈[2,64], B 需为满 batch 形态)
+// 外部 aclTensor 接口: 求解 A·X = B (fp32/ND, n∈[2,256], B 需为满 batch 形态)
 AspbStatus solve(const aclTensor* a, const aclTensor* b, aclTensor* x, void* stream, void* workspace)
 {
     int64_t* aDims = nullptr;
