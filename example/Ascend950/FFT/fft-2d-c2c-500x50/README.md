@@ -110,3 +110,25 @@ bash run_perf.sh [device_id]   # aclrtEvent：10 预热 + 10 测量
 source <cann>/ascend-toolkit/set_env.sh
 msprof op build/fft_2d_c2c_500x50 500 -1 <device_id> data
 ```
+
+## 与 asdsip 库 2D C2C 实验路径的关系
+
+本工程是独立编译的内核样例，自身不读取任何环境变量。asdsip 加速库针对同一 500×50
+形状在库内提供的实验性计算路径由以下环境变量控制（**默认全部关闭**，开启后性能与
+数值行为可能与默认路径不同，仅供性能实验与问题定位使用）：
+
+| 环境变量 | 作用 | 取值 |
+|---|---|---|
+| `ASDSIP_DENSE_GEMM_PASS` | GEMM 短维 pass（短维 ≤64 时以稠密 DFT 矩阵 GEMM 替代短维变换 pass） | ≤0 关闭（默认）；>0 开启 |
+| `ASDSIP_FUSED_NPASS` | N 维融合 pass（长维 500、短维 [1,52] 生效） | ≤0 关闭（默认）；>0 开启 |
+| `ASDSIP_HYBRID_PASS` | 混合核（AIC GEMM→UB 瓦片 + AIV 融合 N 变换，替代 GEMM pass + 转置 + N pass；仅 500×50 生效，与 `ASDSIP_DENSE_GEMM_PASS` 同时开启时优先） | ≤0 关闭（默认）；>0 开启 |
+| `ASDSIP_HYBRID_DEBUG` | 混合核旁路诊断 | 0 关闭（默认）；1=AIC 旁路；2=AIV 旁路；3=双侧旁路 |
+
+使用方式（对链接 asdsip 库的 2D C2C 调用生效，详见
+`docs/zh/Installation_Operation_Guide/environment_variable.md`）：
+
+```bash
+export ASDSIP_HYBRID_PASS=1     # 开启混合核实验路径
+export ASDSIP_HYBRID_DEBUG=0    # 旁路诊断保持关闭
+# 关闭实验路径：unset ASDSIP_HYBRID_PASS ASDSIP_FUSED_NPASS ASDSIP_DENSE_GEMM_PASS
+```
