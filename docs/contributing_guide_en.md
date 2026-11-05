@@ -2,7 +2,7 @@
 
 ## Understand the Code of Conduct
 
-SiP is an open project under CANN. Before contributing, please review the [CANN Open Project Code of Conduct](./zh/context/code-of-conduct.md). All subsequent activities in the SiP project (including but not limited to posting comments, submitting issues, and posting wikis) must follow this code of conduct.
+SiP is an open project under CANN. Before contributing, please review the [CANN Open Project Code of Conduct](./en/context/code-of-conduct.md). All subsequent activities in the SiP project (including but not limited to posting comments, submitting issues, and posting wikis) must follow this code of conduct.
 
 ## Sign a CLA
 

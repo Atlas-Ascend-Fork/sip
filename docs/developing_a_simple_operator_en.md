@@ -122,7 +122,7 @@ AspbStatus Conj(const Tensor &inTensor, Tensor &outTensor, void *stream, uint8_t
 
 ## Environment Preparation
 
-For details on setting up the compilation and test environment, refer to [Environment Preparation](../README.md). After the environment is ready, you can start your SiP operator development journey.
+For details on setting up the compilation and test environment, refer to [Environment Preparation](../README_en.md). After the environment is ready, you can start your SiP operator development journey.
 
 ## SiP Operator Implementation
 

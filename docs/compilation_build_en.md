@@ -19,9 +19,9 @@ cd ${SiP_root_path}
 bash build.sh
 ```
 
-Note: SiP library compilation depends on ascend-boost-comm. Therefore, the compilation process involves two steps: ① pulling and compiling the ascend-boost-comm (Ascend Distributed Communication Acceleration Library) repository; ② compiling the SiP acceleration library. For more command introductions, refer to the [`README.md`](../README.md) and [`build.sh`](../build.sh) files in the main directory of the SiP repository.
+Note: SiP library compilation depends on ascend-boost-comm. Therefore, the compilation process involves two steps: ① pulling and compiling the ascend-boost-comm (Ascend Distributed Communication Acceleration Library) repository; ② compiling the SiP acceleration library. For more command introductions, refer to the [`README_en.md`](../README_en.md) and [`build.sh`](../build.sh) files in the main directory of the SiP repository.
 
-> For the complete dependency list, refer to the [`requirements.txt`](../requirements.txt) and the "Environment Setup" section in [`README.md`](../README.md) in the root directory.
+> For the complete dependency list, refer to the [`requirements.txt`](../requirements.txt) and the "Environment Setup" section in [`README_en.md`](../README_en.md) in the root directory.
 
 ### SiP Compilation Related Notes
 
