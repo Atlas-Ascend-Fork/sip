@@ -15,6 +15,7 @@
 #include <string>
 #include "test_common.h"
 #include "mki/utils/status/status.h"
+#include "mki/utils/platform/platform_info.h"
 #include "test_util/float_util.h"
 #include "test_util/util.cpp"
 #include "ops.h"
@@ -162,4 +163,40 @@ TEST(TestFftC2C2d, TestC2C2DForward500x50)
 TEST(TestFftC2C2d, TestC2C2DInverse500x50)
 {
     RunFftC2C2DTest(500, 50, 2, asdFftDirection::ASCEND_FFT_INVERSE, "_i500");
+}
+
+// ---- 负向校验（issue #352）：任一维长度为 1 的 2D C2C 不得进入 arch35 混合基核 ----
+// 该路径对长度为 1 的维分解出空 radix 表，stage 循环零迭代、输出缓冲不写入而 exec 仍返回
+// 成功；修复后在 plan 创建期显式拒绝。950 上断言拒绝；非 950 平台不走该分支，ordinary
+// 组合路径的 plan 创建保持可用（回归保护，实测 910B 创建成功）。
+
+void RunMakePlan2DSizeOneRejected(int64_t sizeX, int64_t sizeY)
+{
+    asdFftHandle handle;
+    ASSERT_EQ(asdFftCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(
+        asdFftMakePlan2D(handle, sizeX, sizeY, asdFftType::ASCEND_FFT_C2C, asdFftDirection::ASCEND_FFT_FORWARD, 1),
+        AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    asdFftDestroy(handle);
+}
+
+TEST(TestFftC2C2d, TestC2C2DSizeOneDimArch35Admission)
+{
+    int deviceId = 0;
+    MkiRtStream stream = OpTestInit(deviceId);
+
+    if (Mki::PlatformInfo::Instance().GetPlatformType() == Mki::PlatformType::ASCEND_950) {
+        RunMakePlan2DSizeOneRejected(1, 500);
+        RunMakePlan2DSizeOneRejected(500, 1);
+        RunMakePlan2DSizeOneRejected(1, 12);
+    } else {
+        asdFftHandle handle;
+        ASSERT_EQ(asdFftCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+        EXPECT_EQ(asdFftMakePlan2D(handle, 1, 500, asdFftType::ASCEND_FFT_C2C, asdFftDirection::ASCEND_FFT_FORWARD, 1),
+                  AsdSip::ErrorType::ACL_SUCCESS);
+        asdFftDestroy(handle);
+    }
+
+    TensorContext context;
+    OpTestEnd(deviceId, context, stream);
 }

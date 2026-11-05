@@ -21,7 +21,6 @@
 #include "../../../ops/fft/common/include/tiling/fft_all_mix_tiling_data.h"
 #include "fftcore/fft_c2c2d_arch35_core.h"
 #include "utils/fft_gemm_coeffs.h"
-#include "params/fft_c2c2d_arch35.h"
 
 constexpr double K_PI = 3.14159265358979323846;
 constexpr double K_2PI = K_PI * 2;
@@ -702,7 +701,8 @@ AspbStatus FftC2C2DCoreArch35::BuildFftPlan()
     if (useHybrid) {
         useGemmM = false; // 混合核替代 GEMM pass(W 换垫宽布局,核通道 mix)
     }
-    if (useFusedN) {
+    // useHybrid 直写 output、无 N pass，useFusedN 场景的 coeff 亦不再构建（issue #356）
+    if (useFusedN && !useHybrid) {
         // ex89 双向 twiddle 表(2080 浮点)双向共用,forward 键共享缓存
         AsdSip::CoeffKey twNfusedKey = {coreType, 220U, {fftN}, true};
         twNFused = FFTensorCache::getCoeff(twNfusedKey, []() { return BuildFusedNTwiddleTensor(); });
@@ -804,7 +804,9 @@ AspbStatus FftC2C2DCoreArch35::InitTactic()
 
         std::vector<uint8_t> hostLaunchBuffer(launchBufferSize);
         passKernel->SetTilingHostAddr(hostLaunchBuffer.data(), launchBufferSize);
-        passKernel->Init(passLaunchParam);
+        // Init 失败被吞后仍会发射内核（issue #352）：与同 lambda 既有 ECHECK 口径一致显式拦截
+        auto initStatus = passKernel->Init(passLaunchParam);
+        ASDSIP_ECHECK(initStatus.Ok(), "pass kernel init failed", AsdSip::ErrorType::ACL_ERROR_INTERNAL_ERROR);
 
         int32_t bufferCount = useMixed ? 1 : Log2PowerOfTwo(fftLen);
         FreeDeviceAddrs(tilingAddrs);
@@ -868,7 +870,8 @@ AspbStatus FftC2C2DCoreArch35::InitTactic()
 
         std::vector<uint8_t> hostLaunchBuffer(launchBufferSize);
         passKernel->SetTilingHostAddr(hostLaunchBuffer.data(), launchBufferSize);
-        passKernel->Init(passLaunchParam);
+        auto initStatus = passKernel->Init(passLaunchParam);
+        ASDSIP_ECHECK(initStatus.Ok(), "gemm kernel init failed", AsdSip::ErrorType::ACL_ERROR_INTERNAL_ERROR);
 
         FreeDeviceAddrs(tilingAddrs);
         void* tempDevicePtr = nullptr;
@@ -922,7 +925,8 @@ AspbStatus FftC2C2DCoreArch35::InitTactic()
 
         std::vector<uint8_t> hostLaunchBuffer(launchBufferSize);
         passKernel->SetTilingHostAddr(hostLaunchBuffer.data(), launchBufferSize);
-        passKernel->Init(passLaunchParam);
+        auto initStatus = passKernel->Init(passLaunchParam);
+        ASDSIP_ECHECK(initStatus.Ok(), "hybrid kernel init failed", AsdSip::ErrorType::ACL_ERROR_INTERNAL_ERROR);
 
         FreeDeviceAddrs(tilingAddrs);
         void* tempDevicePtr = nullptr;
@@ -970,7 +974,8 @@ AspbStatus FftC2C2DCoreArch35::InitTactic()
 
         std::vector<uint8_t> hostLaunchBuffer(launchBufferSize);
         passKernel->SetTilingHostAddr(hostLaunchBuffer.data(), launchBufferSize);
-        passKernel->Init(passLaunchParam);
+        auto initStatus = passKernel->Init(passLaunchParam);
+        ASDSIP_ECHECK(initStatus.Ok(), "trans kernel init failed", AsdSip::ErrorType::ACL_ERROR_INTERNAL_ERROR);
 
         FreeDeviceAddrs(tilingAddrs);
         void* tempDevicePtr = nullptr;
@@ -1021,7 +1026,8 @@ AspbStatus FftC2C2DCoreArch35::InitTactic()
 
         std::vector<uint8_t> hostLaunchBuffer(launchBufferSize);
         passKernel->SetTilingHostAddr(hostLaunchBuffer.data(), launchBufferSize);
-        passKernel->Init(passLaunchParam);
+        auto initStatus = passKernel->Init(passLaunchParam);
+        ASDSIP_ECHECK(initStatus.Ok(), "nfused kernel init failed", AsdSip::ErrorType::ACL_ERROR_INTERNAL_ERROR);
 
         FreeDeviceAddrs(tilingAddrs);
         void* tempDevicePtr = nullptr;
@@ -1037,24 +1043,40 @@ AspbStatus FftC2C2DCoreArch35::InitTactic()
         return AsdSip::ErrorType::ACL_SUCCESS;
     };
 
-    auto status = initPass(useMixedM, fftM, static_cast<int64_t>(problemDesc.batch) * fftN,
-                           static_cast<int64_t>(radixListMHost.size()), dftMatrixM, twMatrixM, radixListM, kernelM,
-                           tilingMDeviceAddrs);
-    if (status != AsdSip::ErrorType::ACL_SUCCESS) {
-        return status;
+    // 死初始化治理（issue #356）：按 Run 的实际发射分支初始化，useGemmM/useHybrid 生效时
+    // kernelM 不发射（Run 分支短路），不再为其分配设备 tiling 缓冲；该场景下 BuildFftPlan
+    // 的 dftMatrixM 是 GEMM 垫宽布局（键 216），与 kernelM 期望的 mixed DFT 布局（键 215）
+    // 不符，跳过初始化同时消除布局错配隐患
+    AspbStatus status = AsdSip::ErrorType::ACL_SUCCESS;
+    if (!useGemmM && !useHybrid) {
+        status = initPass(useMixedM, fftM, static_cast<int64_t>(problemDesc.batch) * fftN,
+                          static_cast<int64_t>(radixListMHost.size()), dftMatrixM, twMatrixM, radixListM, kernelM,
+                          tilingMDeviceAddrs);
+        if (status != AsdSip::ErrorType::ACL_SUCCESS) {
+            return status;
+        }
     }
 
-    status = initPass(useMixedN, fftN, static_cast<int64_t>(problemDesc.batch) * fftM,
-                      static_cast<int64_t>(radixListNHost.size()), dftMatrixN, twMatrixN, radixListN, kernelN,
-                      tilingNDeviceAddrs);
-    if (status != AsdSip::ErrorType::ACL_SUCCESS) {
-        return status;
+    // useHybrid 无 N pass、useFusedN 用 kernelNFused 替代 kernelN，两者生效时 kernelN 不发射
+    if (!useHybrid && !useFusedN) {
+        status = initPass(useMixedN, fftN, static_cast<int64_t>(problemDesc.batch) * fftM,
+                          static_cast<int64_t>(radixListNHost.size()), dftMatrixN, twMatrixN, radixListN, kernelN,
+                          tilingNDeviceAddrs);
+        if (status != AsdSip::ErrorType::ACL_SUCCESS) {
+            return status;
+        }
     }
 
     if (useGemmM || useHybrid) {
         if (useGemmM) {
             status = initGemm(fftM, static_cast<int64_t>(problemDesc.batch) * fftN, fftM * 2, dftMatrixM, kernelGemm,
                               tilingGemmDeviceAddrs);
+            if (status != AsdSip::ErrorType::ACL_SUCCESS) {
+                return status;
+            }
+            // 转置 pass 仅 GEMM 路径需要；混合核直写 output、无 TRANS，不再初始化 kernelTrans
+            status = initTrans(fftN, fftM, static_cast<int64_t>(problemDesc.batch), kernelTrans,
+                               tilingTransDeviceAddrs);
             if (status != AsdSip::ErrorType::ACL_SUCCESS) {
                 return status;
             }
@@ -1066,13 +1088,10 @@ AspbStatus FftC2C2DCoreArch35::InitTactic()
                 return status;
             }
         }
-        status = initTrans(fftN, fftM, static_cast<int64_t>(problemDesc.batch), kernelTrans, tilingTransDeviceAddrs);
-        if (status != AsdSip::ErrorType::ACL_SUCCESS) {
-            return status;
-        }
     }
 
-    if (useFusedN) {
+    // useHybrid 直写 output、N pass 一并省略，kernelNFused 同样不发射
+    if (useFusedN && !useHybrid) {
         status = initNFused(fftN, fftM, kernelNFused, tilingNFusedDeviceAddrs, twNFused);
         if (status != AsdSip::ErrorType::ACL_SUCCESS) {
             return status;

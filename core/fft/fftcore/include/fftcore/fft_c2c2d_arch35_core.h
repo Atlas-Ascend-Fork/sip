@@ -19,13 +19,12 @@
 
 class FftC2C2DCoreArch35 : public FFTCoreBase {
 public:
-    FftC2C2DCoreArch35(int64_t fftN, int64_t fftM, int64_t batch, AsdSip::asdFftType fftType, bool forward,
-                       int32_t mode)
+    // mode 死成员删除（issue #356）：构造入参从未被核内读取；RADIX2 分支静态不可达（issue #357）
+    FftC2C2DCoreArch35(int64_t fftN, int64_t fftM, int64_t batch, AsdSip::asdFftType fftType, bool forward)
         : FFTCoreBase(FFTCoreType::kFftC2C2DArch35, 1, static_cast<unsigned>(fftN), 1, static_cast<unsigned>(batch),
                       fftType, forward),
           fftN(fftN),
-          fftM(fftM),
-          mode(mode)
+          fftM(fftM)
     {}
     ~FftC2C2DCoreArch35() override { DestroyInDevice(); }
 
@@ -41,7 +40,6 @@ private:
 
     int64_t fftN;
     int64_t fftM;
-    int32_t mode;
     std::vector<int32_t> radixListNHost;
     std::vector<int32_t> radixListMHost;
     std::shared_ptr<AsdSip::FFTensor> radixListN;

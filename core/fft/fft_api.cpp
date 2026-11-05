@@ -44,7 +44,6 @@
 #include "params/fft_c2c_dispatch.h"
 #include "params/fft_c2c_regbase.h"
 #include "fftcore/fft_c2c2d_arch35_core.h"
-#include "params/fft_c2c2d_arch35.h"
 
 #include "fftcore/ops_fft_kernel_stub.h"
 
@@ -472,10 +471,8 @@ std::unique_ptr<FftOperation> InitFftOpPtr(std::optional<FFTCoreType> coreTypeOp
     return unique;
 }
 
-std::unique_ptr<FftOperation> InitFft2DOpPtr(
-    std::optional<FFTCoreType> coreTypeOpt, int64_t fftSizeX, int64_t fftSizeY, int64_t batchSize,
-    AsdSip::asdFftType fftType, bool forward, FFTPlan& plan,
-    int32_t arch35Mode = static_cast<int32_t>(OpParam::FftC2C2DArch35Mode::RADIX2))
+std::unique_ptr<FftOperation> InitFft2DOpPtr(std::optional<FFTCoreType> coreTypeOpt, int64_t fftSizeX, int64_t fftSizeY,
+                                             int64_t batchSize, AsdSip::asdFftType fftType, bool forward, FFTPlan& plan)
 {
     std::unique_ptr<FftOperation> unique(nullptr);
 
@@ -485,7 +482,9 @@ std::unique_ptr<FftOperation> InitFft2DOpPtr(
                 unique.reset(new DdCore(fftSizeX, fftSizeY, batchSize, fftType, forward));
                 break;
             case FFTCoreType::kFftC2C2DArch35:
-                unique.reset(new FftC2C2DCoreArch35(fftSizeX, fftSizeY, batchSize, fftType, forward, arch35Mode));
+                // mode 死成员删除（issue #356）：构造入参从未被核内读取，RADIX2 枚举分支
+                // 亦静态不可达（issue #357）
+                unique.reset(new FftC2C2DCoreArch35(fftSizeX, fftSizeY, batchSize, fftType, forward));
                 break;
             default:
                 break;
@@ -601,15 +600,12 @@ std::unique_ptr<FftOperation> GetCore2D(int64_t fftSizeX, int64_t fftSizeY, int 
                                         AsdSip::asdFftType fftType, bool forward, FFTPlan& plan)
 {
     if (Mki::PlatformInfo::Instance().GetPlatformType() == Mki::PlatformType::ASCEND_950) {
-        if (fftType == asdFftType::ASCEND_FFT_C2C && radixX == K_RADIX_2 && radixY == K_RADIX_2) {
-            return InitFft2DOpPtr(FFTCoreType::kFftC2C2DArch35, fftSizeX, fftSizeY, batchSize, fftType, forward, plan,
-                                  static_cast<int32_t>(OpParam::FftC2C2DArch35Mode::RADIX2));
-        }
+        // radix-2×radix-2 组合在 init2DSteps 已显式导流至 ordinary transpose/1D 组合路径，
+        // 不进入 addFFT2DStep（issue #357）：原 RADIX2 分支静态不可达，随 mode 死成员一并删除
         if (fftType == asdFftType::ASCEND_FFT_C2C &&
             Support(deDuplicates(orderedFactorize(fftSizeX)), RADIX_ARCH35_C2C_MIX) &&
             Support(deDuplicates(orderedFactorize(fftSizeY)), RADIX_ARCH35_C2C_MIX)) {
-            return InitFft2DOpPtr(FFTCoreType::kFftC2C2DArch35, fftSizeX, fftSizeY, batchSize, fftType, forward, plan,
-                                  static_cast<int32_t>(OpParam::FftC2C2DArch35Mode::MIXED_RADIX));
+            return InitFft2DOpPtr(FFTCoreType::kFftC2C2DArch35, fftSizeX, fftSizeY, batchSize, fftType, forward, plan);
         }
         if (fftType == asdFftType::ASCEND_FFT_C2C) {
             ASDSIP_LOG(ERROR) << "ASCEND_950 2D C2C arch35 unsupported factorization: fftSizeX=" << fftSizeX
@@ -802,8 +798,12 @@ void init2DSteps(FFTPlan& plan)
                 // Retain the dedicated mixed-radix implementation unchanged.
                 if (radixX == K_RADIX_2 && radixY == K_RADIX_2) {
                     // Continue into the ordinary transpose/1D composition below.
-                } else if (Support(deDuplicates(orderedFactorize(fftSizeX)), RADIX_ARCH35_C2C_MIX) &&
+                } else if (fftSizeX > 1 && fftSizeY > 1 &&
+                           Support(deDuplicates(orderedFactorize(fftSizeX)), RADIX_ARCH35_C2C_MIX) &&
                            Support(deDuplicates(orderedFactorize(fftSizeY)), RADIX_ARCH35_C2C_MIX)) {
+                    // 任一维长度为 1 时 orderedFactorize 得到空因子集、Support 对空集恒真，
+                    // 会让空 radix 表进入混合基核（stage 循环零迭代、输出缓冲不写入仍返回
+                    // 成功），准入侧显式拒绝（issue #352）
                     addFFT2DStep(plan, radixX, radixY);
                     break;
                 } else {
