@@ -7,6 +7,7 @@
  * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
  * See LICENSE in the root of the software repository for the full text of the License.
  */
+#include <limits>
 #include "mki/utils/status/status.h"
 #include "mki/utils/platform/platform_info.h"
 #include "mki/utils/SVector/SVector.h"
@@ -34,6 +35,12 @@ AsdSip::AspbStatus IfftShiftTiling(const LaunchParam& launchParam, KernelInfo& k
     ASDSIP_CHECK(param.col > 0, "IfftShift col must be positive", return AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
     ASDSIP_CHECK(param.batch > 0, "IfftShift batch must be positive",
                  return AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    // 乘法溢出防护（issue #354）：row*col / batch*row 回绕会使 sliceSize/dist 校验与
+    // totalRows 下发值失效，内核按未回绕尺寸寻址越界
+    ASDSIP_CHECK(param.row <= std::numeric_limits<int64_t>::max() / param.col, "IfftShift row * col overflows int64",
+                 return AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    ASDSIP_CHECK(param.batch <= std::numeric_limits<int64_t>::max() / param.row,
+                 "IfftShift batch * row overflows int64", return AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
     int64_t sliceSize = param.row * param.col;
     int64_t dist = (param.dist > 0) ? param.dist : sliceSize;
     ASDSIP_CHECK(dist >= sliceSize, "IfftShift dist must not be smaller than row * col",

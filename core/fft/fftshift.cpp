@@ -7,6 +7,7 @@
  * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
  * See LICENSE in the root of the software repository for the full text of the License.
  */
+#include <limits>
 #include <optional>
 #include "acl/acl.h"
 #include "aclnn/acl_meta.h"
@@ -35,7 +36,21 @@ AspbStatus FftShiftDtypeCheck(const aclTensor* inTensor, const aclTensor* outTen
 AspbStatus FftShiftShapeCheck(int64_t row, int64_t col, int64_t batch, int64_t dist, const aclTensor* inTensor,
                               const aclTensor* outTensor)
 {
+    constexpr int64_t kInt64Max = std::numeric_limits<int64_t>::max();
     int64_t sliceSize = row * col;
+    // 乘法溢出防护（issue #354）：row*col、(batch-1)*dist、batch*sliceSize 任一回绕都会让
+    // 下方张量元素数校验失效（requiredInNum/requiredOutNum 回绕为 0 或负数时恒通过），
+    // 内核按未回绕尺寸寻址将产生越界读写
+    if (dist > 0 && batch - 1 > (kInt64Max - sliceSize) / dist) {
+        ASDSIP_LOG(ERROR) << "asdFftShift (batch-1)*dist + row*col overflows int64. batch:" << batch
+                          << " , dist:" << dist << " , row:" << row << " , col:" << col;
+        return ErrorType::ACL_ERROR_INVALID_PARAM;
+    }
+    if (batch > kInt64Max / sliceSize) {
+        ASDSIP_LOG(ERROR) << "asdFftShift batch*row*col overflows int64. batch:" << batch << " , row:" << row
+                          << " , col:" << col;
+        return ErrorType::ACL_ERROR_INVALID_PARAM;
+    }
     int64_t requiredInNum = (batch - 1) * dist + sliceSize;
     int64_t requiredOutNum = batch * sliceSize;
 
@@ -74,6 +89,12 @@ AsdSip::AspbStatus AsdSip::asdFftShift(int64_t row, int64_t col, int64_t batch, 
     if (row <= 0 || col <= 0 || batch <= 0) {
         ASDSIP_LOG(ERROR) << "asdFftShift requires positive row/col/batch, got row:" << row << " , col:" << col
                           << " , batch:" << batch;
+        return ErrorType::ACL_ERROR_INVALID_PARAM;
+    }
+    // 乘法溢出防护（issue #354）：row=col=2^32 时 row*col 回绕为 0，sliceSize=0 使 dist
+    // 默认值与形状校验全部失效，内核按真实 row/col 寻址越界
+    if (row > std::numeric_limits<int64_t>::max() / col) {
+        ASDSIP_LOG(ERROR) << "asdFftShift row*col overflows int64, row:" << row << " , col:" << col;
         return ErrorType::ACL_ERROR_INVALID_PARAM;
     }
     int64_t sliceSize = row * col;
