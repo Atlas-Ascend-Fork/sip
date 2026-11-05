@@ -83,15 +83,22 @@ inline aclTensor* ConvertType(const at::Tensor& at_tensor)
         }
         scalarTensorHolder.push_back(CopyScalarToDevice(expScalar, scalar_data_type));
         const at::Tensor& aclInput = scalarTensorHolder.back();
-        return aclCreateTensor(aclInput.sizes().data(), aclInput.sizes().size(), acl_data_type,
-                               aclInput.strides().data(), aclInput.storage_offset(), format, storageDims.data(),
-                               storageDims.size(), const_cast<void*>(aclInput.storage().data()));
+        aclTensor* scalar_acl_tensor = aclCreateTensor(aclInput.sizes().data(), aclInput.sizes().size(), acl_data_type,
+                                                       aclInput.strides().data(), aclInput.storage_offset(), format,
+                                                       storageDims.data(), storageDims.size(),
+                                                       const_cast<void*>(aclInput.storage().data()));
+        // 空指针检查（issue #353）：aclCreateTensor 入参非法或内部资源异常时返回 nullptr，
+        // 原实现不判空即返回，空指针作为算子入参下传会掩盖真实报错原因甚至空指针解引用
+        TORCH_CHECK(scalar_acl_tensor != nullptr,
+                    "aclCreateTensor failed for wrapped number, detail:", aclGetRecentErrMsg());
+        return scalar_acl_tensor;
     }
 
-    auto acl_tensor = aclCreateTensor(at_tensor.sizes().data(), at_tensor.sizes().size(), acl_data_type,
-                                      at_tensor.strides().data(), at_tensor.storage_offset(), format,
-                                      storageDims.data(), storageDims.size(),
-                                      const_cast<void*>(at_tensor.storage().data()));
+    aclTensor* acl_tensor = aclCreateTensor(at_tensor.sizes().data(), at_tensor.sizes().size(), acl_data_type,
+                                            at_tensor.strides().data(), at_tensor.storage_offset(), format,
+                                            storageDims.data(), storageDims.size(),
+                                            const_cast<void*>(at_tensor.storage().data()));
+    TORCH_CHECK(acl_tensor != nullptr, "aclCreateTensor failed, detail:", aclGetRecentErrMsg());
     return acl_tensor;
 }
 
@@ -367,6 +374,9 @@ inline aclTensor* CreateAclTensorFromAtTensor(const at::Tensor& at_tensor)
                                             dim_num,   // 8. Storage Dim Num
                                             device_ptr // 9. Data Addr
     );
+    // 空指针检查（issue #353）：aclCreateTensor 入参非法或内部资源异常时返回 nullptr，
+    // 原实现不判空即返回，约 32 处调用点拿到空指针后继续作为算子入参下传
+    TORCH_CHECK(tensor != nullptr, "aclCreateTensor failed, detail:", aclGetRecentErrMsg());
 
     return tensor;
 }
