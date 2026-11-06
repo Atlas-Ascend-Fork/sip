@@ -31,36 +31,36 @@ function get_valid_pr_dir()
 {
     log_info "Getting PR changed file list..."
 
-    if ! command -v git &> /dev/null; then
-        log_fail "git not available"
+    # CI（arm_pre_smoke）会把 PR 变更清单下载到仓库根目录 pr_filelist.txt。选例只以该
+    # 清单为准：旧实现对比 origin/<当前分支> 与工作区，开发者已提交并推送 PR 分支、
+    # 工作区干净时两者指向同一提交，diff 恒为空，即使 PR 相对目标分支改动了算子也会
+    # 被误判为无改动而静默漏测（issue #334）。
+    # 清单不存在/不可读/为空时回退全量测试，避免静默跳过；仅 Markdown 变更保留跳过行为。
+    local list_file="$CODE_ROOT/pr_filelist.txt"
+    local file_list=""
+
+    if [ ! -e "$list_file" ]; then
+        log_warn "PR file list not found: $list_file, fall back to full smoke test"
         VALID_TEST_DIRS=("base" "blas" "fft" "domain" "filter" "interpolation")
         return
     fi
 
-    cd $CODE_ROOT
-
-    current_branch=$(git branch --show-current 2>/dev/null || echo "unknown")
-    log_info "Current branch: $current_branch"
-
-    # 直接调用并引用分支名参数，命令不做二次 shell 解析（与 oat_check.sh 的参数化改造同口径）
-    diff_output=$(git diff --no-commit-id --name-only "origin/${current_branch}" 2>&1)
-
-    if [ $? -ne 0 ]; then
-        log_fail "git diff failed: $diff_output"
+    if [ ! -r "$list_file" ]; then
+        log_warn "PR file list not readable: $list_file, fall back to full smoke test"
         VALID_TEST_DIRS=("base" "blas" "fft" "domain" "filter" "interpolation")
-        cd - > /dev/null
         return
     fi
 
-    if [ -z "$diff_output" ]; then
-        log_info "No file changes"
-        VALID_TEST_DIRS=()
-        cd - > /dev/null
+    # 剥离 CI 产出清单可能携带的行尾 CR 后逐行解析，空行跳过
+    file_list=$(tr -d '\r' < "$list_file")
+    if [ -z "$(printf '%s' "$file_list" | tr -d '[:space:]')" ]; then
+        log_warn "PR file list is empty: $list_file, fall back to full smoke test"
+        VALID_TEST_DIRS=("base" "blas" "fft" "domain" "filter" "interpolation")
         return
     fi
 
-    log_info "Detected $(echo "$diff_output" | wc -l) changed files"
-    echo "$diff_output"
+    log_info "Using PR file list: $list_file"
+    echo "$file_list"
 
     VALID_TEST_DIRS=()
 
@@ -92,11 +92,10 @@ function get_valid_pr_dir()
             *)
                 log_info "Unknown file type: $f"
                 VALID_TEST_DIRS=("base" "blas" "fft" "domain" "filter" "interpolation")
-                cd - > /dev/null
                 return
                 ;;
         esac
-    done <<< "$(echo "$diff_output" | xargs -n1)"
+    done <<< "$file_list"
 
     if [ ${#VALID_TEST_DIRS[@]} -eq 0 ]; then
         log_info "Only documentation changed, skipping tests"
@@ -105,8 +104,6 @@ function get_valid_pr_dir()
         VALID_TEST_DIRS=($(printf "%s\n" "${VALID_TEST_DIRS[@]}" | sort -u))
         log_info "Test directories: ${VALID_TEST_DIRS[*]}"
     fi
-
-    cd - > /dev/null
 }
 
 function fn_example_prepare()
