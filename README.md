@@ -64,36 +64,17 @@ bash install_deps.sh
 pip3 install -r requirements.txt
 ```
 
-#### 3.1.2  安装社区版CANN toolkit包
+#### 3.1.2 安装软件
 
-- Atlas A2/A3系列产品：单击[下载链接](https://ascend.devcloud.huaweicloud.com/artifactory/cann-run-mirror/software/master/)获取软件包，选择最新时间版本，并根据产品型号和环境架构下载对应包。
+- **场景1：基于CANN weekly版本体验最新master能力或开发**
 
-```bash
-# 确保安装包具有可执行权限
-chmod +x Ascend-cann-toolkit_${cann_version}_linux-${arch}.run
-# 安装命令
-./Ascend-cann-toolkit_${cann_version}_linux-${arch}.run --install --force --install-path=${install_path}
-```
+    请参考《[CANN快速安装](https://www.hiascend.com/cann/download?versionId=794&ids=d803%2Ch0501%2Ch0601%2Ch0703&currentTab=1)》，选择`Weekly版本`，并根据产品系列、CPU架构、操作系统等下载对应包，最后参考页面提供的命令完成安装。
 
-- \$\{cann\_version\}：表示CANN包版本号。
-- \$\{arch\}：表示CPU架构，如aarch64、x86_64。
-- \$\{install\_path\}：表示指定安装路径，默认安装在`/usr/local/Ascend`目录。
+- **场景2：基于CANN 稳定版本体验分支能力或开发**
 
-#### 3.1.3  安装社区版CANN ops包
+    请参考《[CANN快速安装](https://www.hiascend.com/cann/download)》，选择`稳定版本`（仅支持CANN 8.5.0及后续版本），并根据产品系列、CPU架构、操作系统等下载对应包，最后参考页面提供的命令完成安装。
 
-- Atlas A2/A3系列产品：单击[下载链接](https://ascend.devcloud.huaweicloud.com/artifactory/cann-run-mirror/software/master/)获取软件包，选择最新时间版本，并根据产品型号和环境架构下载对应包。
-
-```bash
-# 确保安装包具有可执行权限
-chmod +x Ascend-cann-${soc_name}-ops_${cann_version}_linux-${arch}.run
-# 安装命令
-./Ascend-cann-${soc_name}-ops_${cann_version}_linux-${arch}.run --install --install-path=${install_path}
-```
-
-- \$\{soc\_name\}：表示NPU型号名称，即\$\{soc\_version\}删除“ascend”后剩余的内容。
-- \$\{install\_path\}：表示指定安装路径，需要与toolkit包安装在相同路径，默认安装在`/usr/local/Ascend`目录。
-
-#### 3.1.4  环境变量配置
+#### 3.1.3  环境变量配置
 
 ```bash
 # 默认路径安装，以root用户为例（非root用户，将/usr/local替换为${HOME}）
@@ -102,7 +83,7 @@ source /usr/local/Ascend/cann/set_env.sh
 # source ${install_path}/cann/set_env.sh
 ```
 
-#### 3.1.5  基础工具版本要求与安装
+#### 3.1.4  基础工具版本要求与安装
 
 安装CANN之后，您可安装一些工具方便后续开发，参见以下内容：
 
