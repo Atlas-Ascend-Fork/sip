@@ -223,8 +223,14 @@ install_cmake() {
     case "$OS" in
         debian)
             if grep -q "Ubuntu 18.04" /etc/os-release; then
-                run_command wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | gpg --dearmor - | sudo tee /usr/share/keyrings/kitware-archive-keyring.gpg >/dev/null
-                run_command echo 'deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ bionic main' | sudo tee /etc/apt/sources.list.d/kitware.list >/dev/null
+                # 管道首段必须直接执行：run_command 会把首段 stdout 捕获进变量、其执行
+                # 日志写入 stdout（直接进入管道），导致 gpg/tee 收到日志而非密钥与 deb
+                # 行（issue #332）；脚本开头的 set -euo pipefail 保证任一管道阶段失败时
+                # 以非零状态终止安装
+                echo "Executing command: wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc | gpg --dearmor - | sudo tee /usr/share/keyrings/kitware-archive-keyring.gpg"
+                wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | gpg --dearmor - | sudo tee /usr/share/keyrings/kitware-archive-keyring.gpg > /dev/null
+                echo "Executing command: echo <kitware-archive deb line> | sudo tee /etc/apt/sources.list.d/kitware.list"
+                echo 'deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ bionic main' | sudo tee /etc/apt/sources.list.d/kitware.list > /dev/null
                 run_command sudo apt update
                 run_command sudo apt install -y cmake make
             else
