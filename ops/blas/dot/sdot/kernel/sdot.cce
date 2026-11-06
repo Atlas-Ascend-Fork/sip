@@ -182,8 +182,11 @@ __aicore__ __inline__ __attribute__((always_inline)) void sdot_process_aiv(
     PIPE_BARRIER(ALL);
 
     // sync all cores
-    FftsCrossCoreSync<PIPE_MTE3, 0>(0);
-    WaitFlagDev(0);
+    // 归约轮 barrier 必须与入口清零轮（flag 0）隔离：FTTS counter 累计不清零，
+    // 复用 flag 0 时快核第二轮 set 使 counter 提前达标，误放行尚未完成部分和
+    // 写入的核，core 0 回读到未初始化 HBM 垃圾（inf 位型）→ 偶发 inf/nan
+    FftsCrossCoreSync<PIPE_MTE3, 0>(1);
+    WaitFlagDev(1);
 
     if (core_idx == 0) {
         // sum all results
