@@ -15,14 +15,14 @@ import sys
 import traceback
 
 import torch
-import torch_npu
+import torch_npu  # noqa: F401  (side-effect: registers the npu device)
 import torch_sip
 
 # 配置全局日志 (G.LOG.02 规范)
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("torch_sip_test")
 
@@ -37,8 +37,12 @@ def run_test_case(shape, name="Test Case"):
 
     # 1. 创建数据
     x = torch.randn(*shape, dtype=torch.complex64).npu()
-    logger.info("Input: shape=%s, dtype=%s, is_contiguous=%s",
-                x.shape, x.dtype, x.is_contiguous())
+    logger.info(
+        "Input: shape=%s, dtype=%s, is_contiguous=%s",
+        x.shape,
+        x.dtype,
+        x.is_contiguous(),
+    )
 
     # 2. 预期结果 (使用 PyTorch 自带的 transpose)
     expected = x.transpose(-1, -2)
@@ -51,7 +55,9 @@ def run_test_case(shape, name="Test Case"):
 
         # 4. 验证维度
         if result.shape != expected.shape:
-            logger.error("✗ Shape mismatch: got %s, expect %s", result.shape, expected.shape)
+            logger.error(
+                "✗ Shape mismatch: got %s, expect %s", result.shape, expected.shape
+            )
             return False
 
         # 5. 数值比对 (转回 CPU 比较)
@@ -82,10 +88,19 @@ def test_boundary_cases():
     logger.info("\n--- Testing Boundary Case: 1D Tensor ---")
     try:
         x = torch.randn(5).npu()
-        torch_sip.swap_last_2_axes(x)
+        # API 名为 swap_last2_axes（torch_sip/__init__.py 与 C++ 注册名一致）；
+        # 原用例误写 swap_last_2_axes 抛 AttributeError 被宽泛 except 吞掉，
+        # 1D 负向校验从未真实执行（issue #370）
+        torch_sip.swap_last2_axes(x)
         logger.error("✗ Failed: Should have raised error for 1D input.")
         return False
-    except Exception as exc:
+    except RuntimeError as exc:
+        # 算子侧 1D 维度校验以 RuntimeError（TORCH_CHECK）抛出；断言收紧为校验
+        # 异常消息含维度提示，避免 API 名错误（AttributeError）等无关异常被
+        # 误判为通过
+        if "at least 2 dimensions" not in str(exc):
+            logger.error("✗ Unexpected error content: %s", exc)
+            return False
         logger.info("✓ Caught expected error: %s", exc)
         return True
 
