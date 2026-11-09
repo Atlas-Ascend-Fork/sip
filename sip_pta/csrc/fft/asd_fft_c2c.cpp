@@ -21,6 +21,9 @@ at::Tensor asdFftC2C(const at::Tensor& in, bool isForward)
 {
     c10_npu::NPUGuard guard(in.device());
 
+    // dtype 校验与同族 asd_fft_shift 口径对齐（issue #371）：C2C 契约为 complex64，
+    // 错误 dtype 不再下传 plan 与内核调用链
+    TORCH_CHECK(in.scalar_type() == at::kComplexFloat, "asd_fft_c2c: input must be complex64, got ", in.scalar_type());
     at::Tensor input = in.is_contiguous() ? in : in.contiguous();
     at::Tensor output = at::empty_like(input);
     auto selfShape = input.sizes();
@@ -54,9 +57,6 @@ at::Tensor asdFftC2C(const at::Tensor& in, bool isForward)
 }
 
 // 2. 算子注册 (Fragment)
-TORCH_LIBRARY_FRAGMENT(torch_sip, m)
-{
-    m.def("asd_fft_c2c(Tensor input, bool is_forward) -> Tensor", &asdFftC2C);
-}
+TORCH_LIBRARY_FRAGMENT(torch_sip, m) { m.def("asd_fft_c2c(Tensor input, bool is_forward) -> Tensor", &asdFftC2C); }
 TORCH_LIBRARY_IMPL(torch_sip, PrivateUse1, m) { m.impl("asd_fft_c2c", &asdFftC2C); }
 } // namespace sip_pta

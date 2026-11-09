@@ -18,14 +18,13 @@ from dataclasses import dataclass
 from typing import Tuple
 
 import torch
-import torch_npu
 import torch_sip
 
 # 配置全局日志 (G.LOG.02)
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("torch_sip_fft_test")
 
@@ -33,6 +32,7 @@ logger = logging.getLogger("torch_sip_fft_test")
 @dataclass(frozen=True)
 class FftConfig:
     """参数对象：封装 FFT 测试的形状、方向及变换维度"""
+
     shape: Tuple[int, ...]
     is_forward: bool = True
     transform_dims: int = 1
@@ -49,12 +49,34 @@ class FftTester:
 
     @staticmethod
     def get_complex_data(shape: Tuple[int, ...], device: str) -> torch.Tensor:
-        """构造 NPU 兼容的复数数据"""
+        """生成 NPU 数据的复数张量"""
         real = torch.randn(shape, dtype=torch.float32, device=device)
         imag = torch.randn(shape, dtype=torch.float32, device=device)
         return torch.complex(real, imag)
 
-    def validate(self, cfg: FftConfig, npu_out: torch.Tensor, ref_out: torch.Tensor) -> bool:
+    def run_dtype_negative_case(self) -> bool:
+        """错误 dtype 负向用例（issue #371）：C2C 契约 complex64，
+        float32/int 等错误 dtype 应在绑定层立即报错而非下传"""
+        self.total_tests += 1
+        for name, x in (
+            ("float32", torch.randn(4, 8, dtype=torch.float32, device=self.device)),
+            ("int32", torch.zeros(4, 8, dtype=torch.int32, device=self.device)),
+        ):
+            try:
+                torch_sip.asd_fft_c2c(x, True)
+                logger.error("  - %s: FAILED | wrong-dtype input was accepted", name)
+                return False
+            except RuntimeError as exc:
+                if "complex64" not in str(exc):
+                    logger.error("  - %s: FAILED | unexpected error: %s", name, exc)
+                    return False
+            logger.info("  - dtype negative (%s): PASSED", name)
+        self.passed_tests += 1
+        return True
+
+    def validate(
+        self, cfg: FftConfig, npu_out: torch.Tensor, ref_out: torch.Tensor
+    ) -> bool:
         """
         统一校验逻辑 (遵循 G.FNM.07: 处理同步异常与返回值)
         """
@@ -87,7 +109,9 @@ class FftTester:
 
         except RuntimeError as e:
             # 捕获 NPU 异步执行抛出的错误
-            logger.error("  ⚠ %s: EXCEPTION | Validation failed during sync: %s", cfg.name, e)
+            logger.error(
+                "  ⚠ %s: EXCEPTION | Validation failed during sync: %s", cfg.name, e
+            )
             return False
         except Exception as e:
             logger.error("  ⚠ %s: UNKNOWN ERROR | %s", cfg.name, e)
@@ -102,7 +126,7 @@ class FftTester:
             x_cpu = x_npu.cpu()
         except Exception as e:
             logger.error("[%s] Data initialization failed: %s", cfg.name, e)
-            self.total_tests += 1 # 计入总数但标记为未通过
+            self.total_tests += 1  # 计入总数但标记为未通过
             return
 
         # 2. 计算参考值
@@ -155,13 +179,23 @@ def main():
     for case in test_cases:
         tester.run_test_c2c(case)
 
+    # 错误 dtype 负向用例（issue #371）
+    if not tester.run_dtype_negative_case():
+        logger.error("dtype negative case failed")
+
     # 总结报告
-    logger.info("\n" + "="*50)
-    logger.info("Final Report: %d/%d Tests Passed", tester.passed_tests, tester.total_tests)
-    logger.info("="*50)
+    logger.info("\n" + "=" * 50)
+    logger.info(
+        "Final Report: %d/%d Tests Passed", tester.passed_tests, tester.total_tests
+    )
+    logger.info("=" * 50)
 
     # 遵循 G.FNM.07，确保脚本返回值反映测试结果
-    return 0 if (tester.passed_tests == tester.total_tests and tester.total_tests > 0) else 1
+    return (
+        0
+        if (tester.passed_tests == tester.total_tests and tester.total_tests > 0)
+        else 1
+    )
 
 
 if __name__ == "__main__":

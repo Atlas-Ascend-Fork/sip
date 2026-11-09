@@ -19,10 +19,15 @@ namespace sip_pta {
 // -----------------------------------------------------------------------------------
 // 实部虚部分离版 C2C FFT (支持 1D/2D/3D)
 // -----------------------------------------------------------------------------------
-std::tuple<at::Tensor, at::Tensor> asdFftC2CSep(const at::Tensor& in_real,
-                                                const at::Tensor& in_imag, bool isForward)
+std::tuple<at::Tensor, at::Tensor> asdFftC2CSep(const at::Tensor& in_real, const at::Tensor& in_imag, bool isForward)
 {
     c10_npu::NPUGuard guard(in_real.device());
+
+    // dtype 校验与同族入口口径对齐（issue #371）：分离实虚部契约为 float32，
+    // 错误 dtype 不再下传 plan 与内核调用链
+    TORCH_CHECK(in_real.scalar_type() == at::kFloat && in_imag.scalar_type() == at::kFloat,
+                "asd_fft_c2c_sep: input real/imag must be float32, got ", in_real.scalar_type(), "/",
+                in_imag.scalar_type());
 
     // 1. 连续性检查
     at::Tensor input_real = in_real.is_contiguous() ? in_real : in_real.contiguous();
@@ -36,10 +41,8 @@ std::tuple<at::Tensor, at::Tensor> asdFftC2CSep(const at::Tensor& in_real,
     int64_t dim = selfShape.size();
 
     // 3. 维度校验2 或 4
-    TORCH_CHECK(dim == 2 || dim == 4,
-                "Separated FFT support 2 or 4 dimensions (including Batch), but got ", dim);
-    TORCH_CHECK(input_real.sizes() == input_imag.sizes(),
-                "Real and Imaginary tensors must have the same shape");
+    TORCH_CHECK(dim == 2 || dim == 4, "Separated FFT support 2 or 4 dimensions (including Batch), but got ", dim);
+    TORCH_CHECK(input_real.sizes() == input_imag.sizes(), "Real and Imaginary tensors must have the same shape");
 
     op_api::FFTParam param;
 
@@ -62,8 +65,7 @@ std::tuple<at::Tensor, at::Tensor> asdFftC2CSep(const at::Tensor& in_real,
         param.fftYSize = selfShape[sip_pta::DIM_2];
         param.fftZSize = selfShape[sip_pta::DIM_3];
     }
-    EXEC_FFT_FUNC(AsdSip::asdFftExecC2CSeparated, param, input_real, input_imag, output_real,
-                  output_imag);
+    EXEC_FFT_FUNC(AsdSip::asdFftExecC2CSeparated, param, input_real, input_imag, output_real, output_imag);
     return {output_real, output_imag};
 }
 
@@ -73,8 +75,7 @@ std::tuple<at::Tensor, at::Tensor> asdFftC2CSep(const at::Tensor& in_real,
 TORCH_LIBRARY_FRAGMENT(torch_sip, m)
 {
     // 定义接口：输入两个 Tensor，返回两个 Tensor 的列表
-    m.def("asd_fft_c2c_sep(Tensor in_real, Tensor in_imag, bool is_forward) -> (Tensor, Tensor)",
-          &asdFftC2CSep);
+    m.def("asd_fft_c2c_sep(Tensor in_real, Tensor in_imag, bool is_forward) -> (Tensor, Tensor)", &asdFftC2CSep);
 }
 
 TORCH_LIBRARY_IMPL(torch_sip, PrivateUse1, m) { m.impl("asd_fft_c2c_sep", &asdFftC2CSep); }
