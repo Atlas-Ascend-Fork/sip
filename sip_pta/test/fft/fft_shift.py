@@ -114,6 +114,19 @@ def test_fft_shift():
         all_passed = False
     logger.info("  [%s] auto-infer 3D [4, 33, 67]", status)
 
+    # 连续切片视图（storage_offset != 0）输入用例（issue #368）：显式模式按扁平
+    # 连续内存解包，切片视图基址应以 data_ptr() 为准；结果应与整块物化后切片
+    # 一致（bit 级）
+    big_flat = randn_complex((160,), device)
+    slice_view = big_flat[80:120]  # 连续视图，storage_offset = 80
+    y_slice = torch_sip.fft_shift(slice_view, 4, 5, 2, 0)
+    y_ref = torch_sip.fft_shift(slice_view.contiguous().clone(), 4, 5, 2, 0)
+    if np.array_equal(y_slice.cpu().numpy(), y_ref.cpu().numpy()):
+        logger.info("  [PASS] slice-view explicit fft_shift (bit-exact)")
+    else:
+        logger.error("  [FAIL] slice-view explicit fft_shift mismatch")
+        all_passed = False
+
     logger.info("=" * 50)
     logger.info(
         "fft_shift torch API: %s", "ALL PASSED" if all_passed else "SOME FAILED"

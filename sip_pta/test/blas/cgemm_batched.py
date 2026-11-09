@@ -13,18 +13,18 @@ See LICENSE in the root of the software repository for the full text of the Lice
 import logging
 import os
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Tuple, Optional, Dict, Any
 
 import torch
-import torch_npu
+import torch_npu  # noqa: F401  (side-effect: registers the npu device)
 import torch_sip
 
 # 配置全局日志 (G.LOG.02)
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("torch_sip_batched_gemm")
 
@@ -32,24 +32,25 @@ logger = logging.getLogger("torch_sip_batched_gemm")
 @dataclass(frozen=True)
 class BatchedGemmConfig:
     """参数对象：封装 Batched GEMM 的所有维度、模式及类型配置"""
+
     batch: int
     m: int
     n: int
     k: int
     alpha: Optional[float] = 1.0
     beta: Optional[float] = 0.0
-    trans_a: str = 'N'
-    trans_b: str = 'N'
+    trans_a: str = "N"
+    trans_b: str = "N"
     dtype: torch.dtype = torch.complex64
     name: str = "Case"
 
     def get_kwargs(self) -> Dict[str, Any]:
         """提取算子所需的关键字参数"""
         return {
-            'alpha': self.alpha,
-            'beta': self.beta,
-            'trans_a': self.trans_a,
-            'trans_b': self.trans_b
+            "alpha": self.alpha,
+            "beta": self.beta,
+            "trans_a": self.trans_a,
+            "trans_b": self.trans_b,
         }
 
 
@@ -60,14 +61,18 @@ class CgemmBatchedTester:
         self.device = device
         blocking_env = os.getenv("ASCEND_LAUNCH_BLOCKING", "0")
         mode_str = "异步 (Async)" if blocking_env == "0" else "同步 (Blocking)"
-        logger.info("当前 NPU 运行模式: %s (ASCEND_LAUNCH_BLOCKING=%s)", mode_str, blocking_env)
+        logger.info(
+            "当前 NPU 运行模式: %s (ASCEND_LAUNCH_BLOCKING=%s)", mode_str, blocking_env
+        )
 
     @staticmethod
     def log_header(title: str):
         """静态工具方法：打印测试标题"""
         logger.info("\n%s %s %s", "=" * 20, title, "=" * 20)
 
-    def get_complex_mat_3d(self, shape: Tuple[int, int, int], dtype: torch.dtype) -> torch.Tensor:
+    def get_complex_mat_3d(
+        self, shape: Tuple[int, int, int], dtype: torch.dtype
+    ) -> torch.Tensor:
         """安全生成复数矩阵 (先 CPU 后搬移，规避 NPU 随机数生成限制)"""
         f_dtype = torch.float16 if dtype == torch.complex32 else torch.float32
         real = torch.randn(shape, dtype=f_dtype)
@@ -87,9 +92,24 @@ class CgemmBatchedTester:
         # 2. 备份初始值用于 CPU 参考计算 (处理 Complex32 的特殊视图转换)
         if cfg.dtype == torch.complex32:
             # Complex32 搬运需先转回 float 视图
-            a_cpu = mat_a.view(torch.float32).cpu().view(torch.complex32).to(torch.complex64)
-            b_cpu = mat_b.view(torch.float32).cpu().view(torch.complex32).to(torch.complex64)
-            c_init_cpu = mat_c.view(torch.float32).cpu().view(torch.complex32).to(torch.complex64)
+            a_cpu = (
+                mat_a.view(torch.float32)
+                .cpu()
+                .view(torch.complex32)
+                .to(torch.complex64)
+            )
+            b_cpu = (
+                mat_b.view(torch.float32)
+                .cpu()
+                .view(torch.complex32)
+                .to(torch.complex64)
+            )
+            c_init_cpu = (
+                mat_c.view(torch.float32)
+                .cpu()
+                .view(torch.complex32)
+                .to(torch.complex64)
+            )
         else:
             a_cpu = mat_a.cpu()
             b_cpu = mat_b.cpu()
@@ -105,7 +125,11 @@ class CgemmBatchedTester:
         # 4. CPU 参考结果计算 (处理转置逻辑)
         def apply_trans(m, op):
             op = op.upper()
-            return m.transpose(1, 2) if op == 'T' else (m.conj().transpose(1, 2) if op == 'C' else m)
+            return (
+                m.transpose(1, 2)
+                if op == "T"
+                else (m.conj().transpose(1, 2) if op == "C" else m)
+            )
 
         ref_a = apply_trans(a_cpu, cfg.trans_a)
         ref_b = apply_trans(b_cpu, cfg.trans_b)
@@ -118,8 +142,16 @@ class CgemmBatchedTester:
 
         status = "PASS" if is_close else "FAIL"
         dtype_tag = "C32" if cfg.dtype == torch.complex32 else "C64"
-        logger.info("[%s] %-25s | %s | B=%d, M=%d, N=%d, K=%d",
-                    status, cfg.name, dtype_tag, cfg.batch, cfg.m, cfg.n, cfg.k)
+        logger.info(
+            "[%s] %-25s | %s | B=%d, M=%d, N=%d, K=%d",
+            status,
+            cfg.name,
+            dtype_tag,
+            cfg.batch,
+            cfg.m,
+            cfg.n,
+            cfg.k,
+        )
 
         if not is_close:
             logger.error("      Max Diff: %.6f", (res_npu_cpu - ref).abs().max())
@@ -144,6 +176,38 @@ def main():
     for config in test_suites:
         if not tester.run_case(config):
             all_passed = False
+
+    # 连续切片视图（storage_offset != 0）输入用例（issue #368）：
+    # 修复前 CreateAclTensorFromAtTensor 以 storage 首地址为基址，切片视图读写整体
+    # 错位；修复后基址取 data_ptr()，切片视图结果应与整块物化后切片一致（bit 级）
+    logger.info("-" * 50)
+    logger.info("Contiguous slice-view case (issue #368):")
+    big_a = torch.randn(6, 8, 16, dtype=torch.complex64, device="npu")
+    big_b = torch.randn(6, 16, 24, dtype=torch.complex64, device="npu")
+    big_c = torch.randn(6, 8, 24, dtype=torch.complex64, device="npu")
+    a_view = big_a[2:]  # [4, 8, 16] 连续视图，storage_offset != 0
+    b_view = big_b[2:]
+    c_view = big_c[2:].clone()
+    torch_sip.asd_blas_cgemm_batched(
+        a_view, b_view, c_view, alpha=1.0, beta=0.0, trans_a=0, trans_b=0
+    )
+    c_ref = big_c[2:].clone()
+    torch_sip.asd_blas_cgemm_batched(
+        a_view.contiguous().clone(),
+        b_view.contiguous().clone(),
+        c_ref,
+        alpha=1.0,
+        beta=0.0,
+        trans_a=0,
+        trans_b=0,
+    )
+    if torch.equal(c_view.cpu(), c_ref.cpu()):
+        logger.info("  - slice-view cgemm_batched: PASSED (bit-exact)")
+    else:
+        logger.error(
+            "  - slice-view cgemm_batched: FAILED | slice view result mismatch"
+        )
+        all_passed = False
 
     logger.info("-" * 50)
     if all_passed:

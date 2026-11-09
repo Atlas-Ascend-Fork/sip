@@ -355,7 +355,14 @@ inline aclTensor* CreateAclTensorFromAtTensor(const at::Tensor& at_tensor)
     int64_t offset = 0;
     aclDataType acl_data_type = MapAtToAclDataType(at_tensor.scalar_type());
 
-    void* device_ptr = const_cast<void*>(tensor_contiguous.storage().data());
+    // 数据基址取 data_ptr()（自动包含 storage_offset），不能用 storage().data()
+    // （storage 首地址）：对"连续但 storage_offset != 0"的视图（如 big[100:200] 批
+    // 切片），基址按 storage 首地址解释会整体错位读写且无报错（issue #368，
+    // _npu_inv_impl.py::_materialize 注释含实测复现记录 B=953 切片 diff 0.2）。
+    // 契约：output 侧调用方必须传入连续且零拷贝语义的张量（当前全部调用点的输出
+    // 均为 at::empty/at::empty_like 新建张量，满足该约束）；非连续输入由上方
+    // .contiguous() 拷贝路径保证正确性。
+    void* device_ptr = const_cast<void*>(tensor_contiguous.data_ptr());
 
     // 4. 获取函数指针 (注意：aclCreateTensor 是 OP_API 下的接口)
     static const auto aclCreateTensorFunc = GET_OP_API_FUNC(aclCreateTensor);
