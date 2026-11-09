@@ -299,3 +299,7 @@ FftRealStockhamOperation:
 FftTransposeOperation:
     FftTransposeKernel:
         ascend950: true
+
+FftMixedCommonOperation:
+    FftMixedCommonKernel:
+        ascend950: true

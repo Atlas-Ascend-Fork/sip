@@ -53,6 +53,8 @@
 #include "utils/sip_lock.h"
 #include "utils/assert.h"
 #include "fft1d_optimized_selection.h"
+#include "fft_mixed_selection.h"
+#include "fftcore/fft_mixed_common_core.h"
 #include "fft_api.h"
 
 namespace AsdSip {
@@ -684,6 +686,23 @@ void addFFTSteps(FFTPlan& plan, int dim, int64_t batchSize, asdFftType fftType)
     };
     const auto kind = kindOf(fftType);
     const bool ascend950 = Mki::PlatformInfo::Instance().GetPlatformType() == Mki::PlatformType::ASCEND_950;
+    const int mixedPass = kind == fft1d::Kind::C2C ? 0 :
+                          kind == fft1d::Kind::R2C ? 1 :
+                          kind == fft1d::Kind::C2R ? 2 :
+                                                     -1;
+    const bool mixedScope = plan.fftSizes.size() == 1 ||
+                            (plan.fftSizes.size() == 2 && plan.batchSize == 1 && plan.fftSizes[0] == plan.fftSizes[1]);
+    // External backend requests retain their established dispatch and strict/auto semantics.
+    if (mixedScope && !UseOpsFftKernelBackend() &&
+        fft1d::CommonMixedEligible(fftSize, batchSize, mixedPass, !plan.isForward(), ascend950, fftStride == 1)) {
+        auto core = std::make_unique<FftMixedCommonCore>(OpParam::FftMixedCommon{
+            fftSize, batchSize, static_cast<OpParam::MixedCommonPass>(mixedPass), !plan.isForward()});
+        if (core->init()) {
+            plan.steps.push_back(PlanStep{std::move(core)});
+            return;
+        }
+        ASDSIP_LOG(WARN) << "Common mixed FFT unavailable; using original route. N=" << fftSize;
+    }
     int config = 0;
     if (plan.fftSizes.size() == 1) {
         config = fft1d::OptimizedConfig(fftSize, batchSize, kind, !plan.isForward(), ascend950, fftStride == 1);
@@ -795,8 +814,12 @@ void init2DSteps(FFTPlan& plan)
         case asdFftType::ASCEND_FFT_C2C:
             if (Mki::PlatformInfo::Instance().GetPlatformType() == Mki::PlatformType::ASCEND_950) {
                 // Radix-2 axes follow the same backend policy as 1D/3D passes.
-                // Retain the dedicated mixed-radix implementation unchanged.
-                if (radixX == K_RADIX_2 && radixY == K_RADIX_2) {
+                // Covered mixed squares share the common 1D/transpose composition;
+                // other mixed shapes retain the dedicated implementation.
+                const bool commonMixed = batchSize == 1 && fftSizeX == fftSizeY && !UseOpsFftKernelBackend() &&
+                                         fft1d::CommonMixedEligible(fftSizeX, fftSizeX, 0, !plan.isForward(), true,
+                                                                    true);
+                if (commonMixed || (radixX == K_RADIX_2 && radixY == K_RADIX_2)) {
                     // Continue into the ordinary transpose/1D composition below.
                 } else if (fftSizeX > 1 && fftSizeY > 1 &&
                            Support(deDuplicates(orderedFactorize(fftSizeX)), RADIX_ARCH35_C2C_MIX) &&

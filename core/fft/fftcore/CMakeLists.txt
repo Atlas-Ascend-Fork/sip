@@ -37,6 +37,7 @@ add_library(fft_core STATIC
     fft_c2c_large.cpp
     fft_real_regbase.cpp
     fft_real_stockham.cpp
+    fft_mixed_common.cpp
     fft_c2c2d_arch35.cpp
 
     fft_core_any.cpp
