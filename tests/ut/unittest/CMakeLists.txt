@@ -242,7 +242,6 @@ add_executable(ops_unittest
     # $<TARGET_OBJECTS:test_src_cswap>
     $<TARGET_OBJECTS:test_src_ssyr>
     $<TARGET_OBJECTS:test_src_cgemv_batched>
-    $<TARGET_OBJECTS:test_src_cgemv_batched>
     $<TARGET_OBJECTS:test_src_blas_negativedim>
     $<TARGET_OBJECTS:test_src_ctrmv>
     $<TARGET_OBJECTS:test_src_cmatinv_batched>
