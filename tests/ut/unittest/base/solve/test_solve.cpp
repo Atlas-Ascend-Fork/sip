@@ -86,7 +86,6 @@ struct CaseDesc {
     uint32_t n;
     uint32_t nrhs;
     double mereLimit; // 大N case 放宽至 1e-3: 大 batch 随机矩阵存在条件数尾部
-                      // (fp32 参考解同数据 mean MERE 1.7e-4 / 最差矩阵 5.6e-3, 主元比最高 2.5e4)
 };
 
 // 需求 5 用例 + 大 N 用例 + 小 batch 负载均衡用例(全局块任务均分, batch < 核数)

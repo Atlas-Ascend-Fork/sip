@@ -19,12 +19,12 @@ constexpr uint32_t SOLVE_MAX_CORE_CNT = 40; // 参与计算的向量核上限(91
 constexpr uint32_t SOLVE_MAX_N = 256;             // 支持的最大矩阵阶数(总上限)
 constexpr uint32_t SOLVE_RESIDENT_MAX_N = 64;     // 整装 LU 路径的阶数上限(A+L 可常驻 UB)
 constexpr uint32_t SOLVE_ROW_STRIDE = 64;         // A 每行物理跨度(1 repeat = 64 floats)
-constexpr uint32_t SOLVE_MAX_COLS_PER_BLK = 6144; // 每块的列数上限(= vecT/tmpRow 容量, 64 对齐)
+constexpr uint32_t SOLVE_MAX_COLS_PER_BLK = 6144; // 每块的列数上限(= bcastRow 容量, 64 对齐)
 constexpr uint32_t SOLVE_MAX_B_BLK_ELEMS = 12288; // B 块缓冲容量(整装路径, bRows/xRows 各 12288)
 constexpr uint32_t SOLVE_BIG_B_BLK_ELEMS = 16384; // B 块缓冲容量(分块 LU 路径, n<=256 时 256×64)
 
 // n=2 批量标量路径的 UB 总预算(与 InitBuffer 分配量一致):
-//   matU+matL(2×64×64) + scratch(64) + bcastRow/mulOut(2×6144) + bBlk/xBlk(2×12288)
+//   matU+matL(2×64×64) + scratch(64) + bcastRow/预算占位(2×6144) + bBlk/xBlk(2×12288)
 constexpr uint32_t SOLVE_N2_UB_BUDGET = SOLVE_RESIDENT_MAX_N * SOLVE_ROW_STRIDE * 2 + SOLVE_ROW_STRIDE +
                                         SOLVE_MAX_COLS_PER_BLK * 2 + SOLVE_MAX_B_BLK_ELEMS * 2;
 
