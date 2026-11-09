@@ -22,13 +22,20 @@ namespace sip_pta {
 /**
  * @brief 复数 Rank-1 更新算子 (CGERC): A = alpha * x * y^H + A
  */
-at::Tensor asdBlasCgerc(at::Tensor& A, const at::Tensor& x, const at::Tensor& y,
-                        const at::Scalar& alpha)
+at::Tensor asdBlasCgerc(at::Tensor& A, const at::Tensor& x, const at::Tensor& y, const at::Scalar& alpha)
 {
     // 基本校验
     TORCH_CHECK(A.scalar_type() == at::kComplexFloat && x.scalar_type() == at::kComplexFloat &&
                     y.scalar_type() == at::kComplexFloat,
                 "asd_blas_cgerc: Only ComplexFloat (Complex64) tensors are supported.");
+    // 维度一致性校验（issue #372，对齐 strmv/ctrmv 口径）：外积 A = alpha·x·yᴴ，
+    // A 必须为 2D 且为 [m, n]（Row-Major），x/y 为 1D 且长度与 m/n 一致；
+    // 原实现对 1D A 直接取 size(1) 抛底层 IndexError，错误布局无拦截
+    TORCH_CHECK(A.dim() == 2 && x.dim() == 1 && y.dim() == 1,
+                "asd_blas_cgerc: A must be 2D and x/y must be 1D, got A.dim()=", A.dim(), " x.dim()=", x.dim(),
+                " y.dim()=", y.dim());
+    TORCH_CHECK(A.size(0) == x.size(0) && A.size(1) == y.size(0), "asd_blas_cgerc: A shape [", A.size(0), ", ",
+                A.size(1), "] must match outer-product x length ", x.size(0), " and y length ", y.size(0));
 
     c10_npu::NPUGuard guard(A.device());
     // 参数准备
@@ -47,8 +54,7 @@ at::Tensor asdBlasCgerc(at::Tensor& A, const at::Tensor& x, const at::Tensor& y,
 
     // 执行算子 (注意参数顺序需匹配底层定义)
     // 目标接口: (handle, m, n, alpha, x, incx, y, incy, A, lda)
-    EXEC_BLAS_FUNC(AsdSip::asdBlasCgerc, AsdSip::asdBlasMakeCgercPlan, {}, m, n, a_std, x, incx,
-                      y, incy, A, lda);
+    EXEC_BLAS_FUNC(AsdSip::asdBlasCgerc, AsdSip::asdBlasMakeCgercPlan, {}, m, n, a_std, x, incx, y, incy, A, lda);
 
     return A;
 }

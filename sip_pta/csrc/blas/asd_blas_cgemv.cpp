@@ -29,6 +29,17 @@ at::Tensor asdBlasCgemv(const at::Tensor& A, const at::Tensor& x, at::Tensor& y,
     TORCH_CHECK(A.scalar_type() == at::kComplexFloat && x.scalar_type() == at::kComplexFloat &&
                     y.scalar_type() == at::kComplexFloat,
                 "asd_blas_cgemv: Only ComplexFloat (Complex64) tensors are supported.");
+    // 维度一致性校验（issue #372，对齐 strmv/ctrmv 口径）：A 必须为 2D，x/y 为 1D，
+    // 且 A 尺寸与 x/y 长度按 trans 语义匹配（无转置 y=A·x：A[m,n]、x 长度 n、y 长度 m；
+    // 转置 y=Aᵀ·x：x 长度 m、y 长度 n），错误布局不再以底层异常或错误维度语义下传
+    TORCH_CHECK(A.dim() == 2 && x.dim() == 1 && y.dim() == 1,
+                "asd_blas_cgemv: A must be 2D and x/y must be 1D, got A.dim()=", A.dim(), " x.dim()=", x.dim(),
+                " y.dim()=", y.dim());
+    TORCH_CHECK(trans == static_cast<int64_t>(AsdSip::asdBlasOperation_t::ASDBLAS_OP_N) ?
+                    (y.size(0) == A.size(0) && x.size(0) == A.size(1)) :
+                    (x.size(0) == A.size(0) && y.size(0) == A.size(1)),
+                "asd_blas_cgemv: A shape [", A.size(0), ", ", A.size(1), "] does not match trans=", trans,
+                " with x length ", x.size(0), " and y length ", y.size(0));
 
     c10_npu::NPUGuard guard(A.device());
     // 参数准备

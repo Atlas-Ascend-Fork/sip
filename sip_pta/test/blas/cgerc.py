@@ -16,14 +16,13 @@ from dataclasses import dataclass
 from typing import Tuple, Union
 
 import torch
-import torch_npu
 import torch_sip
 
 # 配置全局日志 (G.LOG.02)
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("torch_sip_cgerc_test")
 
@@ -31,6 +30,7 @@ logger = logging.getLogger("torch_sip_cgerc_test")
 @dataclass(frozen=True)
 class GercConfig:
     """参数对象：封装 CGERC 的所有维度与标量配置"""
+
     m: int
     n: int
     alpha: Union[complex, float]
@@ -89,8 +89,14 @@ class CgercTester:
         is_close = torch.allclose(a_in.cpu(), ref, rtol=1e-4, atol=1e-4)
 
         status = "PASS" if is_close else "FAIL"
-        logger.info("[%s] %-20s | M=%d, N=%d | Alpha=%s",
-                    status, cfg.name, cfg.m, cfg.n, cfg.alpha)
+        logger.info(
+            "[%s] %-20s | M=%d, N=%d | Alpha=%s",
+            status,
+            cfg.name,
+            cfg.m,
+            cfg.n,
+            cfg.alpha,
+        )
 
         if not is_close:
             max_diff = torch.abs(a_in.cpu() - ref).max()
@@ -115,6 +121,23 @@ def main():
     for config in test_suites:
         if not tester.run_case(config):
             all_passed = False
+
+    # 维度一致性负向用例（issue #372）：1D A 应在绑定层报参数错误而非底层 IndexError
+    logger.info("-" * 60)
+    logger.info("Dimension negative cases (issue #372):")
+    a_1d = tester.get_complex_tensor((8,))
+    x = tester.get_complex_tensor((8,))
+    y = tester.get_complex_tensor((4,))
+    try:
+        torch_sip.asd_blas_cgerc(a_1d, x, y, 1.0)
+        logger.error("  - 1D A: FAILED | wrong-dim input was accepted")
+        all_passed = False
+    except RuntimeError as exc:
+        if "cgerc" not in str(exc) and "2D" not in str(exc):
+            logger.error("  - 1D A: FAILED | unexpected error: %s", exc)
+            all_passed = False
+        else:
+            logger.info("  - 1D A: PASSED | %s", exc)
 
     logger.info("-" * 60)
     if all_passed:

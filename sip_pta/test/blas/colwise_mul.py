@@ -17,14 +17,13 @@ from dataclasses import dataclass
 from typing import Tuple
 
 import torch
-import torch_npu
 import torch_sip
 
 # 配置全局日志 (G.LOG.02)
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("torch_sip_colwise_mul")
 
@@ -32,6 +31,7 @@ logger = logging.getLogger("torch_sip_colwise_mul")
 @dataclass(frozen=True)
 class ColwiseMulConfig:
     """参数对象：封装矩阵按列乘法的维度配置"""
+
     m: int
     n: int
     name: str = "Case"
@@ -44,7 +44,9 @@ class ColwiseMulTester:
         self.device = device
         blocking_env = os.getenv("ASCEND_LAUNCH_BLOCKING", "0")
         mode_str = "异步 (Async)" if blocking_env == "0" else "同步 (Blocking)"
-        logger.info("当前 NPU 运行模式: %s (ASCEND_LAUNCH_BLOCKING=%s)", mode_str, blocking_env)
+        logger.info(
+            "当前 NPU 运行模式: %s (ASCEND_LAUNCH_BLOCKING=%s)", mode_str, blocking_env
+        )
 
     @staticmethod
     def get_complex_tensor(shape: Tuple[int, ...], device: str) -> torch.Tensor:
@@ -116,6 +118,27 @@ def main():
     for config in test_suites:
         if not tester.run_case(config):
             all_passed = False
+
+    # 维度一致性负向用例（issue #372）：1D mat / 2D vec 应在绑定层报参数错误
+    logger.info("-" * 60)
+    logger.info("Dimension negative cases (issue #372):")
+    mat_1d = tester.get_complex_tensor((8,), tester.device)
+    vec_2d = tester.get_complex_tensor((8, 4), tester.device)
+    vec_ok = tester.get_complex_tensor((8,), tester.device)
+    for name, (m_t, v_t) in (
+        ("1D mat", (mat_1d, vec_ok)),
+        ("2D vec", (vec_2d, vec_2d)),
+    ):
+        try:
+            torch_sip.asd_blas_colwise_mul(m_t, v_t)
+            logger.error("  - %s: FAILED | wrong-dim input was accepted", name)
+            all_passed = False
+        except RuntimeError as exc:
+            if "colwise_mul" not in str(exc):
+                logger.error("  - %s: FAILED | unexpected error: %s", name, exc)
+                all_passed = False
+            else:
+                logger.info("  - %s: PASSED | %s", name, exc)
 
     logger.info("-" * 60)
     if all_passed:
