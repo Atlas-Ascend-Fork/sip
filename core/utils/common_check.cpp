@@ -19,9 +19,15 @@ std::optional<int64_t> GetTensorNum(uint64_t dimsNum, int64_t* storageDims)
     if (storageDims == nullptr) {
         return std::nullopt;
     }
+    // 逐维连乘带溢出检测（issue #369）：乘积在 int64 域回绕为"大正值"时，
+    // 以本函数做内存安全决策的入口（fftshift/ifftshift/swaplast2axes 等）的
+    // 元素数校验会被静默绕过，内核按未回绕尺寸寻址对真实较小的存储越界读写；
+    // 溢出或任一维为负时返回 nullopt，调用方既有 !has_value() 分支即拒绝
     int64_t elementNum = 1;
     for (size_t i = 0; i < dimsNum; i++) {
-        elementNum *= storageDims[i];
+        if (storageDims[i] < 0 || __builtin_mul_overflow(elementNum, storageDims[i], &elementNum)) {
+            return std::nullopt;
+        }
     }
     return elementNum;
 }
