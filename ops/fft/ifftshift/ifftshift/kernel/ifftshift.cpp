@@ -30,6 +30,85 @@ constexpr int64_t PING_PONG = 2;
 // One full vector register of floats (VECTOR_REG_WIDTH / sizeof(float)).
 constexpr uint32_t VEC_FLOATS = 256 / sizeof(float);
 
+// FftShift-sibling A->B repack:
+// unaligned 64-float chunk chains; COL > 0 bakes counts/pitch so the compiler
+// interleaves the dependent chains of consecutive rows (runtime counts
+// serialize them, ~6x V-pipe time). SCALE folds the multiplier into the chunks.
+// The 4-argument POST_MODE_UPDATE load/store forms advance src/dst themselves.
+template <int64_t COL, bool SCALE>
+__aicore__ inline void IfftRepackChunks(__ubuf__ float* areaA, __ubuf__ float* rowArea, uint16_t rows16,
+                                        uint32_t rtCountA, uint32_t rtCountB, uint32_t rtPitch, float scale)
+{
+    (void)rtCountA;
+    (void)rtCountB;
+    (void)rtPitch;
+    uint32_t countA;
+    uint32_t countB;
+    uint32_t rowPitch;
+    if constexpr (COL > 0) {
+        constexpr int64_t shiftC = COL / 2; // inverse shift: floor(n/2)
+        countA = static_cast<uint32_t>(shiftC * 2);
+        countB = static_cast<uint32_t>((COL - shiftC) * 2);
+        rowPitch = static_cast<uint32_t>(COL * 2);
+    } else {
+        countA = rtCountA;
+        countB = rtCountB;
+        rowPitch = rtPitch;
+    }
+    const uint32_t offA = countB; // src complex offset col-shiftC
+    __VEC_SCOPE__
+    {
+        MicroAPI::MaskReg mask = MicroAPI::CreateMask<float>();
+        (void)mask;
+        (void)scale;
+        // Piece A: dst cols [0, shiftC) <- src cols [col-shiftC, col).
+        if (countA > 0) {
+            for (uint16_t k = 0; k < rows16; k++) {
+                MicroAPI::RegTensor<float> regA;
+                MicroAPI::UnalignRegForLoad uLoad;
+                MicroAPI::UnalignRegForStore uStore;
+                __ubuf__ float* src = areaA + static_cast<uint32_t>(k) * rowPitch + offA;
+                __ubuf__ float* dst = rowArea + static_cast<uint32_t>(k) * rowPitch;
+                uint32_t rem = countA;
+                while (rem > 0) {
+                    const uint32_t chunk = (rem > VEC_FLOATS) ? VEC_FLOATS : rem;
+                    MicroAPI::LoadUnAlignPre(uLoad, src);
+                    MicroAPI::LoadUnAlign<float>(regA, uLoad, src, chunk);
+                    if constexpr (SCALE) {
+                        MicroAPI::Muls(regA, regA, scale, mask);
+                    }
+                    MicroAPI::StoreUnAlign<float>(dst, regA, uStore, chunk);
+                    rem -= chunk;
+                }
+                MicroAPI::StoreUnAlignPost(dst, uStore, 0);
+            }
+        }
+        // Piece B: dst cols [shiftC, col) <- src cols [0, col-shiftC).
+        // Empty when col == 1 (shiftC == 0); guarded like piece A.
+        if (countB > 0) {
+            for (uint16_t k = 0; k < rows16; k++) {
+                MicroAPI::RegTensor<float> regB;
+                MicroAPI::UnalignRegForLoad uLoad;
+                MicroAPI::UnalignRegForStore uStore;
+                __ubuf__ float* src = areaA + static_cast<uint32_t>(k) * rowPitch;
+                __ubuf__ float* dst = rowArea + static_cast<uint32_t>(k) * rowPitch + countA;
+                uint32_t rem = countB;
+                while (rem > 0) {
+                    const uint32_t chunk = (rem > VEC_FLOATS) ? VEC_FLOATS : rem;
+                    MicroAPI::LoadUnAlignPre(uLoad, src);
+                    MicroAPI::LoadUnAlign<float>(regB, uLoad, src, chunk);
+                    if constexpr (SCALE) {
+                        MicroAPI::Muls(regB, regB, scale, mask);
+                    }
+                    MicroAPI::StoreUnAlign<float>(dst, regB, uStore, chunk);
+                    rem -= chunk;
+                }
+                MicroAPI::StoreUnAlignPost(dst, uStore, 0);
+            }
+        }
+    }
+}
+
 // Must keep the same layout as AsdSip::IfftShiftTilingData in
 // ops/fft/ifftshift/ifftshift/tiling/tiling_data.h
 struct IfftShiftTilingData {
@@ -56,17 +135,13 @@ struct IfftShiftTilingData {
  * per-slot UB budget, i.e. col <= ubBudget / (SLOTS*2*8) ~ 7800):
  *
  * FAST PATH (all common shapes): 3-stage pipeline
- *   whole-row MTE2 read -> vector register repack -> whole-row MTE3 write.
+ *   whole-row MTE2 read -> vector repack -> whole-row MTE3 write.
  *   - MTE2 reads each tile as ONE contiguous block (rows of a tile are
  *     consecutive in GM) into Area A, rows packed at col*8 bytes.
- *   - The vector stage assembles each OUTPUT ROW contiguously in RowArea:
- *       piece A: dst[0..shiftC-1]   <- src[col-shiftC .. col-1]
- *       piece B: dst[shiftC..col-1] <- src[0 .. col-shiftC-1]
- *     where shiftC = col / 2 (for even col the two pieces are equal halves;
- *     odd col and col == 1 also work). When scale != 1 each loaded chunk is
- *     scaled in-register by MicroAPI::Muls (element-wise float32 multiply
- *     with an all-lane mask; the tail chunk's undefined lanes are multiplied
- *     too but never stored) before it is stored.
+ *   - The vector stage repacks each row from Area A into RowArea
+ *     (FftShift-sibling structure): piece A / piece B with
+ *     unaligned 64-float chunks; when scale != 1 the multiply is folded
+ *     into the same chunks (load -> mul -> store, no extra UB pass).
  *   - MTE3 writes each tile as ONE contiguous block: full cache lines, no
  *     write-allocate RFO, no 64B lines split across descriptors.
  *   - Synchronization: on the 950 (3510) a wait_flag(src, dst) marker blocks
@@ -124,6 +199,16 @@ public:
         return rmax;
     }
 
+    // reg *= scale (element-wise float32, generic-path scale stage). The
+    // all-lane mask matches the framework idiom (Reg::Muls in the 3510
+    // activation impls); the tail chunk's undefined lanes are multiplied
+    // too but never stored.
+    static __aicore__ inline void ScaleReg(MicroAPI::RegTensor<float>& reg, float scale)
+    {
+        MicroAPI::MaskReg mask = MicroAPI::CreateMask<float>();
+        MicroAPI::Muls(reg, reg, scale, mask);
+    }
+
     __aicore__ inline void Init(GlobalTensor<float>& src, GlobalTensor<float>& dst, TPipe& pipe,
                                 TBuf<TPosition::VECCALC>& ubBuf, int64_t row, int64_t col, int64_t dist, int64_t ubSize,
                                 float scale)
@@ -154,19 +239,10 @@ public:
             evV3_[s] = static_cast<event_t>(2 * SLOTS);     // V_MTE3 shared
             evV2_[s] = static_cast<event_t>(2 * SLOTS + 1); // V_MTE2 shared
         }
-        // All slots' RowAreas are initially free for the V stage.
+        // All slots' areas are initially free for the V stage.
         for (int64_t s = 0; s < SLOTS; s++) {
             SetFlag<HardEvent::MTE3_V>(evFree_[s]);
         }
-    }
-
-    // reg *= scale (element-wise float32). The all-lane mask matches the
-    // framework idiom (Reg::Muls in the 3510 activation impls); the tail
-    // chunk's undefined lanes are multiplied too but never stored.
-    static __aicore__ inline void ScaleReg(MicroAPI::RegTensor<float>& reg, float scale)
-    {
-        MicroAPI::MaskReg mask = MicroAPI::CreateMask<float>();
-        MicroAPI::Muls(reg, reg, scale, mask);
     }
 
     __aicore__ inline void Process(int64_t rowStart, int64_t rowCount)
@@ -269,87 +345,20 @@ private:
         SetFlag<HardEvent::MTE2_V>(evFill_[s]);
     }
 
-    // Stage 2 (Vector): repack from Area A (full rows) into RowArea, building
-    // each OUTPUT ROW contiguously: [piece A | piece B]. Ordering is enforced
+    // Stage 2 (Vector): repack A[s] -> RowArea[s] via IfftRepackChunks
+    // (piece A / piece B, scale folded in when needed). Ordering is enforced
     // by the V_MTE3 / V_MTE2 SetFlag events issued right after this in
-    // Process (they attach to the V queue tail and fire only when every V
-    // instruction below has completed). When needScale_ each loaded chunk is
-    // scaled in-register before it is stored.
-    // LoadUnAlign/StoreUnAlign move at most ONE vector register per call
-    // (VECTOR_REG_WIDTH / sizeof(float) = 64 floats), so wider pieces are
-    // chunked like the framework's own pad implementation; the 4-argument
-    // POST_MODE_UPDATE forms advance src/dst for the next chunk.
-    // For COL > 0 the counts/pitch become compile-time constants, which is
-    // what lets the compiler interleave the dependent unaligned chains of
-    // consecutive rows (runtime counts serialize them, ~6x V-pipe time).
+    // Process: they attach to the V queue tail and fire only when every V
+    // instruction below has completed.
     __aicore__ inline void VectorRepack(const TileDesc& t, int s)
     {
-        uint32_t countA;
-        uint32_t countB;
-        uint32_t rowPitch;
-        if constexpr (COL > 0) {
-            constexpr int64_t shiftC = COL / 2;
-            countA = static_cast<uint32_t>(shiftC * 2);
-            countB = static_cast<uint32_t>((COL - shiftC) * 2);
-            rowPitch = static_cast<uint32_t>(COL * 2);
-        } else {
-            countA = static_cast<uint32_t>(lenA_ * 2);
-            countB = static_cast<uint32_t>(lenB_ * 2);
-            rowPitch = static_cast<uint32_t>(col_ * 2);
-        }
-        const uint32_t offA = countB; // src complex offset col-shiftC
         const uint16_t rows16 = static_cast<uint16_t>(t.rows);
-        __ubuf__ float* areaA = AreaABase(s);
-        __ubuf__ float* rowArea = RowAreaBase(s);
-
-        __VEC_SCOPE__
-        {
-            // Piece A: dst cols [0, shiftC) <- src cols [col-shiftC, col).
-            // Empty when col == 1 (shiftC == 0); the whole row is piece B.
-            if (countA > 0) {
-                for (uint16_t k = 0; k < rows16; k++) {
-                    MicroAPI::RegTensor<float> regA;
-                    MicroAPI::UnalignRegForLoad uLoad;
-                    MicroAPI::UnalignRegForStore uStore;
-                    __ubuf__ float* src = areaA + static_cast<uint32_t>(k) * rowPitch + offA;
-                    __ubuf__ float* dst = rowArea + static_cast<uint32_t>(k) * rowPitch;
-                    uint32_t rem = countA;
-                    while (rem > 0) {
-                        const uint32_t chunk = (rem > VEC_FLOATS) ? VEC_FLOATS : rem;
-                        MicroAPI::LoadUnAlignPre(uLoad, src);
-                        MicroAPI::LoadUnAlign<float>(regA, uLoad, src, chunk);
-                        if (needScale_) {
-                            ScaleReg(regA, scale_);
-                        }
-                        MicroAPI::StoreUnAlign<float>(dst, regA, uStore, chunk);
-                        rem -= chunk;
-                    }
-                    MicroAPI::StoreUnAlignPost(dst, uStore, 0);
-                }
-            }
-            // Piece B: dst cols [shiftC, col) <- src cols [0, col-shiftC).
-            // Empty when col == 1 (shiftC == 0, col-shiftC == 0).
-            if (countB > 0) {
-                for (uint16_t k = 0; k < rows16; k++) {
-                    MicroAPI::RegTensor<float> regB;
-                    MicroAPI::UnalignRegForLoad uLoad;
-                    MicroAPI::UnalignRegForStore uStore;
-                    __ubuf__ float* src = areaA + static_cast<uint32_t>(k) * rowPitch;
-                    __ubuf__ float* dst = rowArea + static_cast<uint32_t>(k) * rowPitch + countA;
-                    uint32_t rem = countB;
-                    while (rem > 0) {
-                        const uint32_t chunk = (rem > VEC_FLOATS) ? VEC_FLOATS : rem;
-                        MicroAPI::LoadUnAlignPre(uLoad, src);
-                        MicroAPI::LoadUnAlign<float>(regB, uLoad, src, chunk);
-                        if (needScale_) {
-                            ScaleReg(regB, scale_);
-                        }
-                        MicroAPI::StoreUnAlign<float>(dst, regB, uStore, chunk);
-                        rem -= chunk;
-                    }
-                    MicroAPI::StoreUnAlignPost(dst, uStore, 0);
-                }
-            }
+        if (needScale_) {
+            IfftRepackChunks<COL, true>(AreaABase(s), RowAreaBase(s), rows16, static_cast<uint32_t>(lenA_ * 2),
+                                        static_cast<uint32_t>(lenB_ * 2), static_cast<uint32_t>(col_ * 2), scale_);
+        } else {
+            IfftRepackChunks<COL, false>(AreaABase(s), RowAreaBase(s), rows16, static_cast<uint32_t>(lenA_ * 2),
+                                         static_cast<uint32_t>(lenB_ * 2), static_cast<uint32_t>(col_ * 2), scale_);
         }
     }
 
@@ -407,8 +416,8 @@ private:
     int64_t rowEnd_ = 0;
     int64_t rmax_ = 0;
     event_t evFill_[SLOTS]; // MTE2_V: A[s] filled
-    event_t evFree_[SLOTS]; // MTE3_V: RowArea[s] released
-    event_t evV3_[SLOTS];   // V_MTE3: V repack of RowArea[s] complete
+    event_t evFree_[SLOTS]; // MTE3_V: A[s] released
+    event_t evV3_[SLOTS];   // V_MTE3: V swap of A[s] complete
     event_t evV2_[SLOTS];   // V_MTE2: V reads of A[s] complete
 };
 
