@@ -150,6 +150,14 @@ void Transpose::Run(Tensor& input, Tensor& output, void* stream, workspace::Work
             return;
         }
     }
+    // 兜底路径与快路径一致地要求连续且零偏移（issue #381）：非连续视图按连续
+    // strides 转置会得到错误结果，显式拒绝而非静默出错
+    if (!input.IsContiguous() || input.desc.offset != 0) {
+        throw std::invalid_argument("transpose fallback requires a contiguous input without storage offset");
+    }
+    // 就地改写 input.desc（FLOAT 重解释 + 追加末维）前先备份，返回前恢复，
+    // 避免调用方 Tensor 描述被永久污染（issue #381）
+    const Mki::TensorDesc inputDescBackup = input.desc;
     input.desc.dtype = Mki::TensorDType::TENSOR_DTYPE_FLOAT;
     input.desc.dims.push_back(DIM_TWO);
 
@@ -180,6 +188,8 @@ void Transpose::Run(Tensor& input, Tensor& output, void* stream, workspace::Work
 
     output.desc.dtype = Mki::TensorDType::TENSOR_DTYPE_COMPLEX64;
     output.desc.dims.erase(output.desc.dims.end() - 1);
+    // 返回前恢复调用方 input 描述（issue #381）
+    input.desc = inputDescBackup;
 }
 
 size_t Transpose::EstimateWorkspaceSize() { return getAlignedSize(ASYNC_WORKSPACE_SIZE); }
