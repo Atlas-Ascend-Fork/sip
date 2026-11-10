@@ -13,7 +13,7 @@ See LICENSE in the root of the software repository for the full text of the Lice
 #
 # 最终接口集 (python 入口):
 #   npu_inv(a, *, out=None)                对齐 torch.linalg.inv, 自动反向 (C++ autograd)
-#   npu_inv_backward(y, dy)                手动反向路径-纯反向: dA = -(Y^T dY) Y^T
+#   npu_inv_backward(y, dy)                手动反向路径-纯反向: dA = -(Y^H dY) Y^H（H 为共轭转置；实数域退化为 Y^T）
 #   (手动反向的正向阶段用 torch.no_grad() 包裹 npu_inv 即可, 不建图)
 #
 # 实现 (dtype 路由):
@@ -115,7 +115,7 @@ def _cmplx_bmm(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
 
 
 # ---------------------------------------------------------------------------
-# 复数 autograd (python Function; 反向 dA = -(Y^T dY) Y^T, 复数不共轭转置)
+# 复数 autograd (python Function; 反向 dA = -(Y^H dY) Y^H, H=共轭转置)
 # ---------------------------------------------------------------------------
 class _CmplxInvFn(torch.autograd.Function):
     @staticmethod
@@ -263,8 +263,8 @@ def npu_inv(a: torch.Tensor, *, out: torch.Tensor = None) -> torch.Tensor:
     x, b, n, batch_dims = _fold_batch(a)
 
     if _is_cmplx(a.dtype):
-        # ---- 复数路径 (autograd: _CmplxInvFn 建图, 反向 dA = -(Y^T dY) Y^T,
-        #      复数域转置不共轭, 由 bmm 处理) ----
+        # ---- 复数路径 (autograd: _CmplxInvFn 建图, 反向 dA = -(Y^H dY) Y^H,
+        #      H=共轭转置, 由 bmm 处理) ----
         if torch.is_grad_enabled() and a.requires_grad:
             y = _CmplxInvFn.apply(x, n)
         elif n <= _N_CMPLX_LIMIT and b <= _BATCH_LIMIT:
@@ -301,7 +301,8 @@ def npu_inv(a: torch.Tensor, *, out: torch.Tensor = None) -> torch.Tensor:
 
 
 def npu_inv_backward(y: torch.Tensor, grad_y: torch.Tensor):
-    """手动反向路径-纯反向: dA = -(Y^T dY) Y^T, 免 autograd 引擎 (~400us/次)。
+    """手动反向路径-纯反向: dA = -(Y^H dY) Y^H（H 为共轭转置；实数域退化为 Y^T）,
+    免 autograd 引擎 (~400us/次)。
 
     用法 (手动反向两阶段):
         with torch.no_grad():               # 正向阶段: 不建图 (等价原 npu_inv_forward)
@@ -312,7 +313,7 @@ def npu_inv_backward(y: torch.Tensor, grad_y: torch.Tensor):
 
     实数 fp32/fp16/bf16 均支持 (低精度在 fp32 域计算后回转);
     复数 c64 支持 (F2 补齐, 2026-10-24): _cmplx_bmm 实数组合,
-    dA = -(Y^T dY) Y^T, 复数域转置不共轭。
+    dA = -(Y^H dY) Y^H, H 为共轭转置（实数域退化为 Y^T）。
     """
     _check_input(y, "npu_inv_backward")
     if grad_y.shape != y.shape or grad_y.dtype != y.dtype:

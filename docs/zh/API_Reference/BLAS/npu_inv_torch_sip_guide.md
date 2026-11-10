@@ -80,7 +80,7 @@ with torch.no_grad():                            # 正向阶段: 不建图
     # y 由调用方保存到反传阶段
 ...
 dy = <上游产生的 dL/dy>                           # 反传阶段
-ga = torch_sip.npu_inv_backward(y, dy)           # dA = -(Y^T dY) Y^T
+ga = torch_sip.npu_inv_backward(y, dy)           # dA = -(Y^H dY) Y^H（H 为共轭转置；实数域退化为 Y^T）
 ```
 
 `npu_inv_backward` 的 fp32 连续 `[B,N,N]` 输入走 aten 直发快路径（`baddbmm + bmm`），与手写裸表达式同一派发链路，无自定义算子 dispatch 开销。

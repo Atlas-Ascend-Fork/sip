@@ -549,7 +549,7 @@ def npu_inv(a: torch.Tensor, *, out: torch.Tensor = None) -> torch.Tensor:
 
 
 def npu_inv_backward(y: torch.Tensor, grad_y: torch.Tensor):
-    """手动反向路径-纯反向: ga = npu_inv_backward(y, dy), dA = -(Y^T dY) Y^T。
+    """手动反向路径-纯反向: ga = npu_inv_backward(y, dy), dA = -(Y^H dY) Y^H（H 为共轭转置；实数域退化为 Y^T）。
 
     y 为正向阶段 npu_inv(a) 在 no_grad 下的输出 (调用方保存到反传阶段); dy 为上游产生的 dL/dy。
     """
