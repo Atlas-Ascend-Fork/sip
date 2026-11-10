@@ -62,9 +62,15 @@ if("$ENV{TEST_TYPE}" STREQUAL "UT")
 endif()
 
 ADD_LINK_OPTIONS(-s)
-add_compile_options(
-    -D_FORTIFY_SOURCE=2 -O2
-    )
+# 优化等级防护（issue #377）：目录级 -O2 位于命令行末尾会覆盖 CMAKE_CXX_FLAGS 中
+# 先行追加的显式 -O（TEST_TYPE=FT 的 -O0、ENABLE_COVERAGE 的 -O3）。GCC 以最后一个
+# -O 为准，故 FT/ENABLE_COVERAGE 配置下不再追加 -O2（-D_FORTIFY_SOURCE=2 在 -O0 下
+# 为 no-op，一并豁免避免 gcc 告警）；UT/ST/普通构建维持 -O2 不变
+if(NOT ("$ENV{TEST_TYPE}" STREQUAL "FT") AND NOT ENABLE_COVERAGE)
+    add_compile_options(
+        -D_FORTIFY_SOURCE=2 -O2
+        )
+endif()
 
 include_directories(
     ${PROJECT_SOURCE_DIR}/include
