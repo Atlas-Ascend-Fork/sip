@@ -122,13 +122,13 @@ source /usr/local/Ascend/cann/set_env.sh
     其中`BUILD_CONFIG_DIR`是目录变量，`mki`据此读取`<BUILD_CONFIG_DIR>/build_config.json`（格式与[`configs/build_config.json`](configs/build_config.json)一致，需完整列出`ascend910b`、`ascend950`等架构键，将不编译的目标设为`false`）；`BUILD_CONFIG_FILE`是文件变量，主仓`scripts/build_util.py`据此选择架构（如启用`--use_ops_fft`联合编译时的ops-fft SoC选择与`scripts/update_tbe_tactic_json.py`）。仅设置`BUILD_CONFIG_DIR`即可控制内核编译目标的默认配置，但不会改变主仓脚本读取的配置；如需同时调整，建议两处保持一致。详见[编译与构建](./docs/compilation_build.md)。
 
     特别说明：
-    - `Ascend-cann-SIP_${version}_linux_${arch}.run`是编译后通过makeself打包的包含算子执行所需文件的可执行产物，用户可以通过以下命令执行run包将包含算子信息的文件安装到指定目录。
+    - `Ascend-cann-SIP_${version}_linux-${arch}.run`是编译后通过makeself打包的包含算子执行所需文件的可执行产物，用户可以通过以下命令执行run包将包含算子信息的文件安装到指定目录。
 
         ```bash
         # 确保安装包具有可执行权限
-        chmod +x Ascend-cann-SIP_${version}_linux_${arch}.run
+        chmod +x Ascend-cann-SIP_${version}_linux-${arch}.run
         # 安装命令
-        ./Ascend-cann-SIP_${version}_linux_${arch}.run --install --install-path=${install_path}
+        ./Ascend-cann-SIP_${version}_linux-${arch}.run --install --install-path=${install_path}
         # 设置加速库环境变量
         source ${install_path}/asdsip/set_env.sh
         ```
