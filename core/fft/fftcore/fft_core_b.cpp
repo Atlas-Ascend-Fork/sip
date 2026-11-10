@@ -244,9 +244,8 @@ AspbStatus FFTCoreB::InitIndex()
         indexMatrix.dataSize = sizeof(int32_t) * 128 * 128;
 
         if (radixVecRef[0] == 0 || radixVecRef[1] == 0) {
-            ASDSIP_LOG(ERROR) << "FFTCore2 fradixVecRef[0] == 0 || radixVecRef[1] == 0,InitIndex failed";
-            throw std::runtime_error("FFTCore2 fradixVecRef[0] == 0 || radixVecRef[1] == 0,InitIndex failed");
-            return nullptr;
+            ASDSIP_LOG(ERROR) << "FFTCoreB fradixVecRef[0] == 0 || radixVecRef[1] == 0,InitIndex failed";
+            throw std::runtime_error("FFTCoreB fradixVecRef[0] == 0 || radixVecRef[1] == 0,InitIndex failed");
         }
 
         int32_t* indexMatrixHost = new (std::nothrow) int32_t[128 * 128];
