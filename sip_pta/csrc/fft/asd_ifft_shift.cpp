@@ -53,6 +53,14 @@ at::Tensor asdIfftShift(const at::Tensor& input, int64_t row, int64_t col, int64
     int64_t requiredInNum = (batch - 1) * distVal + row * col;
     TORCH_CHECK(input.numel() >= requiredInNum, "asd_ifft_shift: input needs at least ", requiredInNum,
                 " elements, got ", input.numel());
+    // 3D 输入须与显式 row/col/batch 一致（issue #373，与 asd_fft_shift 同步对齐）：
+    // numel 恰好凑够 requiredInNum 时旧逻辑静默错解连续内存并返回垃圾结果；
+    // 1D 扁平输入为显式模式设计用途，保持 numel 下限语义
+    if (input.dim() == sip_pta::DIM_3) {
+        TORCH_CHECK(batch == input.size(0) && row == input.size(1) && col == input.size(2),
+                    "asd_ifft_shift: 3D input shape [", input.size(0), ", ", input.size(1), ", ", input.size(2),
+                    "] must match explicit batch=", batch, " row=", row, " col=", col);
+    }
 
     at::Tensor output = at::empty({batch, row, col}, input.options());
 

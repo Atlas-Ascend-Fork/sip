@@ -138,6 +138,9 @@ void FftCoreMixBase::RunViaOpsFft(void* input, void* output, void* stream, works
             }
             return OpsFftUploadConst(dev, tensor->hostData, tensor->dataSize);
         };
+        auto uploadRaw = [](void** dev, const void* host, size_t size) -> bool {
+            return OpsFftUploadConst(dev, host, size);
+        };
         constexpr bool K_ALLOW_NULL = false;
         constexpr bool K_DUMMY_WHEN_EMPTY = true;
         bool isX2X = (coreType == FFTCoreType::kFftR2C || coreType == FFTCoreType::kFftC2R);
@@ -153,6 +156,43 @@ void FftCoreMixBase::RunViaOpsFft(void* input, void* output, void* stream, works
              !upload(&opsATable, aTable, K_DUMMY_WHEN_EMPTY) || !upload(&opsBTable, bTable, K_DUMMY_WHEN_EMPTY))) {
             ASDSIP_LOG(ERROR) << "ops-fft backend(mix): index/ab-table upload failed";
             throw std::runtime_error("ops-fft backend(mix): index/ab-table upload failed");
+        }
+        // ops-fft 上游 bbfce88(#179) 起 C2R host 系数表布局为「实部段[0,fftN) + Nyquist 端点
+        // 占位 fftN + 虚部段从 fftN+1 起」(tableStride = fftN + 1), 1818dff(#322) 已将
+        // C2R_even kernel 虚部读取偏移同步至该布局; sip internal kernel 与 InitABTable
+        // 缓存表仍为旧布局(虚部段从 fftN 起, 无占位), 二者不可混用。C2R 直调须按
+        // ops-fft 契约重排上传, 否则虚部系数错位一位, 偶数大点数 C2R 输出超差。
+        if (isX2X && coreType == FFTCoreType::kFftC2R && parity == 0 && aTable != nullptr && bTable != nullptr &&
+            aTable->hostData != nullptr && bTable->hostData != nullptr && aTable->dataSize > 0 &&
+            bTable->dataSize > 0) {
+            int64_t tableSize = static_cast<int64_t>(aTable->dataSize / (2 * sizeof(float)));
+            if (tableSize > 0 && aTable->dataSize == static_cast<size_t>(2 * tableSize * sizeof(float)) &&
+                bTable->dataSize == aTable->dataSize) {
+                std::vector<float> hostA(static_cast<size_t>(2 * (tableSize + 1)), 0.0F);
+                std::vector<float> hostB(static_cast<size_t>(2 * (tableSize + 1)), 0.0F);
+                const float* srcA = static_cast<const float*>(aTable->hostData);
+                const float* srcB = static_cast<const float*>(bTable->hostData);
+                const int64_t stride = tableSize + 1; // Nyquist 端点占位后虚部段起点
+                for (int64_t i = 0; i < tableSize; ++i) {
+                    hostA[i] = srcA[i];
+                    hostA[stride + i] = srcA[tableSize + i];
+                    hostB[i] = srcB[i];
+                    hostB[stride + i] = srcB[tableSize + i];
+                }
+                hostA[tableSize] = 1.0F;
+                hostA[stride + tableSize] = -1.0F;
+                hostB[tableSize] = 1.0F;
+                hostB[stride + tableSize] = 1.0F;
+                if (!uploadRaw(&opsATable, hostA.data(), hostA.size() * sizeof(float)) ||
+                    !uploadRaw(&opsBTable, hostB.data(), hostB.size() * sizeof(float))) {
+                    ASDSIP_LOG(ERROR) << "ops-fft backend(mix): c2r ab-table repack upload failed";
+                    throw std::runtime_error("ops-fft backend(mix): c2r ab-table repack upload failed");
+                }
+            } else {
+                ASDSIP_LOG(ERROR) << "ops-fft backend(mix): c2r ab-table size unexpected, aSize=" << aTable->dataSize
+                                  << ", bSize=" << bTable->dataSize;
+                throw std::runtime_error("ops-fft backend(mix): c2r ab-table size unexpected");
+            }
         }
         opsConstUploaded = true;
     }

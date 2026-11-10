@@ -133,6 +133,29 @@ def test_ifft_shift():
         all_passed = False
     logger.info("  [%s] round-trip ifft_shift(fft_shift(x)) == x on [2, 7, 9]", status)
 
+    # 3D 输入与显式 row/col/batch 不一致的负向用例（issue #373，与 fft_shift 同步对齐）
+    x_mismatch = randn_complex((2, 4, 5), device)
+    try:
+        torch_sip.ifft_shift(x_mismatch, 2, 2, 10, 0, 1.0)
+        logger.error("  [FAIL] 3D shape mismatch (2,4,5) vs (2,2,10) was accepted")
+        all_passed = False
+    except RuntimeError as exc:
+        if "must match explicit" not in str(exc):
+            logger.error("  [FAIL] unexpected error: %s", exc)
+            all_passed = False
+        else:
+            logger.info("  [PASS] 3D shape mismatch rejected: %s", exc)
+
+    # 3D 输入与显式参数一致的正向路径保持不变
+    x_match = randn_complex((2, 4, 5), device)
+    y_match = torch_sip.ifft_shift(x_match, 4, 5, 2, 0, 1.0)
+    y_ref = torch_sip.ifft_shift(x_match.reshape(-1), 4, 5, 2, 0, 1.0)
+    if np.array_equal(y_match.cpu().numpy(), y_ref.cpu().numpy()):
+        logger.info("  [PASS] 3D matching explicit params unchanged")
+    else:
+        logger.error("  [FAIL] 3D matching explicit params regressed")
+        all_passed = False
+
     logger.info("=" * 50)
     logger.info(
         "ifft_shift torch API: %s", "ALL PASSED" if all_passed else "SOME FAILED"

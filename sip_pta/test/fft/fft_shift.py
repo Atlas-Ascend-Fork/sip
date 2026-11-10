@@ -127,6 +127,30 @@ def test_fft_shift():
         logger.error("  [FAIL] slice-view explicit fft_shift mismatch")
         all_passed = False
 
+    # 3D 输入与显式 row/col/batch 不一致的负向用例（issue #373）：numel 恰好凑够
+    # requiredInNum 时旧逻辑静默错解内存并返回垃圾结果，修复后应在绑定层报参数错误
+    x_mismatch = randn_complex((2, 4, 5), device)
+    try:
+        torch_sip.fft_shift(x_mismatch, 2, 2, 10, 0)
+        logger.error("  [FAIL] 3D shape mismatch (2,4,5) vs (2,2,10) was accepted")
+        all_passed = False
+    except RuntimeError as exc:
+        if "must match explicit" not in str(exc):
+            logger.error("  [FAIL] unexpected error: %s", exc)
+            all_passed = False
+        else:
+            logger.info("  [PASS] 3D shape mismatch rejected: %s", exc)
+
+    # 3D 输入与显式参数一致的正向路径保持不变
+    x_match = randn_complex((2, 4, 5), device)
+    y_match = torch_sip.fft_shift(x_match, 4, 5, 2, 0)
+    y_ref = torch_sip.fft_shift(x_match.reshape(-1), 4, 5, 2, 0)
+    if np.array_equal(y_match.cpu().numpy(), y_ref.cpu().numpy()):
+        logger.info("  [PASS] 3D matching explicit params unchanged")
+    else:
+        logger.error("  [FAIL] 3D matching explicit params regressed")
+        all_passed = False
+
     logger.info("=" * 50)
     logger.info(
         "fft_shift torch API: %s", "ALL PASSED" if all_passed else "SOME FAILED"
