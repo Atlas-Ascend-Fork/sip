@@ -52,7 +52,11 @@ function get_valid_pr_dir()
     fi
 
     # 剥离 CI 产出清单可能携带的行尾 CR 后逐行解析，空行跳过
-    file_list=$(tr -d '\r' < "$list_file")
+    if ! file_list=$(tr -d '\r' < "$list_file"); then
+        log_warn "Cannot read PR file list; running all example categories"
+        VALID_TEST_DIRS=("base" "blas" "fft" "domain" "filter" "interpolation")
+        return
+    fi
     if [ -z "$(printf '%s' "$file_list" | tr -d '[:space:]')" ]; then
         log_warn "PR file list is empty: $list_file, fall back to full smoke test"
         VALID_TEST_DIRS=("base" "blas" "fft" "domain" "filter" "interpolation")
@@ -63,11 +67,20 @@ function get_valid_pr_dir()
     echo "$file_list"
 
     VALID_TEST_DIRS=()
+    local changed_path
 
-    while IFS= read -r f; do
-        [ -z "$f" ] && continue
+    while IFS= read -r changed_path; do
+        [ -z "$changed_path" ] && continue
+        if [[ "$changed_path" =~ ^[AMDRCTU][[:space:]]+(.+)$ ]]; then
+            changed_path=${BASH_REMATCH[1]}
+        fi
+        if [[ "$changed_path" == *[[:space:]]* ]]; then
+            log_warn "Ambiguous PR file list entry; running all example categories"
+            VALID_TEST_DIRS=("base" "blas" "fft" "domain" "filter" "interpolation")
+            return
+        fi
 
-        case "${f,,}" in
+        case "${changed_path,,}" in
             *.md)
                 continue
                 ;;
@@ -90,7 +103,7 @@ function get_valid_pr_dir()
                 VALID_TEST_DIRS+=("filter")
                 ;;
             *)
-                log_info "Unknown file type: $f"
+                log_info "Unknown file type: $changed_path"
                 VALID_TEST_DIRS=("base" "blas" "fft" "domain" "filter" "interpolation")
                 return
                 ;;
