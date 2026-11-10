@@ -29,15 +29,17 @@ struct CoeffKey {
     unsigned userDefine;
     std::vector<int64_t> shape;
     bool isForward;
-    bool operator==(const CoeffKey &other) const;
+    bool operator==(const CoeffKey& other) const;
 };
 
 struct CoeffKeyHash {
-    size_t operator()(const CoeffKey &one) const;
+    size_t operator()(const CoeffKey& one) const;
 };
-}
+} // namespace AsdSip
 namespace FFTensorCache {
 
-std::shared_ptr<AsdSip::FFTensor> getCoeff(AsdSip::CoeffKey &key, std::function<AsdSip::FFTensor *()> func);
+// builder 契约（issue #380）：func() 禁止返回 nullptr，构建失败一律以 throw 表达；
+// getCoeff 对返回值判空兜底，nullptr 将触发 std::runtime_error
+std::shared_ptr<AsdSip::FFTensor> getCoeff(AsdSip::CoeffKey& key, std::function<AsdSip::FFTensor*()> func);
 
-}
+} // namespace FFTensorCache

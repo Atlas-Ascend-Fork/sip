@@ -61,6 +61,10 @@ add_library(test_src_fft_shift_neg OBJECT
 add_library(test_src_swaplast2axes_neg OBJECT
             ${CMAKE_CURRENT_LIST_DIR}/base/swaplast2axes/test_swaplast2axes_negative.cpp)
 
+# fftensor_cache builder 空指针契约负向用例（issue #380）
+add_library(test_src_ffttensorcache_neg OBJECT
+            ${CMAKE_CURRENT_LIST_DIR}/fft/ffttensorcache/test_ffttensorcache_negative.cpp)
+
 aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/base/asd_mul TEST_SRC_ASD_MUL)
 add_library(test_src_asd_mul OBJECT ${TEST_SRC_ASD_MUL})
 
@@ -212,6 +216,7 @@ add_executable(ops_unittest
     $<TARGET_OBJECTS:test_src_fft_mixcache>
     $<TARGET_OBJECTS:test_src_fft_shift_neg>
     $<TARGET_OBJECTS:test_src_swaplast2axes_neg>
+    $<TARGET_OBJECTS:test_src_ffttensorcache_neg>
     # $<TARGET_OBJECTS:test_src_swaplast2axes>
     # $<TARGET_OBJECTS:test_src_function>
     $<TARGET_OBJECTS:test_src_conj>
