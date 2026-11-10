@@ -44,10 +44,16 @@ void FftCoreMixBase::Run(Tensor& input, Tensor& output, void* stream, workspace:
     launchParam.GetInTensor(0).data = input.data;
     launchParam.GetOutTensor(0).data = output.data;
 
+    // 输出 desc 全量取 launchParam 输出张量（issue #379）：旧实现整体赋值 input.desc，
+    // R2C/C2R 场景下 dims/strides 被输入（复数）描述污染；dims 为空时对 end()-1 的
+    // 解引用属未定义行为，先校验非空
+    if (input.desc.dims.empty() || launchParam.GetOutTensor(0).desc.dims.empty()) {
+        ASDSIP_LOG(ERROR) << "FftCoreMixBase empty tensor dims, run rejected.";
+        workspace.recycleLast();
+        return;
+    }
     output.dataSize = launchParam.GetOutTensor(0).dataSize;
-    output.desc = input.desc;
-    output.desc.dtype = launchParam.GetOutTensor(0).desc.dtype;
-    *(output.desc.dims.end() - 1) = *(launchParam.GetOutTensor(0).desc.dims.end() - 1);
+    output.desc = launchParam.GetOutTensor(0).desc;
 
     kernel->Run(launchParam, runInfo);
 

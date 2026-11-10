@@ -41,7 +41,14 @@ void DdCore::Run(Tensor& input, Tensor& output, void* stream, workspace::Workspa
     runInfo.SetStream(stream);
     launchParam.GetInTensor(0).data = input.data;
     launchParam.GetOutTensor(0).data = output.data;
-    output.desc = input.desc;
+    // 输出 desc 全量取 launchParam 输出张量（issue #379）：旧实现整体赋值 input.desc，
+    // R2C/C2R 场景下 dtype/dims/strides 被输入（复数）描述污染；dims 为空时先校验
+    if (input.desc.dims.empty() || launchParam.GetOutTensor(0).desc.dims.empty()) {
+        ASDSIP_LOG(ERROR) << "DdCore empty tensor dims, run rejected.";
+        workspace.recycleLast();
+        return;
+    }
+    output.desc = launchParam.GetOutTensor(0).desc;
     kernel->Run(launchParam, runInfo);
 
     workspace.recycleLast();
