@@ -8,7 +8,9 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------
 
-cmake_minimum_required(VERSION 3.8)
+# add_link_options（host_config.cmake 与下方链接选项）为 CMake 3.13 引入命令，
+# 最低版本声明须与实际命令依赖一致（issue #376）；README 依赖清单已要求 cmake >= 3.16.0
+cmake_minimum_required(VERSION 3.13)
 project("asdsipboost")
 
 option(USE_CXX11_ABI "USE_CXX11_ABI" OFF)
