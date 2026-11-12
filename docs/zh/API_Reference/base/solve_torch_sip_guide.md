@@ -29,19 +29,19 @@ print(x.cpu())                 # tensor([[[1., 2.], [3., 4.], [5., 6.]]])
 
 | 接口 | 语义 |
 |---|---|
-| `torch_sip.solve(A, B)` | 批量求解 A·X = B（fp32），返回 X，shape 同 B |
-| `torch_sip.solve_backward(A, X, gX)` | 手动解析反向，返回 `(gB, gA)`：`gB = solve(Aᵀ, gX)`，`gA = -(gB·Xᵀ)` |
+| `torch_sip.solve(A, B)` | 批量求解 A·X = B（fp32），返回 X，shape 为 [batch, n, nrhs]（batch 跟随 A） |
+| `torch_sip.solve_backward(A, X, gX)` | 手动解析反向，返回 `(gB, gA)`：`gB = solve(Aᵀ, gX)`，`gA = -(gB·Xᵀ)`；B 为广播形态时 gB 满批量返回，需自行沿 batch 求和 |
 
 ### 输入约束
 
 | 项 | 约束 |
 |---|---|
-| shape | `A [batch, n, n]`、`B [batch, n, nrhs]`，输出同 B；均为 3 维 |
+| shape | `A [batch, n, n]`、`B [batch|1, n, nrhs]`，输出 `X [batch, n, nrhs]`（batch 跟随 A）；均为 3 维 |
 | dtype | `float32`（仅此一种） |
 | n | `[2, 256]` |
 | nrhs | ≥ 1 |
 | 内存布局 | 连续张量最优（非连续自动物化，有拷贝开销；直接调用 C API 时需调用方保证连续） |
-| batch 广播 | 不支持：B 的 batch 维须与 A 一致，需调用方先展开 |
+| batch 广播 | 支持 B `[1, n, nrhs]` 广播形态：kernel 原生处理，无需调用方展开，各矩阵共享 B[0]，X 的 batch 为 A 的 batch；其余情况 B 的 batch 须与 A 一致 |
 | 奇异性 | A 须非奇异；算子不做奇异检测，奇异/近奇异矩阵结果不可用 |
 
 ### 执行路径（对用户透明）
@@ -154,7 +154,7 @@ x = torch_sip.solve(a, b)
 
 **Q1: 传入 float64/float16 报错？** 当前版本仅支持 fp32；请在上层转换后再调用。
 
-**Q2: B 只有 1 个批次、A 是 batch 个，能直接用吗？** 不支持 batch 维广播，需先 `B.expand(batch, n, nrhs).contiguous()` 展开。
+**Q2: B 只有 1 个批次、A 是 batch 个，能直接用吗？** 可以。直接传 `B [1, n, nrhs]`，kernel 原生广播（无需 expand 展开）。自动微分反向的 gB 会自动规约回 `[1, n, nrhs]`；手动调 `solve_backward` 时 gB 为满批量，需自行 `gB.sum(dim=0, keepdim=True)`。
 
 **Q3: n>256 怎么办？** 不支持；请按分块或降阶方式在业务侧处理。
 

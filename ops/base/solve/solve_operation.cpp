@@ -50,10 +50,15 @@ protected:
         ASDSIP_CHECK(specificParam.Type() == typeid(OpParam::Solve), "OpParam is invalid",
                      return Status::FailStatus(ERROR_INVALID_VALUE));
 
-        // X 形状同 B
+        // X 形状: batch 跟随 A (B 为 [1, n, nrhs] 广播形态时展开至 A 的 batch), 其余同 B
+        auto xDims = launchParam.GetInTensor(1).desc.dims;
+        const auto& aDims = launchParam.GetInTensor(0).desc.dims;
+        if (xDims.size() == 3U && aDims.size() == 3U && xDims[0] == 1 && aDims[0] != 1) {
+            xDims[0] = aDims[0];
+        }
         outTensors[0].desc.dtype = launchParam.GetInTensor(1).desc.dtype;
         outTensors[0].desc.format = launchParam.GetInTensor(1).desc.format;
-        outTensors[0].desc.dims = launchParam.GetInTensor(1).desc.dims;
+        outTensors[0].desc.dims = xDims;
 
         return Status::OkStatus();
     }

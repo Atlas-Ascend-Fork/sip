@@ -121,12 +121,12 @@ AsdSip::AspbStatus solve(
     <tr>
       <td>b (const aclTensor *)</td>
       <td>Input</td>
-      <td><ul><li>Right-hand-side matrices, corresponding to 'B' in the formula.</li><li>Only FLOAT32 is supported and must be the same as that of `a`.</li><li>The shape is [batch, n, nrhs], where nrhs≥1.</li><li>The batch dimension must be the same as that of `a` (broadcasting is not supported; expand it in the caller).</li></ul></td>
+      <td><ul><li>Right-hand-side matrices, corresponding to 'B' in the formula.</li><li>Only FLOAT32 is supported and must be the same as that of `a`.</li><li>The shape is [batch, n, nrhs], where nrhs≥1. When the batch of `a` is greater than 1, the batch dimension of `b` can be 1 (broadcast form: all matrices share B<sub>0</sub>).</li></ul></td>
     </tr>
     <tr>
       <td>x (aclTensor *)</td>
       <td>Output</td>
-      <td><ul><li>Solution matrices, corresponding to 'X' in the formula.</li><li>The data type and shape are the same as those of `b`.</li></ul></td>
+      <td><ul><li>Solution matrices, corresponding to 'X' in the formula.</li><li>FLOAT32, with the shape [batch, n, nrhs] (the batch dimension follows `a`; when `b` is in broadcast form, the batch of 'X' is still the batch of `a`).</li></ul></td>
     </tr>
     <tr>
       <td>workspace (void *)</td>
@@ -150,7 +150,7 @@ AsdSip::AspbStatus solve(
   - The input and output tensors must be 3-D in ND format and stored contiguously in row-major order (non-contiguous strides are not supported).
   - Only FLOAT32 is supported.
   - The matrix order n must be in [2, 256]; batch≥1; the number of right-hand-side columns nrhs≥1.
-  - Batch broadcasting is not supported: the batch dimension of `b` must be the same as that of `a`.
+  - The batch dimension of `b` can be 1 (broadcast semantics, natively supported by the kernel; no caller-side expansion is required): when the batch of `a` is greater than 1, B<sub>b</sub> of every matrix takes B<sub>0</sub>. Otherwise, the batch dimension of `b` must be the same as that of `a`.
   - `a` must be nonsingular. The operator does not detect singular matrices: results for singular matrices are undefined (consistent with LAPACK), and the accuracy for nearly singular matrices degrades as the condition number grows. The caller must guarantee that the input is nonsingular.
   - The workspace size is 0, so `nullptr` can be passed; for the large-matrix path (n>64), the required temporary space is managed internally by the operator.
 

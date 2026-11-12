@@ -84,6 +84,11 @@ private:
     uint32_t taskCnt = 0;
     uint32_t batchStart = 0; // N2 路径: 本核 batch 段 [batchStart, batchStart+batchNum)
     uint32_t batchNum = 0;
+    uint32_t bBatch = 1; // B 的实际 batch: 1 时各矩阵共享 B[0] (模减偏移寻址)
+
+    // B 的 batch 索引: 每次重新计算, 模掉超出 B 实际 batch 的偏移
+    // (满批量时恒等; bBatch=1 时归零, 即所有矩阵读 B[0])
+    __aicore__ inline uint64_t BIdx(uint64_t batchIdx) const { return batchIdx % this->bBatch; }
 };
 
 __aicore__ inline void SolveAIV::ReadTiling(GM_ADDR tilingGm)
@@ -94,6 +99,7 @@ __aicore__ inline void SolveAIV::ReadTiling(GM_ADDR tilingGm)
     this->colsPerBlk = tiling->colsPerBlk;
     this->colBlkNum = tiling->colBlkNum;
     this->useN2 = tiling->useN2;
+    this->bBatch = tiling->bBatch;
     uint32_t coreIdx = static_cast<uint32_t>(GetBlockIdx());
     this->taskFirst = tiling->taskStart[coreIdx];
     this->taskCnt = tiling->taskNum[coreIdx];
@@ -202,8 +208,8 @@ __aicore__ inline void SolveAIV::LoadBPerm(uint64_t batchIdx, uint64_t blkIdx, u
         uint32_t src = static_cast<uint32_t>(static_cast<int32_t>(matL.GetValue(r * ROW_STRIDE + (ROW_STRIDE - 1))));
         DataCopyExtParams copyParams{1, static_cast<uint32_t>(blkCols * sizeof(float)), 0, 0, 0};
         DataCopyPad(bBlk[r * this->colsPerBlk],
-                    bGM[(static_cast<uint64_t>(batchIdx) * this->n + src) * this->cols + blkIdx * this->colsPerBlk],
-                    copyParams, padParams);
+                    bGM[(this->BIdx(batchIdx) * this->n + src) * this->cols + blkIdx * this->colsPerBlk], copyParams,
+                    padParams);
     }
 }
 
@@ -302,8 +308,9 @@ __aicore__ inline void SolveAIV::ProcessN2Vec(uint64_t base, uint32_t num)
         idxA1.SetValue(k, k * 16U + 4U);
         idxA2.SetValue(k, k * 16U + 8U);
         idxA3.SetValue(k, k * 16U + 12U);
-        idxB0.SetValue(k, k * twoCols * 4U);
-        idxB1.SetValue(k, (k * twoCols + nCols) * 4U);
+        // B 车道 k 取第 (k%bBatch) 个矩阵: bBatch=1 时全部指向 B[0] (偏移模减为 0)
+        idxB0.SetValue(k, (k % this->bBatch) * twoCols * 4U);
+        idxB1.SetValue(k, ((k % this->bBatch) * twoCols + nCols) * 4U);
         idxPair.SetValue(2 * k, (G + k) * 4U);
         idxPair.SetValue(2 * k + 1, k * 4U);
     }
@@ -312,14 +319,16 @@ __aicore__ inline void SolveAIV::ProcessN2Vec(uint64_t base, uint32_t num)
 
     DataCopyPadExtParams<float> padParams{false, 0, 0, 0};
     DataCopyExtParams cpA{1, G * 4U * sizeof(float), 0, 0, 0};
-    DataCopyExtParams cpB{1, static_cast<uint32_t>(G * twoCols * sizeof(float)), 0, 0, 0};
+    // B 组装载矩阵数: bBatch=1 时整组仅装 B[0] (源偏移由 BIdx 模减至 0)
+    const uint32_t bMats = (this->bBatch < G) ? this->bBatch : G;
+    DataCopyExtParams cpB{1, static_cast<uint32_t>(bMats * twoCols * sizeof(float)), 0, 0, 0};
     DataCopyExtParams cpX{1, 2 * G * sizeof(float), 0, 0, 0};
 
     for (uint32_t m0 = 0; m0 < num; m0 += G) {
         uint64_t mBase = base + m0;
         // ① 搬入 A/B
         DataCopyPad(aStg, aGM[mBase * 4U], cpA, padParams);
-        DataCopyPad(bStg, bGM[mBase * twoCols], cpB, padParams);
+        DataCopyPad(bStg, bGM[this->BIdx(mBase) * twoCols], cpB, padParams);
         SetFlag<HardEvent::MTE2_V>(eventId);
         WaitFlag<HardEvent::MTE2_V>(eventId);
 
@@ -443,10 +452,12 @@ __aicore__ inline void SolveAIV::ProcessN2()
     uint32_t curCnt = remain < chunk ? remain : chunk;
     remain -= curCnt;
     {
+        // B 块装载矩阵数: bBatch=1 时仅装 B[0] (源偏移由 BIdx 模减至 0)
+        const uint32_t bMats = (this->bBatch < curCnt) ? this->bBatch : curCnt;
         DataCopyExtParams cpA{1, static_cast<uint32_t>(curCnt * 4U * sizeof(float)), 0, 0, 0};
-        DataCopyExtParams cpB{1, static_cast<uint32_t>(curCnt * 2U * this->cols * sizeof(float)), 0, 0, 0};
+        DataCopyExtParams cpB{1, static_cast<uint32_t>(bMats * 2U * this->cols * sizeof(float)), 0, 0, 0};
         DataCopyPad(raw[aOff[0]], aGM[base * 4U], cpA, padParams);
-        DataCopyPad(raw[bOff[0]], bGM[base * 2U * this->cols], cpB, padParams);
+        DataCopyPad(raw[bOff[0]], bGM[this->BIdx(base) * 2U * this->cols], cpB, padParams);
     }
     SetFlag<HardEvent::MTE2_V>(eventId);
 
@@ -461,10 +472,11 @@ __aicore__ inline void SolveAIV::ProcessN2()
             nxtCnt = remain < chunk ? remain : chunk;
             remain -= nxtCnt;
             uint32_t nxt = cur ^ 1U;
+            const uint32_t bMatsN = (this->bBatch < nxtCnt) ? this->bBatch : nxtCnt;
             DataCopyExtParams cpAn{1, static_cast<uint32_t>(nxtCnt * 4U * sizeof(float)), 0, 0, 0};
-            DataCopyExtParams cpBn{1, static_cast<uint32_t>(nxtCnt * 2U * this->cols * sizeof(float)), 0, 0, 0};
+            DataCopyExtParams cpBn{1, static_cast<uint32_t>(bMatsN * 2U * this->cols * sizeof(float)), 0, 0, 0};
             DataCopyPad(raw[aOff[nxt]], aGM[(base + curCnt) * 4U], cpAn, padParams);
-            DataCopyPad(raw[bOff[nxt]], bGM[(base + curCnt) * 2U * this->cols], cpBn, padParams);
+            DataCopyPad(raw[bOff[nxt]], bGM[this->BIdx(base + curCnt) * 2U * this->cols], cpBn, padParams);
             SetFlag<HardEvent::MTE2_V>(eventId);
         }
 
@@ -480,7 +492,8 @@ __aicore__ inline void SolveAIV::ProcessN2()
             float a11 = aBuf.GetValue(ao + 3);
             float aa0 = a00 < 0 ? -a00 : a00;
             float aa1 = a10 < 0 ? -a10 : a10;
-            const uint32_t bo = m * 2U * this->cols;
+            const uint32_t bo = (m % this->bBatch) * 2U * this->cols; // B 读偏移: bBatch=1 时模减为 0, 共享 B[0]
+            const uint32_t xo = m * 2U * this->cols;                  // X 写偏移: 输出为满 batch 排布
             if (aa0 >= aa1) {
                 // volatile 阻断乘加融合, 保持 Mul+Sub 两次舍入(与拼接基线同路径)
                 float f = a10 / a00;
@@ -493,8 +506,8 @@ __aicore__ inline void SolveAIV::ProcessN2()
                     float x1 = (b1 - t1) / u;
                     volatile float t2 = a01 * x1;
                     float x0 = (b0 - t2) / a00;
-                    xBuf.SetValue(bo + col, x0);
-                    xBuf.SetValue(bo + this->cols + col, x1);
+                    xBuf.SetValue(xo + col, x0);
+                    xBuf.SetValue(xo + this->cols + col, x1);
                 }
             } else {
                 float f = a00 / a10;
@@ -507,8 +520,8 @@ __aicore__ inline void SolveAIV::ProcessN2()
                     float x1 = (b0 - t1) / v;
                     volatile float t2 = a11 * x1;
                     float x0 = (b1 - t2) / a10;
-                    xBuf.SetValue(bo + col, x0);
-                    xBuf.SetValue(bo + this->cols + col, x1);
+                    xBuf.SetValue(xo + col, x0);
+                    xBuf.SetValue(xo + this->cols + col, x1);
                 }
             }
         }
@@ -787,8 +800,7 @@ __aicore__ inline void SolveAIV::ProcessLuBig()
         for (uint32_t r = 0; r < nDim; r++) {
             uint32_t src = static_cast<uint32_t>(static_cast<int32_t>(permBuf.GetValue(r)));
             DataCopyExtParams cpB{1, static_cast<uint32_t>(blkCols * sizeof(float)), 0, 0, 0};
-            DataCopyPad(bBlk[r * cpb], bGM[(static_cast<uint64_t>(batchIdx) * nDim + src) * this->cols + blkIdx * cpb],
-                        cpB, padB);
+            DataCopyPad(bBlk[r * cpb], bGM[(this->BIdx(batchIdx) * nDim + src) * this->cols + blkIdx * cpb], cpB, padB);
         }
         SetFlag<HardEvent::MTE2_V>(eventId);
         WaitFlag<HardEvent::MTE2_V>(eventId);

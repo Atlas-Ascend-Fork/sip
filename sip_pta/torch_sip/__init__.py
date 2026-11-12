@@ -35,43 +35,6 @@ def swap_last2_axes(x: torch.Tensor) -> torch.Tensor:
     return torch.ops.torch_sip.swap_last2_axes(x)
 
 
-class _SolveFn(torch.autograd.Function):
-    """solve 的自动微分包装: 反向唤起 solve_backward。
-
-    反向解析式: gB = solve(Aᵀ, gX); gA = -(gB·Xᵀ)。
-    """
-
-    @staticmethod
-    def forward(ctx, A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
-        with torch.no_grad():
-            X = torch.ops.torch_sip.solve_forward(A, B)
-        ctx.save_for_backward(A, X)
-        return X
-
-    @staticmethod
-    def backward(ctx, grad_X: torch.Tensor):
-        A, X = ctx.saved_tensors
-        gB, gA = torch.ops.torch_sip.solve_backward(A, X, grad_X)
-        return gA, gB  # 与 forward 入参 (A, B) 顺序一致
-
-
-def solve(A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
-    """批量求解线性方程组 A·X = B (fp32, n∈[2,256]).
-
-    支持自动微分: A/B 任一 requires_grad 时走 _SolveFn (反向调 solve_backward);
-    无梯度需求时直通 solve_forward。
-
-    Args:
-        A: 系数矩阵 [batch, n, n]
-        B: 右端项 [batch, n, nrhs]
-    Returns:
-        X: 解 [batch, n, nrhs]
-    """
-    if torch.is_grad_enabled() and (A.requires_grad or B.requires_grad):
-        return _SolveFn.apply(A, B)
-    return torch.ops.torch_sip.solve_forward(A, B)
-
-
 def asd_blas_asum(x: torch.Tensor) -> torch.Tensor:
     return torch.ops.torch_sip.asd_blas_asum(x)
 
@@ -554,6 +517,78 @@ def npu_inv_backward(y: torch.Tensor, grad_y: torch.Tensor):
     y 为正向阶段 npu_inv(a) 在 no_grad 下的输出 (调用方保存到反传阶段); dy 为上游产生的 dL/dy。
     """
     return _npu_inv_impl.npu_inv_backward(y, grad_y)
+
+
+class _SolveFn(torch.autograd.Function):
+    """solve 的自动微分包装: 反向唤起 solve_backward。
+
+    反向解析式: gB = solve(Aᵀ, gX); gA = -(gB·Xᵀ)。
+    B 为广播形态 [1, n, nrhs] 时, gB 需沿 batch 维求和归约 (kernel 前向不展开 B)。
+    """
+
+    @staticmethod
+    def forward(ctx, A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
+        with torch.no_grad():
+            X = torch.ops.torch_sip.solve_forward(A, B)
+        ctx.b_bcast = B.dim() == 3 and B.size(0) == 1 and A.size(0) != 1
+        ctx.save_for_backward(A, X)
+        return X
+
+    @staticmethod
+    def backward(ctx, grad_X: torch.Tensor):
+        A, X = ctx.saved_tensors
+        gB, gA = torch.ops.torch_sip.solve_backward(A, X, grad_X)
+        if ctx.b_bcast:
+            gB = gB.sum(
+                dim=0, keepdim=True
+            )  # 广播 B 的梯度沿 batch 规约回 [1, n, nrhs]
+        return gA, gB  # 与 forward 入参 (A, B) 顺序一致
+
+
+def _solve_check(A: torch.Tensor, B: torch.Tensor) -> None:
+    """范围校验须在 op 调用之前: mki 异常后 OpCommand 会跳过后续 handler(返回假成功)."""
+    if A.size(0) < 1:
+        raise RuntimeError("solve: batch must be >= 1")
+    if A.size(1) < 2 or A.size(1) > 256:
+        raise RuntimeError(f"solve: n must be in [2, 256], got {A.size(1)}")
+    if B.size(2) < 1:
+        raise RuntimeError("solve: cols(nrhs) must be >= 1")
+    # 仅在 A/B 均为 3D 时比较 batch (结构/维度错误交由 C++ 绑定层拦截, 保持报错语义)
+    if A.dim() == 3 and B.dim() == 3 and B.size(0) != A.size(0) and B.size(0) != 1:
+        raise RuntimeError(
+            f"solve: B batch must be {A.size(0)} or 1 (broadcast), got {B.size(0)}"
+        )
+
+
+def _solve_materialize(x: torch.Tensor) -> torch.Tensor:
+    """非连续/带偏移视图转连续零偏移(同 _npu_inv_impl._materialize)."""
+    if not x.is_contiguous():
+        return x.contiguous()
+    if x.storage_offset() != 0:
+        return x.clone()
+    return x
+
+
+def solve(A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
+    """批量求解线性方程组 A·X = B (fp32, n∈[2,256]).
+
+    支持自动微分: A/B 任一 requires_grad 时走 _SolveFn (反向调 solve_backward);
+    无梯度需求时直通 solve_forward。直调 torch.ops 会绕过本层校验与物化.
+
+    B 的 batch 可为 1 (广播语义, kernel 直接支持, 不做 expand 展开), 输出 X 的 batch 跟随 A.
+
+    Args:
+        A: 系数矩阵 [batch, n, n]
+        B: 右端项 [batch|1, n, nrhs]
+    Returns:
+        X: 解 [batch, n, nrhs] (batch 跟随 A)
+    """
+    _solve_check(A, B)
+    A = _solve_materialize(A)
+    B = _solve_materialize(B)
+    if torch.is_grad_enabled() and (A.requires_grad or B.requires_grad):
+        return _SolveFn.apply(A, B)
+    return torch.ops.torch_sip.solve_forward(A, B)
 
 
 def solve_backward(A: torch.Tensor, X: torch.Tensor, gX: torch.Tensor) -> tuple:

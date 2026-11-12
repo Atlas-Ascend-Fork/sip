@@ -58,6 +58,7 @@ constexpr uint32_t SOLVE_MIN_N2_CHUNK = 8;
 //   [45 .. 84]  taskNum[core]     (LU 路径: 核的任务数, 任意两核差 <= 1)
 //   [85 .. 124] batchStart[core]    (N2 路径: 核的 batch 段起点)
 //   [125.. 164] batchNum[core]      (N2 路径: 核的 batch 段矩阵数)
+//   [165]       bBatch              B 的实际 batch(1=各矩阵共享 B[0], kernel 寻址时模减 batch 偏移)
 struct SolveTilingData {
     uint32_t n;
     uint32_t cols;
@@ -68,6 +69,7 @@ struct SolveTilingData {
     uint32_t taskNum[SOLVE_MAX_CORE_CNT];
     uint32_t batchStart[SOLVE_MAX_CORE_CNT];
     uint32_t batchNum[SOLVE_MAX_CORE_CNT];
+    uint32_t bBatch;
 };
 } // namespace AsdSip
 

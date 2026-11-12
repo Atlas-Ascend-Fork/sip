@@ -44,20 +44,36 @@ def _rel_stats(actual, ref):
     return rel.max().item(), rel.mean().item()
 
 
-def run_case(torch_sip, batch, n, nrhs, seed=42):
+def run_case(torch_sip, batch, n, nrhs, b_bcast=False, seed=42):
+    """前向对拍。b_bcast=True 时 B 传 [1, n, nrhs] 广播形态 (kernel 模减偏移寻址, 不做展开)。"""
     device = torch.device("npu:0")
     torch.npu.set_device(device)
 
     torch.manual_seed(seed)
     A = torch.randn(batch, n, n, dtype=torch.float32)
     A.diagonal(dim1=-2, dim2=-1).add_(3.0)  # 对角增强保证可逆
-    B = torch.randn(batch, n, nrhs, dtype=torch.float32)
+    B = torch.randn(1 if b_bcast else batch, n, nrhs, dtype=torch.float32)
 
     A_npu = A.to(device)
     B_npu = B.to(device)
 
     X_sip = torch_sip.solve(A_npu, B_npu)
-    X_ref = torch.linalg.solve(A, B)
+    X_ref = torch.linalg.solve(
+        A, B
+    )  # torch 参考同样按广播语义求解, X 为 [batch, n, nrhs]
+
+    shape_ok = tuple(X_sip.shape) == tuple(X_ref.shape)
+    if not shape_ok:
+        logger.error(
+            "[FAIL] batch=%d n=%d nrhs=%d b_bcast=%s: shape mismatch, got %s expect %s",
+            batch,
+            n,
+            nrhs,
+            b_bcast,
+            tuple(X_sip.shape),
+            tuple(X_ref.shape),
+        )
+        return False
 
     X_sip_cpu = X_sip.cpu()
     max_rel, mean_rel = _rel_stats(X_sip_cpu, X_ref)
@@ -65,26 +81,30 @@ def run_case(torch_sip, batch, n, nrhs, seed=42):
     passed = max_rel < 0.1 and mean_rel < 1e-3
     status = "PASS" if passed else "FAIL"
     logger.info(
-        "[%s] batch=%d n=%d nrhs=%d: maxRel=%.6g meanRel=%.6g",
+        "[%s] batch=%d n=%d nrhs=%d b_bcast=%s: maxRel=%.6g meanRel=%.6g",
         status,
         batch,
         n,
         nrhs,
+        b_bcast,
         max_rel,
         mean_rel,
     )
     return passed
 
 
-def run_backward_case(torch_sip, batch, n, nrhs, seed=42):
-    """反向对拍: 自动微分路径与手动 solve_backward 路径, 均与 fp32 解析参考比对。"""
+def run_backward_case(torch_sip, batch, n, nrhs, b_bcast=False, seed=42):
+    """反向对拍: 自动微分路径与手动 solve_backward 路径, 均与 fp32 解析参考比对。
+
+    b_bcast=True 时 B 为 [1, n, nrhs] 广播形态: 自动微分的 gB 需沿 batch 规约回 [1, n, nrhs]。
+    """
     device = torch.device("npu:0")
     torch.npu.set_device(device)
 
     torch.manual_seed(seed)
     A = torch.randn(batch, n, n, dtype=torch.float32)
     A.diagonal(dim1=-2, dim2=-1).add_(3.0)  # 对角增强保证可逆
-    B = torch.randn(batch, n, nrhs, dtype=torch.float32)
+    B = torch.randn(1 if b_bcast else batch, n, nrhs, dtype=torch.float32)
     gX = torch.randn(batch, n, nrhs, dtype=torch.float32)
 
     A_npu = A.to(device)
@@ -95,6 +115,8 @@ def run_backward_case(torch_sip, batch, n, nrhs, seed=42):
     X_ref = torch.linalg.solve(A, B)
     gB_ref = torch.linalg.solve(A.transpose(-2, -1), gX)
     gA_ref = -(gB_ref @ X_ref.transpose(-2, -1))
+    if b_bcast:
+        gB_ref = gB_ref.sum(dim=0, keepdim=True)  # 广播 B 的梯度沿 batch 规约
 
     # 路径①: 自动微分 (torch_sip.solve -> _SolveFn -> solve_backward)
     A_g = A_npu.clone().requires_grad_(True)
@@ -102,9 +124,11 @@ def run_backward_case(torch_sip, batch, n, nrhs, seed=42):
     torch_sip.solve(A_g, B_g).backward(gX_npu)
     gA_auto, gB_auto = A_g.grad.cpu(), B_g.grad.cpu()
 
-    # 路径②: 手动两阶段
+    # 路径②: 手动两阶段 (gB 需自行规约)
     X_man = torch_sip.solve(A_npu, B_npu)
     gB_man, gA_man = torch_sip.solve_backward(A_npu, X_man, gX_npu)
+    if b_bcast:
+        gB_man = gB_man.sum(dim=0, keepdim=True)
 
     passed = True
     for tag, gA_val, gB_val in (
@@ -112,17 +136,19 @@ def run_backward_case(torch_sip, batch, n, nrhs, seed=42):
         ("manual", gA_man.cpu(), gB_man.cpu()),
     ):
         for name, val, ref in (("gA", gA_val, gA_ref), ("gB", gB_val, gB_ref)):
+            shape_ok = tuple(val.shape) == tuple(ref.shape)
             max_rel, mean_rel = _rel_stats(val, ref)
-            ok = max_rel < 0.1 and mean_rel < 1e-3
+            ok = shape_ok and max_rel < 0.1 and mean_rel < 1e-3
             passed = passed and ok
             logger.info(
-                "[%s] bwd-%s-%s batch=%d n=%d nrhs=%d: maxRel=%.6g meanRel=%.6g",
+                "[%s] bwd-%s-%s batch=%d n=%d nrhs=%d b_bcast=%s: maxRel=%.6g meanRel=%.6g",
                 "PASS" if ok else "FAIL",
                 tag,
                 name,
                 batch,
                 n,
                 nrhs,
+                b_bcast,
                 max_rel,
                 mean_rel,
             )
@@ -152,9 +178,25 @@ def main():
     for batch, n, nrhs in cases:
         results.append(run_case(torch_sip, batch, n, nrhs))
 
+    # B batch=1 广播 (kernel 直接支持, 不做 expand 展开)
+    bcast_cases = [
+        (64, 2, 1),  # n=2 向量路径
+        (64, 2, 17),  # n=2 标量 chunk 路径
+        (16, 3, 3),  # 小 n LU 路径
+        (16, 3, 1000),  # LU 路径 + 多列块
+        (2, 96, 8),  # 分块 LU 路径(n>64)
+        (2, 256, 4),  # 分块 LU 上限
+    ]
+    for batch, n, nrhs in bcast_cases:
+        results.append(run_case(torch_sip, batch, n, nrhs, b_bcast=True))
+
     # 反向对拍: 自动微分 + 手动路径
     for batch, n, nrhs in [(4, 3, 4), (16, 5, 8), (4, 64, 4)]:
         results.append(run_backward_case(torch_sip, batch, n, nrhs))
+
+    # 反向对拍: B 广播形态 (gB 沿 batch 规约回 [1, n, nrhs])
+    for batch, n, nrhs in [(4, 3, 4), (16, 5, 8)]:
+        results.append(run_backward_case(torch_sip, batch, n, nrhs, b_bcast=True))
 
     total = len(results)
     passed = sum(results)

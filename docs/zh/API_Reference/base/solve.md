@@ -136,12 +136,12 @@ AsdSip::AspbStatus solve(
     <tr>
       <td>b（const aclTensor *）</td>
       <td>输入</td>
-      <td><ul><li>表示右端项矩阵，对应公式中的'B'。</li><li>数据类型仅支持FLOAT32，需与a一致。</li><li>shape为[batch, n, nrhs]，nrhs≥1。</li><li>batch维必须与a一致（不支持广播，需调用方先展开）。</li></ul></td>
+      <td><ul><li>表示右端项矩阵，对应公式中的'B'。</li><li>数据类型仅支持FLOAT32，需与a一致。</li><li>shape为[batch, n, nrhs]，nrhs≥1；batch&gt;1时batch维可为1（广播形态，各矩阵共享B<sub>0</sub>）。</li></ul></td>
     </tr>
     <tr>
       <td>x（aclTensor *）</td>
       <td>输出</td>
-      <td><ul><li>表示求解结果，对应公式中的'X'。</li><li>数据类型与shape均与b一致。</li></ul></td>
+      <td><ul><li>表示求解结果，对应公式中的'X'。</li><li>数据类型FLOAT32，shape为[batch, n, nrhs]（batch维与a一致；b为广播形态时，X的batch仍为a的batch）。</li></ul></td>
     </tr>
     <tr>
       <td>workspace（void *）</td>
@@ -165,7 +165,7 @@ AsdSip::AspbStatus solve(
   - 输入、输出张量均为3维ND格式，需为行主序连续内存（不支持非连续stride）。
   - 数据类型仅支持FLOAT32。
   - 矩阵阶数n支持[2, 256]；batch≥1；右端项列数nrhs≥1。
-  - 不支持batch维广播：b的batch维必须与a一致。
+  - b的batch维可为1（广播语义，kernel直接支持，无需调用方展开）：a的batch&gt;1时，各矩阵的B<sub>b</sub>均取B<sub>0</sub>；其余情况b的batch维必须与a一致。
   - a必须非奇异。算子不做奇异检测，奇异阵的结果未定义（与LAPACK行为一致）；近奇异矩阵精度随条件数下降，业务侧应保证输入非奇异。
   - workspace需求为0，传nullptr即可；n>64的大矩阵路径所需临时空间由算子内部管理。
 

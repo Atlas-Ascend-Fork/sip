@@ -113,6 +113,14 @@ AspbStatus SolveTiling(const LaunchParam& launchParam, KernelInfo& kernelInfo)
     tilingDataPtr->colBlkNum = colBlkNum;
     tilingDataPtr->useN2 = useN2 ? 1U : 0U;
 
+    // B 的实际 batch: 1 时 kernel 以模减偏移寻址共享 B[0] (广播), 满批量时恒等
+    const auto& bDims = launchParam.GetInTensor(1).desc.dims;
+    uint32_t bBatch = (bDims.size() >= 1) ? static_cast<uint32_t>(bDims[0]) : static_cast<uint32_t>(batch);
+    if (bBatch == 0U) { // 防御: kernel 以 bBatch 取模, 0 会导致除零
+        bBatch = 1U;
+    }
+    tilingDataPtr->bBatch = bBatch;
+
     kernelInfo.SetBlockDim(vecCoreNum);
     // 分块 LU 路径(n>64)为 in-place 分解申请 A 副本(不破坏输入张量)
     size_t scratch = 0;

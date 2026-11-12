@@ -24,8 +24,8 @@ namespace sip_pta {
  * @brief 批量线性方程组求解 A·X = B (fp32, n∈[2,256])
  *
  * @param A 系数矩阵 [batch, n, n]
- * @param B 右端项 [batch, n, nrhs]
- * @return X 解 [batch, n, nrhs]
+ * @param B 右端项 [batch|1, n, nrhs]; batch=1 时广播至 A 的 batch (kernel 原生支持, 不做展开)
+ * @return X 解 [batch, n, nrhs] (batch 跟随 A)
  */
 at::Tensor solve(const at::Tensor& A, const at::Tensor& B)
 {
@@ -34,12 +34,15 @@ at::Tensor solve(const at::Tensor& A, const at::Tensor& B)
 
     TORCH_CHECK(A.dim() == 3 && A.size(1) == A.size(2), "solve: A must be [batch, n, n], got dim ", A.dim());
 
-    TORCH_CHECK(B.dim() == 3 && B.size(0) == A.size(0) && B.size(1) == A.size(1),
-                "solve: B must be [batch, n, nrhs] with same batch/n as A.");
+    // B 的 batch 允许 =1 (广播, kernel 直接支持) 或与 A 一致
+    TORCH_CHECK(B.dim() == 3 && (B.size(0) == A.size(0) || B.size(0) == 1) && B.size(1) == A.size(1),
+                "solve: B must be [batch, n, nrhs] with same batch/n as A (B batch=1 broadcast is supported).");
 
     c10_npu::NPUGuard guard(A.device());
 
-    at::Tensor X = at::empty_like(B);
+    // X 的 batch 跟随 A: B 为广播形态 [1, n, nrhs] 时, 输出仍为 [batch, n, nrhs]
+    at::Tensor X = (B.size(0) == A.size(0)) ? at::empty_like(B) :
+                                              at::empty({A.size(0), B.size(1), B.size(2)}, B.options());
     auto sip_stream = c10_npu::getCurrentNPUStream().stream(false);
 
     size_t workspace_size = 0;

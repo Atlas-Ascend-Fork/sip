@@ -26,8 +26,9 @@ using namespace Mki;
 
 namespace {
 // host fp32 高斯消元(带部分主元) golden: 解 A·X = B(与 sip_pta/交付套件同 fp32 标杆)
+// bMats: B 的实际 batch(广播形态为 1, 各矩阵共享 B[0])
 void HostSolveGolden(const std::vector<float>& a, const std::vector<float>& b, uint32_t n, uint32_t nrhs,
-                     std::vector<float>& x)
+                     uint32_t bMats, std::vector<float>& x)
 {
     uint32_t m = a.size() / (n * n);
     x.assign(m * n * nrhs, 0.0f);
@@ -35,7 +36,10 @@ void HostSolveGolden(const std::vector<float>& a, const std::vector<float>& b, u
     std::vector<float> bw(b);
     for (uint32_t mi = 0; mi < m; mi++) {
         float* A = aw.data() + mi * n * n;
-        float* B = bw.data() + mi * n * nrhs;
+        // B batch 广播: 各矩阵共享 B[0], 消元会原地改写 → 每矩阵先拷贝自己的 B 段
+        std::vector<float> bSeg(bw.begin() + static_cast<int64_t>(mi % bMats) * n * nrhs,
+                                bw.begin() + (static_cast<int64_t>(mi % bMats) + 1) * n * nrhs);
+        float* B = bSeg.data();
         float* X = x.data() + mi * n * nrhs;
         for (uint32_t k = 0; k < n; k++) {
             uint32_t p = k;
@@ -86,30 +90,35 @@ struct CaseDesc {
     uint32_t n;
     uint32_t nrhs;
     double mereLimit; // 大N case 放宽至 1e-3: 大 batch 随机矩阵存在条件数尾部
+    bool bBcast;      // true: B 传 [1, n, nrhs] 广播形态 (kernel 模减偏移寻址, 不做展开)
 };
 
 // 需求 5 用例 + 大 N 用例 + 小 batch 负载均衡用例(全局块任务均分, batch < 核数)
 const CaseDesc g_cases[] = {
-    {"P0_[196,1000,2,2]x[196,1000,2,1]", 196000, 2, 1, 1e-4},
-    {"P1_[196,4,4]x[196,4,4]", 196, 4, 4, 1e-4},
-    {"P1_[196,3,3]x[1,3,16384]广播(展开)", 196, 3, 16384, 1e-4},
-    {"P2_[196,3,3]x[196,3,3]", 196, 3, 3, 1e-4},
-    {"P2_[196,3,3]x[1,3,1000]广播(展开)", 196, 3, 1000, 1e-4},
-    {"n16_[512,16,16]x[512,16,8]", 512, 16, 8, 1e-4},
-    {"n32_[256,32,32]x[256,32,4]", 256, 32, 4, 1e-4},
-    {"n64_[128,64,64]x[128,64,4]", 128, 64, 4, 1e-4},
-    {"n64_[64,64,64]x[64,64,512]分块", 64, 64, 512, 1e-4},
-    {"均衡_batch20_n3_nrhs1000", 20, 3, 1000, 1e-4},    // 40 块任务=核数, 每核恰 1 块
-    {"均衡_batch16_n64_nrhs4096", 16, 64, 4096, 1e-4},  // 352 块, 每核 8~9 块
-    {"均衡_n2大nrhs_fallback_LU", 64, 2, 100000, 1e-4}, // N2 超出 chunk 容量, 回落 LU 路径
-    {"n2_奇nrhs_51_对齐回归", 4, 2, 51, 1e-4},          // 奇cols×奇chunk 回归: xBuf 非 32B 对齐曾触发 fault
-    {"n2_奇nrhs_101_对齐回归", 91, 2, 101, 1e-4},       // 泛化测试发现的 X 全零缺陷(泛化 idx213)
-    {"n2_奇nrhs_181_对齐回归", 57, 2, 181, 1e-4},       // 泛化测试发现的 X 全零缺陷(泛化 idx269)
-    {"n2_奇nrhs_65_对齐回归", 8, 2, 65, 1e-4},          // 奇cols 边界
-    {"大N_n96_[64,96,96]x[64,96,8]", 64, 96, 8, 1e-3},  // 分块 LU(1.5 panel)
-    {"大N_n128_[32,128,128]x[32,128,4]", 32, 128, 4, 1e-3},         // 分块 LU(2 panel)
-    {"大N_n256_[8,256,256]x[8,256,4]", 8, 256, 4, 1e-3},            // 分块 LU(4 panel, 上限)
-    {"大N_n256_大cols_[4,256,256]x[4,256,300]", 4, 256, 300, 1e-3}, // 多列块 + 尾块
+    {"P0_[196,1000,2,2]x[196,1000,2,1]", 196000, 2, 1, 1e-4, false},
+    {"P1_[196,4,4]x[196,4,4]", 196, 4, 4, 1e-4, false},
+    {"P1_[196,3,3]x[1,3,16384]广播", 196, 3, 16384, 1e-4, true},
+    {"P2_[196,3,3]x[196,3,3]", 196, 3, 3, 1e-4, false},
+    {"P2_[196,3,3]x[1,3,1000]广播", 196, 3, 1000, 1e-4, true},
+    {"广播_n2vec_[200,2,2]x[1,2,1]", 200, 2, 1, 1e-4, true},    // n=2 向量路径(N2_VEC_GROUP 打包)
+    {"广播_n2标量_[64,2,2]x[1,2,17]", 64, 2, 17, 1e-4, true},   // n=2 标量 chunk 路径
+    {"广播_n96_[4,96,96]x[1,96,8]", 4, 96, 8, 1e-3, true},      // 分块 LU 路径(n>64)
+    {"广播_n256_[2,256,256]x[1,256,4]", 2, 256, 4, 1e-3, true}, // 分块 LU 上限
+    {"n16_[512,16,16]x[512,16,8]", 512, 16, 8, 1e-4, false},
+    {"n32_[256,32,32]x[256,32,4]", 256, 32, 4, 1e-4, false},
+    {"n64_[128,64,64]x[128,64,4]", 128, 64, 4, 1e-4, false},
+    {"n64_[64,64,64]x[64,64,512]分块", 64, 64, 512, 1e-4, false},
+    {"均衡_batch20_n3_nrhs1000", 20, 3, 1000, 1e-4, false},    // 40 块任务=核数, 每核恰 1 块
+    {"均衡_batch16_n64_nrhs4096", 16, 64, 4096, 1e-4, false},  // 352 块, 每核 8~9 块
+    {"均衡_n2大nrhs_fallback_LU", 64, 2, 100000, 1e-4, false}, // N2 超出 chunk 容量, 回落 LU 路径
+    {"n2_奇nrhs_51_对齐回归", 4, 2, 51, 1e-4, false},    // 奇cols×奇chunk 回归: xBuf 非 32B 对齐曾触发 fault
+    {"n2_奇nrhs_101_对齐回归", 91, 2, 101, 1e-4, false}, // 泛化测试发现的 X 全零缺陷(泛化 idx213)
+    {"n2_奇nrhs_181_对齐回归", 57, 2, 181, 1e-4, false}, // 泛化测试发现的 X 全零缺陷(泛化 idx269)
+    {"n2_奇nrhs_65_对齐回归", 8, 2, 65, 1e-4, false},    // 奇cols 边界
+    {"大N_n96_[64,96,96]x[64,96,8]", 64, 96, 8, 1e-3, false},              // 分块 LU(1.5 panel)
+    {"大N_n128_[32,128,128]x[32,128,4]", 32, 128, 4, 1e-3, false},         // 分块 LU(2 panel)
+    {"大N_n256_[8,256,256]x[8,256,4]", 8, 256, 4, 1e-3, false},            // 分块 LU(4 panel, 上限)
+    {"大N_n256_大cols_[4,256,256]x[4,256,300]", 4, 256, 300, 1e-3, false}, // 多列块 + 尾块
 };
 
 void RunSolveCase(const CaseDesc& cs, bool checkAccuracy, bool measurePerf)
@@ -117,8 +126,10 @@ void RunSolveCase(const CaseDesc& cs, bool checkAccuracy, bool measurePerf)
     const uint32_t batch = cs.batch;
     const uint32_t n = cs.n;
     const uint32_t nrhs = cs.nrhs;
+    const uint32_t bBatch = cs.bBcast ? 1U : batch; // B 广播形态仅 1 矩阵, kernel 共享 B[0]
     const size_t aElems = static_cast<size_t>(batch) * n * n;
-    const size_t bElems = static_cast<size_t>(batch) * n * nrhs;
+    const size_t bElems = static_cast<size_t>(bBatch) * n * nrhs;
+    const size_t xElems = static_cast<size_t>(batch) * n * nrhs; // X 输出恒为满 batch
 
     std::mt19937 rng(42);
     std::normal_distribution<double> norm(0.0, 1.0);
@@ -136,9 +147,10 @@ void RunSolveCase(const CaseDesc& cs, bool checkAccuracy, bool measurePerf)
         bHost[i] = static_cast<float>(norm(rng));
     }
 
-    std::vector<float> xHost(bElems, 0.0f);
+    std::vector<float> xHost(xElems, 0.0f);
     std::vector<int64_t> aShape = {static_cast<int64_t>(batch), static_cast<int64_t>(n), static_cast<int64_t>(n)};
-    std::vector<int64_t> bShape = {static_cast<int64_t>(batch), static_cast<int64_t>(n), static_cast<int64_t>(nrhs)};
+    std::vector<int64_t> bShape = {static_cast<int64_t>(bBatch), static_cast<int64_t>(n), static_cast<int64_t>(nrhs)};
+    std::vector<int64_t> xShape = {static_cast<int64_t>(batch), static_cast<int64_t>(n), static_cast<int64_t>(nrhs)};
 
     int deviceId = 0;
     MkiRtStream stream = OpTestInit(deviceId);
@@ -152,7 +164,7 @@ void RunSolveCase(const CaseDesc& cs, bool checkAccuracy, bool measurePerf)
     void* xDev = nullptr;
     ASSERT_EQ(CreateAclTensor(aHost, aShape, &aDev, aclDataType::ACL_FLOAT, &aclA), 0);
     ASSERT_EQ(CreateAclTensor(bHost, bShape, &bDev, aclDataType::ACL_FLOAT, &aclB), 0);
-    ASSERT_EQ(CreateAclTensor(xHost, bShape, &xDev, aclDataType::ACL_FLOAT, &aclX), 0);
+    ASSERT_EQ(CreateAclTensor(xHost, xShape, &xDev, aclDataType::ACL_FLOAT, &aclX), 0);
 
     AspbStatus st = solve(aclA, aclB, aclX, aclStream, nullptr);
     ASSERT_EQ(st, AsdSip::ErrorType::ACL_SUCCESS);
@@ -160,10 +172,10 @@ void RunSolveCase(const CaseDesc& cs, bool checkAccuracy, bool measurePerf)
 
     if (checkAccuracy) {
         ASSERT_EQ(
-            aclrtMemcpy(xHost.data(), bElems * sizeof(float), xDev, bElems * sizeof(float), ACL_MEMCPY_DEVICE_TO_HOST),
+            aclrtMemcpy(xHost.data(), xElems * sizeof(float), xDev, xElems * sizeof(float), ACL_MEMCPY_DEVICE_TO_HOST),
             ::ACL_SUCCESS);
         std::vector<float> golden;
-        HostSolveGolden(aHost, bHost, n, nrhs, golden);
+        HostSolveGolden(aHost, bHost, n, nrhs, bBatch, golden);
 
         double sumRel = 0.0;
         double maxRel = 0.0;
@@ -175,7 +187,7 @@ void RunSolveCase(const CaseDesc& cs, bool checkAccuracy, bool measurePerf)
         double worstAbs = 0.0;
         double worstGold = 0.0;
         double worstDev = 0.0;
-        for (size_t i = 0; i < bElems; i++) {
+        for (size_t i = 0; i < xElems; i++) {
             double d = static_cast<double>(xHost[i]);
             double g = static_cast<double>(golden[i]);
             // 分母地板 3e-3·rms: |g| 低于该水位时相对误差已由分母噪声主导
@@ -190,7 +202,7 @@ void RunSolveCase(const CaseDesc& cs, bool checkAccuracy, bool measurePerf)
                 worstDev = d;
             }
         }
-        double mere = sumRel / bElems;
+        double mere = sumRel / xElems;
         std::cout << "[solve][acc] " << cs.name << ": MERE=" << mere << " MARE=" << maxRel << " worst: dev=" << worstDev
                   << " gold=" << worstGold << " absErr=" << worstAbs << " absErr/rms=" << worstAbs / rms << std::endl;
         EXPECT_LT(mere, cs.mereLimit);
