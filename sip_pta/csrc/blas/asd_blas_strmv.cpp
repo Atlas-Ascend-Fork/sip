@@ -30,7 +30,11 @@ at::Tensor asdBlasStrmv(const at::Tensor& A, at::Tensor& x, int64_t uplo, int64_
     TORCH_CHECK(A.scalar_type() == at::kFloat && x.scalar_type() == at::kFloat,
                 "asd_blas_strmv: Tensors A and x must be of type Float32.");
     TORCH_CHECK(A.dim() == sip_pta::DIM_2 && A.size(0) == A.size(1), "asd_blas_strmv: Matrix A must be square.");
-    TORCH_CHECK(x.size(0) == A.size(0), "asd_blas_strmv: Dimensions of A and x must match.");
+    // x 维度校验（issue #390，对齐 ctrmv 口径）：原仅校验 x.size(0) == A.size(0)，
+    // 2 维 x（如 [n, 2]）只要第一维等于 n 即放行，内核按长度 n 的 1D 向量语义处理
+    // 2D 内存，结果静默错误
+    TORCH_CHECK(x.dim() == sip_pta::DIM_1 && x.size(0) == A.size(0),
+                "asd_blas_strmv: x must be 1D with length equal to A order.");
     c10::DeviceGuard guard(A.device());
     // 参数准备
     AsdSip::asdBlasFillMode_t uploEnum = static_cast<AsdSip::asdBlasFillMode_t>(uplo);

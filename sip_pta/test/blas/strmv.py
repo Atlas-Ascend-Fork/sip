@@ -16,14 +16,14 @@ import sys
 from dataclasses import dataclass
 
 import torch
-import torch_npu
+import torch_npu  # noqa: F401  # torch.npu 属性由 torch_npu 导入时注册，不可移除
 import torch_sip
 
 # 配置全局日志 (G.LOG.02)
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("torch_sip_strmv_test")
 
@@ -31,6 +31,7 @@ logger = logging.getLogger("torch_sip_strmv_test")
 @dataclass(frozen=True)
 class TrmvConfig:
     """参数对象：封装 STRMV 的所有维度、模式及名称配置"""
+
     n: int
     uplo: str = "L"
     trans: str = "N"
@@ -45,7 +46,9 @@ class StrmvTester:
         self.device = device
         blocking_env = os.getenv("ASCEND_LAUNCH_BLOCKING", "0")
         mode_str = "异步 (Async)" if blocking_env == "0" else "同步 (Blocking)"
-        logger.info("当前 NPU 运行模式: %s (ASCEND_LAUNCH_BLOCKING=%s)", mode_str, blocking_env)
+        logger.info(
+            "当前 NPU 运行模式: %s (ASCEND_LAUNCH_BLOCKING=%s)", mode_str, blocking_env
+        )
 
     @staticmethod
     def to_column_major(tensor: torch.Tensor) -> torch.Tensor:
@@ -87,8 +90,15 @@ class StrmvTester:
         # 4. 精度比对
         is_close = torch.allclose(vec_x.cpu(), ref_res, rtol=1e-3, atol=1e-3)
         status = "PASS" if is_close else "FAIL"
-        logger.info("[%s] V1 | N=%d | %s, %s, %s | %s",
-                    cfg.name, cfg.n, cfg.uplo, cfg.trans, cfg.diag, status)
+        logger.info(
+            "[%s] V1 | N=%d | %s, %s, %s | %s",
+            cfg.name,
+            cfg.n,
+            cfg.uplo,
+            cfg.trans,
+            cfg.diag,
+            status,
+        )
         return is_close
 
     def run_case_v2(self, cfg: TrmvConfig) -> bool:
@@ -127,8 +137,15 @@ class StrmvTester:
         # 4. 精度比对
         is_close = torch.allclose(vec_x.cpu(), ref_res, rtol=1e-3, atol=1e-3)
         status = "PASS" if is_close else "FAIL"
-        logger.info("[%s] V2 | N=%d | %s, %s, %s | %s",
-                    cfg.name, cfg.n, cfg.uplo, cfg.trans, cfg.diag, status)
+        logger.info(
+            "[%s] V2 | N=%d | %s, %s, %s | %s",
+            cfg.name,
+            cfg.n,
+            cfg.uplo,
+            cfg.trans,
+            cfg.diag,
+            status,
+        )
         return is_close
 
 
@@ -158,6 +175,32 @@ def main():
     logger.info("\n--- 执行 V2 (Row-Major/Transposed) 测试 ---")
     for config in test_suites:
         if not tester.run_case_v2(config):
+            all_passed = False
+
+    # x 维度负向用例（issue #390）：2 维 x（第一维恰好等于 A 的阶数 n）应在绑定层
+    # 报参数错误，不再静默按 1D 向量语义处理 2D 内存；并断言异常来自新增绑定层
+    # 校验（对齐 swap_last2_axes #370 口径，宽泛 except 会把其他来源错误误判为拦截生效）
+    logger.info("\n--- x dim negative cases (issue #390) ---")
+    mat_a = tester.to_column_major(
+        torch.randn((4, 4), dtype=torch.float32, device=tester.device)
+    )
+    for msg, x_shape in [
+        ("2D x [n, 1]", (4, 1)),
+        ("2D x [n, 2]", (4, 2)),
+    ]:
+        vec_x = torch.randn(x_shape, dtype=torch.float32, device=tester.device)
+        try:
+            torch_sip.asd_blas_strmv(mat_a, vec_x, "U", "N", "N")
+        except RuntimeError as exc:
+            if "must be 1D" not in str(exc):
+                logger.error(
+                    "  [FAIL] %s | unexpected error: %s...", msg, str(exc)[:80]
+                )
+                all_passed = False
+            else:
+                logger.info("  [PASS] %s 拦截成功: %s...", msg, str(exc)[:60])
+        else:
+            logger.error("  [FAIL] %s 未被拦截!", msg)
             all_passed = False
 
     logger.info("-" * 60)
