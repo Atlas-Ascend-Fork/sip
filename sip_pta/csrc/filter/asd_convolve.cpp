@@ -32,6 +32,13 @@ at::Tensor asdConvolve(const at::Tensor& signal, const at::Tensor& kernel)
                 "asd_convolve: Signal must be ComplexFloat or ComplexHalf.");
     TORCH_CHECK(kernel.scalar_type() == at::kFloat || kernel.scalar_type() == at::kHalf,
                 "asd_convolve: Kernel must be Float32 or Float16.");
+    // 精度配对校验（issue #387）：signal 与 kernel 精度须配对（ComplexFloat↔Float32、
+    // ComplexHalf↔Float16），交叉组合（如 ComplexFloat signal + Float16 kernel）下内核按
+    // kernel 元素宽度消费 signal 内存，结果错误或行为不确定
+    TORCH_CHECK((signal.scalar_type() == at::kComplexFloat && kernel.scalar_type() == at::kFloat) ||
+                    (signal.scalar_type() == at::kComplexHalf && kernel.scalar_type() == at::kHalf),
+                "asd_convolve: Signal and kernel dtypes must be paired: ComplexFloat with Float32, "
+                "or ComplexHalf with Float16.");
 
     // 维度校验：信号为 [Batch, n]，卷积核为 [k]
     TORCH_CHECK(signal.dim() == sip_pta::DIM_2, "asd_convolve: Signal must be a 2D tensor [BatchCount, n].");

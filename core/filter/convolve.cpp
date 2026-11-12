@@ -21,6 +21,7 @@ using namespace AsdSip;
 
 namespace AsdSip {
 
+constexpr uint64_t DIMS_ONE = 1;
 constexpr uint64_t DIMS_TWO = 2;
 constexpr uint64_t BASE_COL_BLOCK = 128;
 
@@ -57,7 +58,10 @@ AsdSip::AspbStatus asdConvolve(const aclTensor* signal, const aclTensor* kernel,
         aclGetStorageShape(static_cast<const aclTensor*>(kernel), &storageDims, &storageDimsNum),
         "asdConvolve: aclGetStorageShape");
     // 先判空再解引用（issue #245，同 signal 侧口径）
-    if (storageDims == nullptr || storageDimsNum < 1 || *storageDims <= 0 || storageDimsNum > DIMS_TWO) {
+    // kernel 维度契约收紧（issue #387）：文档约定滤波系数 shape 为 [k]（一维），原仅
+    // storageDimsNum > DIMS_TWO 才拒绝，1/2 维均放行且无条件取 storageDims[0]，2 维输入
+    // 被静默按第 0 维处理，结果整体错误且无报错；现按 [k] 契约只放行一维
+    if (storageDims == nullptr || storageDimsNum < 1 || *storageDims <= 0 || storageDimsNum != DIMS_ONE) {
         delete[] storageDims;
         storageDims = nullptr;
         ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH) << "asdConvolve get wrong inputs.";

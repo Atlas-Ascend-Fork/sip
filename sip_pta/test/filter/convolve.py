@@ -24,8 +24,8 @@ import torch_sip
 # 配置全局日志 (G.LOG.02)
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("torch_sip_convolve")
 
@@ -33,6 +33,7 @@ logger = logging.getLogger("torch_sip_convolve")
 @dataclass(frozen=True)
 class ConvConfig:
     """参数对象：封装卷积测试的维度、类型及名称配置"""
+
     batch: int
     signal_len: int
     kernel_len: int
@@ -52,7 +53,9 @@ class ConvolveTester:
     # --- Static Methods ---
 
     @staticmethod
-    def calculate_reference(u: torch.Tensor, v: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def calculate_reference(
+        u: torch.Tensor, v: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         k_len = v.shape[0]
         u_in = u.unsqueeze(1)
         v_in = v.flip(0).view(1, 1, -1).to(u.dtype)
@@ -66,6 +69,7 @@ class ConvolveTester:
     def debug_log_elements(npu: torch.Tensor, same: torch.Tensor, causal: torch.Tensor):
         def fmt(t):
             return " ".join([f"{x.real:6.2f}+{x.imag:5.2f}j" for x in t[0, :6]])
+
         logger.info("  [NPU Output ] %s", fmt(npu))
         logger.info("  [Ref (Same) ] %s", fmt(same))
         logger.info("  [Ref (Causal)] %s", fmt(causal))
@@ -73,6 +77,7 @@ class ConvolveTester:
     @staticmethod
     def log_section(title: str):
         logger.info("\n" + "=" * 20 + f" {title} " + "=" * 20)
+
     # --- Public Test APIs ---
 
     def run_case(self, cfg: ConvConfig) -> bool:
@@ -81,7 +86,9 @@ class ConvolveTester:
         G.ERR.01: 最小化 try 块。
         """
         # 1. 准备数据
-        signal = self._get_complex_signal((cfg.batch, cfg.signal_len), cfg.complex_dtype)
+        signal = self._get_complex_signal(
+            (cfg.batch, cfg.signal_len), cfg.complex_dtype
+        )
         kernel = self._get_real_kernel((cfg.kernel_len,), cfg.complex_dtype)
 
         # 2. 构建 CPU Reference
@@ -100,15 +107,22 @@ class ConvolveTester:
 
         # 4. 精度比对与模式识别
         npu_res_c64 = npu_out.cpu().to(torch.complex64)
-        rtol, atol = (1e-3, 1e-3) if cfg.complex_dtype == torch.complex64 else (1e-2, 1e-2)
+        rtol, atol = (
+            (1e-3, 1e-3) if cfg.complex_dtype == torch.complex64 else (1e-2, 1e-2)
+        )
 
         is_same = torch.allclose(npu_res_c64, ref_same, rtol=rtol, atol=atol)
         is_causal = torch.allclose(npu_res_c64, ref_causal, rtol=rtol, atol=atol)
 
         if is_same or is_causal:
             mode_tag = "Centered SAME" if is_same else "Causal Filter"
-            logger.info("[PASS] %-20s | 模式: %s | B=%d, L=%d",
-                        cfg.name, mode_tag, cfg.batch, cfg.signal_len)
+            logger.info(
+                "[PASS] %-20s | 模式: %s | B=%d, L=%d",
+                cfg.name,
+                mode_tag,
+                cfg.batch,
+                cfg.signal_len,
+            )
             return True
 
         # 失败处理
@@ -133,7 +147,11 @@ class ConvolveTester:
         ]
 
         for b, s, k, msg in error_suites:
-            sig = torch.randn((b, s), dtype=torch.float32).to(self.device).to(torch.complex64)
+            sig = (
+                torch.randn((b, s), dtype=torch.float32)
+                .to(self.device)
+                .to(torch.complex64)
+            )
             ker = torch.randn((k,), dtype=torch.float32).to(self.device)
 
             try:
@@ -147,17 +165,78 @@ class ConvolveTester:
                 logger.error("[FAIL] %s 未被拦截!", msg)
                 all_intercepted = False
 
+        # 2 维 kernel 与精度交叉组合负向用例（issue #387）：非 [k] 一维 kernel 与
+        # 未配对精度（ComplexFloat↔Float32、ComplexHalf↔Float16）均应在绑定层拦截。
+        # kernel 按用例 dtype 直接构造（_get_real_kernel 按 signal dtype 映射精度，
+        # 无法表达交叉组合）；并断言异常来自对应绑定层校验（对齐 swap_last2_axes
+        # #370 口径，宽泛 except 会把其他来源错误误判为拦截生效）
+        error_shape_dtype_suites = [
+            (
+                (1, 100),
+                (2, 16),
+                torch.complex64,
+                torch.float32,
+                "1D tensor",
+                "2 维 kernel 静默取 dims[0]",
+            ),
+            (
+                (1, 100),
+                (16,),
+                torch.complex64,
+                torch.float16,
+                "must be paired",
+                "ComplexFloat signal + Float16 kernel",
+            ),
+            (
+                (1, 100),
+                (16,),
+                torch.complex32,
+                torch.float32,
+                "must be paired",
+                "ComplexHalf signal + Float32 kernel",
+            ),
+        ]
+
+        for (
+            sig_shape,
+            ker_shape,
+            sig_dtype,
+            ker_dtype,
+            keyword,
+            msg,
+        ) in error_shape_dtype_suites:
+            sig = self._get_complex_signal(sig_shape, sig_dtype)
+            ker = torch.randn(ker_shape, dtype=ker_dtype).to(self.device)
+
+            try:
+                torch_sip.asd_convolve(sig, ker)
+            except RuntimeError as exc:
+                if keyword not in str(exc):
+                    logger.error(
+                        "[FAIL] %s | unexpected error: %s...", msg, str(exc)[:80]
+                    )
+                    all_intercepted = False
+                else:
+                    logger.info("[PASS] %s 拦截成功: %s...", msg, str(exc)[:50])
+            else:
+                logger.error("[FAIL] %s 未被拦截!", msg)
+                all_intercepted = False
+
         return all_intercepted
 
     # --- Internal Helpers ---
 
-    def _get_complex_signal(self, shape: Tuple[int, ...], dtype: torch.dtype) -> torch.Tensor:
+    def _get_complex_signal(
+        self, shape: Tuple[int, ...], dtype: torch.dtype
+    ) -> torch.Tensor:
         f_dtype = torch.float16 if dtype == torch.complex32 else torch.float32
         real = torch.randn(shape, dtype=f_dtype)
         imag = torch.randn(shape, dtype=f_dtype)
         return torch.complex(real, imag).to(self.device)
 
-    def _get_real_kernel(self, shape: Tuple[int, ...], dtype: torch.dtype) -> torch.Tensor:
+    def _get_real_kernel(
+        self, shape: Tuple[int, ...], dtype: torch.dtype
+    ) -> torch.Tensor:
         f_dtype = torch.float16 if dtype == torch.complex32 else torch.float32
         return torch.randn(shape, dtype=f_dtype).to(self.device)
 
