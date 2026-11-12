@@ -172,10 +172,19 @@ inline std::vector<std::string> get_default_custom_lib_path()
 
     std::ifstream ifs(vendors_config_file);
     std::string line;
+    // 匹配结果显式化（issue #388）：配置存在但不含 load_priority= 行时，原循环读完
+    // 整个文件不报错，line 残留最后一行内容被无条件盲切 14 字符，生成垃圾 vendor 名
+    // 拼出错误路径列表；现未匹配时按 config.ini 文件不存在分支的口径 WARN + 空列表
+    bool found = false;
     while (std::getline(ifs, line)) {
         if (line.find("load_priority=") == 0) {
+            found = true;
             break;
         }
+    }
+    if (!found) {
+        ASCEND_LOGW("load_priority not found in %s", vendors_config_file.c_str());
+        return std::vector<std::string>();
     }
     std::string head = "load_priority=";
     line.erase(0, head.length());
