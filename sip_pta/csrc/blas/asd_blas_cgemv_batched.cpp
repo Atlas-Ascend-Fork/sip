@@ -47,7 +47,9 @@ at::Tensor asdBlasCgemvBatched(const at::Tensor& A, const at::Tensor& x, at::Ten
     int64_t batchCount = A.size(0);
     int64_t m_val = y.size(1);
     int64_t n_val = x.size(1);
-    int64_t lda = 0; // 该算子下为无效参数
+    // lda 传真实 leading dimension（issue #385）：core 侧已收紧为 lda == m 显式拒绝，
+    // 原占位 0 会被正常路径拒绝；A 按 [batch, m, n] 连续布局，lda 即 m
+    int64_t lda = m_val;
 
     aclTensor* acl_a = CreateAclTensorFromAtTensor(A);
     std::vector<int64_t> params = {static_cast<int64_t>(opA), m_val};

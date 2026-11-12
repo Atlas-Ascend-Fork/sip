@@ -64,9 +64,9 @@ AspbStatus asdBlasCgerc(asdBlasHandle handle, const int64_t m, const int64_t n, 
                   ErrorType::ACL_ERROR_INVALID_PARAM);
     ASDSIP_ECHECK(incy > 0 && incy == 1, "blas asdBlasCgerc get incy <= 0 or != 1 (strided access not supported).",
                   ErrorType::ACL_ERROR_INVALID_PARAM);
-    if (lda <= 0) {
-        ASDSIP_LOG(ERROR) << "blas asdBlasCgerc get lda <= 0.";
-    }
+    // 非法 leading dimension 显式拒绝（issue #385，对齐本文件 incx/incy 显式拒绝口径）：
+    // 原 lda <= 0 仅打日志后继续执行，非法输入得到"成功"返回，结果静默错误
+    ASDSIP_ECHECK(lda > 0, "blas asdBlasCgerc get lda <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
 
     try {
         AsdSip::BlasCgercPlan& plan = dynamic_cast<AsdSip::BlasCgercPlan&>(BlasPlanCache::getPlan(handle));

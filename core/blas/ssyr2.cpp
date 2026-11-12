@@ -60,19 +60,12 @@ AspbStatus asdBlasSsyr2(asdBlasHandle handle, asdBlasFillMode_t uplo, const int6
         return ret;
     }
 
-    if (incx <= 0) {
-        ASDSIP_LOG(INFO) << "blas asdBlasSsyr2 get incx <= 0.";
-        incx = 1;
-    }
-
-    if (incy <= 0) {
-        ASDSIP_LOG(INFO) << "blas asdBlasSsyr2 get incy <= 0.";
-        incy = 1;
-    }
-
-    if (lda <= 0) {
-        ASDSIP_LOG(INFO) << "blas asdBlasSsyr2 get lda <= 0.";
-    }
+    // 非步长/leading dimension 显式拒绝（issue #385，对齐 asum/ssyr 显式拒绝口径）：
+    // 原 incx/incy <= 0 仅打 INFO 日志后静默改写为 1 继续计算并返回成功，用户输入的
+    // 参数与实际计算内容不对应，结果静默错误；lda <= 0 同样仅日志放行
+    ASDSIP_ECHECK(incx > 0, "blas asdBlasSsyr2 get incx <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
+    ASDSIP_ECHECK(incy > 0, "blas asdBlasSsyr2 get incy <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
+    ASDSIP_ECHECK(lda > 0, "blas asdBlasSsyr2 get lda <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
 
     try {
         AsdSip::BlasPlan& plan = dynamic_cast<AsdSip::BlasPlan&>(BlasPlanCache::getPlan(handle));
@@ -119,7 +112,8 @@ AspbStatus asdBlasMakeSsyr2Plan(asdBlasHandle handle)
         plan = new AsdSip::BlasPlan();
         if (!BlasPlanCache::MakePlan(handle, plan)) {
             delete plan;
-            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM) << "blas handle already bound to a plan, repeated initialization is not allowed.";
+            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM)
+                << "blas handle already bound to a plan, repeated initialization is not allowed.";
             return ErrorType::ACL_ERROR_INVALID_PARAM;
         }
     } catch (const std::exception& e) {

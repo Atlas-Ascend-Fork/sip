@@ -74,17 +74,11 @@ AspbStatus asdBlasStrmm(asdBlasHandle handle, asdBlasSideMode_t side, asdBlasFil
                       trans == asdBlasOperation_t::ASDBLAS_OP_C,
                   "blas asdBlasStrmm get invalid trans enum.", ErrorType::ACL_ERROR_INVALID_PARAM);
 
-    if (lda <= 0) {
-        ASDSIP_LOG(INFO) << "blas asdBlasStrmm get lda <= 0.";
-    }
-
-    if (ldb <= 0) {
-        ASDSIP_LOG(INFO) << "blas asdBlasStrmm get ldb <= 0.";
-    }
-
-    if (ldc <= 0) {
-        ASDSIP_LOG(INFO) << "blas asdBlasStrmm get ldc <= 0.";
-    }
+    // 非法 leading dimension 显式拒绝（issue #385，对齐 #345 枚举显式拒绝口径）：
+    // 原 lda/ldb/ldc <= 0 仅打日志后继续执行，非法输入得到"成功"返回，结果静默错误
+    ASDSIP_ECHECK(lda > 0, "blas asdBlasStrmm get lda <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
+    ASDSIP_ECHECK(ldb > 0, "blas asdBlasStrmm get ldb <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
+    ASDSIP_ECHECK(ldc > 0, "blas asdBlasStrmm get ldc <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
 
     try {
         AsdSip::BlasStrmmPlan& plan = dynamic_cast<AsdSip::BlasStrmmPlan&>(BlasPlanCache::getPlan(handle));

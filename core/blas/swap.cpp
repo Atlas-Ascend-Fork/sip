@@ -78,15 +78,10 @@ AspbStatus asdBlasSwapImpl(asdBlasHandle handle, SwapImplParam implParam, int64_
         storageDims = nullptr;
     }
 
-    if (implParam.incx <= 0) {
-        ASDSIP_LOG(INFO) << "blas asdBlasSwapImpl get incx <= 0.";
-        implParam.incx = 1;
-    }
-
-    if (implParam.incy <= 0) {
-        ASDSIP_LOG(INFO) << "blas asdBlasSwapImpl get incy <= 0.";
-        implParam.incy = 1;
-    }
+    // 非正步长显式拒绝（issue #385，对齐 asum/copy 显式拒绝口径）：原仅打 INFO 日志后
+    // 静默改写为 1 继续计算并返回成功，实际计算另一组连续元素，结果静默错误
+    ASDSIP_ECHECK(implParam.incx > 0, "blas asdBlasSwapImpl get incx <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
+    ASDSIP_ECHECK(implParam.incy > 0, "blas asdBlasSwapImpl get incy <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
 
     Status status;
     OpDesc opDesc;

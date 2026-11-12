@@ -182,17 +182,15 @@ AspbStatus asdBlasHCgemvBatched(asdBlasHandle handle, asdBlasOperation_t trans, 
     (void)beta;
     // aclGetDataType does not support complex32 now, so no check datatype.
     std::lock_guard<std::mutex> lock(blas_mtx);
-    if (lda <= 0) {
-        ASDSIP_LOG(INFO) << "blas asdBlasHCgemvBatched get lda <= 0.";
-    }
-
-    if (incx <= 0) {
-        ASDSIP_LOG(INFO) << "blas asdBlasHCgemvBatched get incx <= 0.";
-    }
-
-    if (incy <= 0) {
-        ASDSIP_LOG(INFO) << "blas asdBlasHCgemvBatched get incy <= 0.";
-    }
+    // 非步长/leading dimension 显式拒绝（issue #385，对齐 cgemv/cgerc !=1 拒绝口径）：
+    // 原仅打日志后继续执行；impl 按连续内存访问并整体丢弃 lda/incx/incy，仅拦 <=0
+    // 仍会放行合法语义但不被支持的不一致参数（如 incx=2、lda 不等于 m），一并显式拒绝
+    ASDSIP_ECHECK(lda == m, "blas asdBlasHCgemvBatched get lda != m (contiguous layout only).",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
+    ASDSIP_ECHECK(incx == 1, "blas asdBlasHCgemvBatched get incx != 1 (strided access not supported).",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
+    ASDSIP_ECHECK(incy == 1, "blas asdBlasHCgemvBatched get incy != 1 (strided access not supported).",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
     return asdBlasCgemvBatchedImpl(handle, {trans, asdDataType_t::ASD_C_32F, m, n, batchCount, A, x, y});
 }
 
@@ -217,17 +215,15 @@ AspbStatus asdBlasCgemvBatched(asdBlasHandle handle, asdBlasOperation_t trans, c
     ASDSIP_ECHECK(dataType == aclDataType::ACL_COMPLEX64, "blas asdBlasCgemvBatched get wrong A tensor dtype.",
                   ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
 
-    if (lda <= 0) {
-        ASDSIP_LOG(INFO) << "blas asdBlasCgemvBatched get lda <= 0.";
-    }
-
-    if (incx <= 0) {
-        ASDSIP_LOG(INFO) << "blas asdBlasCgemvBatched get incx <= 0.";
-    }
-
-    if (incy <= 0) {
-        ASDSIP_LOG(INFO) << "blas asdBlasCgemvBatched get incy <= 0.";
-    }
+    // 非步长/leading dimension 显式拒绝（issue #385，对齐 cgemv/cgerc !=1 拒绝口径）：
+    // 原仅打日志后继续执行；impl 按连续内存访问并整体丢弃 lda/incx/incy，仅拦 <=0
+    // 仍会放行合法语义但不被支持的不一致参数（如 incx=2、lda 不等于 m），一并显式拒绝
+    ASDSIP_ECHECK(lda == m, "blas asdBlasCgemvBatched get lda != m (contiguous layout only).",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
+    ASDSIP_ECHECK(incx == 1, "blas asdBlasCgemvBatched get incx != 1 (strided access not supported).",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
+    ASDSIP_ECHECK(incy == 1, "blas asdBlasCgemvBatched get incy != 1 (strided access not supported).",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
     return asdBlasCgemvBatchedImpl(handle, {trans, asdDataType_t::ASD_C_64F, m, n, batchCount, A, x, y});
 }
 

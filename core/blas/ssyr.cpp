@@ -67,9 +67,9 @@ AspbStatus asdBlasSsyr(asdBlasHandle handle, asdBlasFillMode_t uplo, const int64
     ASDSIP_ECHECK(incx > 0, "blas asdBlasSsyr get incx <= 0 (negative stride not supported).",
                   ErrorType::ACL_ERROR_INVALID_PARAM);
 
-    if (lda <= 0) {
-        ASDSIP_LOG(INFO) << "blas asdBlasSsyr get lda <= 0.";
-    }
+    // 非法 leading dimension 显式拒绝（issue #385，对齐本文件 incx 显式拒绝口径）：
+    // 原 lda <= 0 仅打日志后继续执行，非法输入得到"成功"返回，结果静默错误
+    ASDSIP_ECHECK(lda > 0, "blas asdBlasSsyr get lda <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
 
     try {
         AsdSip::BlasPlan& plan = dynamic_cast<AsdSip::BlasPlan&>(BlasPlanCache::getPlan(handle));
