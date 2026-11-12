@@ -181,7 +181,9 @@ def copy_tbe_code_all_version(input_paras):
             items = dict(input_paras["tbe_ini"].items(op_name))
             for op_key, relative_op_path in items.items():
                 if "." in op_key:
-                    op_key, version_op_key = op_key.split(".")
+                    # 版本号在最后一个点号之后（生成侧为 tactic_name + "." + target_version
+                    # 拼接，tactic 名本身可含点号），rsplit 保证多点号 key 不再解包失败（issue #389）
+                    op_key, version_op_key = op_key.rsplit(".", 1)
                     if version_op_key != target_version:
                         continue
 
