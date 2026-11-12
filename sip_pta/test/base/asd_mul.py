@@ -13,13 +13,13 @@ See LICENSE in the root of the software repository for the full text of the Lice
 import logging
 import sys
 import torch
-import torch_npu
+import torch_npu  # noqa: F401  # torch.npu 属性由 torch_npu 导入时注册，不可移除
 
 # 配置全局日志
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("torch_sip_test")
 
@@ -30,6 +30,7 @@ def get_torch_sip():
     """
     try:
         import torch_sip
+
         logger.info("✓ torch_sip module loaded successfully.")
         return torch_sip
     except ImportError as e:
@@ -48,7 +49,7 @@ def initialize_npu():
     if not torch.npu.is_available():
         raise RuntimeError("NPU is not available. This test requires NPU hardware.")
 
-    device = torch.device('npu:0')
+    device = torch.device("npu:0")
     torch.npu.set_device(device)
     logger.info("✓ NPU initialized. Using device: %s", device)
     return device
@@ -80,8 +81,12 @@ def test_asd_mul(torch_sip, device):
 
     # 构造输入数据
     shape = (4, 4)
-    x = torch.complex(torch.randn(shape, device=device), torch.randn(shape, device=device))
-    y = torch.complex(torch.randn(shape, device=device), torch.randn(shape, device=device))
+    x = torch.complex(
+        torch.randn(shape, device=device), torch.randn(shape, device=device)
+    )
+    y = torch.complex(
+        torch.randn(shape, device=device), torch.randn(shape, device=device)
+    )
 
     logger.info("Input tensors: shape=%s, dtype=%s", x.shape, x.dtype)
 
@@ -90,6 +95,60 @@ def test_asd_mul(torch_sip, device):
     result = torch_sip.asd_mul(x, y)
 
     return verify_complex_mul(result, expected)
+
+
+def test_asd_mul_negative(torch_sip, device):
+    """
+    一致性校验负向用例（issue #384）：形状/dtype/设备不一致的输入应在绑定层
+    报参数错误，不再下传内核（y 元素数不足时存在设备侧越界读风险）。
+    """
+    logger.info("-" * 40)
+    logger.info("Testing asd_mul negative cases (issue #384)...")
+
+    all_intercepted = True
+    shape = (4, 4)
+    x = torch.complex(
+        torch.randn(shape, device=device), torch.randn(shape, device=device)
+    )
+
+    negative_suites = [
+        (
+            "shape mismatch (y [2,4] vs x [4,4])",
+            "must have the same shape",
+            torch.complex(
+                torch.randn((2, 4), device=device), torch.randn((2, 4), device=device)
+            ),
+        ),
+        (
+            "dtype mismatch (y float32 vs x complex64)",
+            "must have the same dtype",
+            torch.randn(shape, device=device),
+        ),
+        (
+            "device mismatch (y on CPU vs x on NPU)",
+            "must be on the same device",
+            torch.complex(torch.randn(shape), torch.randn(shape)),
+        ),
+    ]
+
+    for msg, keyword, y in negative_suites:
+        try:
+            torch_sip.asd_mul(x, y)
+        except RuntimeError as exc:
+            # 断言异常来自新增绑定层校验（对齐 swap_last2_axes #370 口径）：
+            # 宽泛 except 会把内核/aclnn 侧的设备错误误判为校验生效
+            if keyword not in str(exc):
+                logger.error(
+                    "  [FAIL] %s | unexpected error: %s...", msg, str(exc)[:80]
+                )
+                all_intercepted = False
+            else:
+                logger.info("  [PASS] %s 拦截成功: %s...", msg, str(exc)[:60])
+        else:
+            logger.error("  [FAIL] %s 未被拦截!", msg)
+            all_intercepted = False
+
+    return all_intercepted
 
 
 def main():
@@ -106,6 +165,7 @@ def main():
 
         # 2. 运行测试用例
         success = test_asd_mul(sip_module, npu_device)
+        success = test_asd_mul_negative(sip_module, npu_device) and success
 
         # 3. 汇总结果
         logger.info("=" * 40)
