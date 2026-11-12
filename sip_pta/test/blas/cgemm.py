@@ -17,22 +17,25 @@ from dataclasses import dataclass
 from typing import Tuple, Union
 
 import torch
-import torch_npu
+import torch_npu  # noqa: F401  # torch.npu 属性由 torch_npu 导入时注册，不可移除
 import torch_sip
 
 # 配置全局日志
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger("torch_sip_cgemm")
 
 
 @dataclass(frozen=True)
 class GemmConfig:
     """参数对象：封装 GEMM 的所有维度和模式配置"""
+
     m: int
     n: int
     k: int
-    trans_a: str = 'N'
-    trans_b: str = 'N'
+    trans_a: str = "N"
+    trans_b: str = "N"
     alpha: Union[complex, float] = 1.0
     beta: Union[complex, float] = 0.0
     name: str = "Case"
@@ -62,8 +65,8 @@ class CgemmComprehensiveTester:
 
     def run_case(self, cfg: GemmConfig) -> bool:
         # 1. 数据准备 (利用 cfg 属性)
-        shape_a = (cfg.k, cfg.m) if cfg.trans_a.upper() != 'N' else (cfg.m, cfg.k)
-        shape_b = (cfg.n, cfg.k) if cfg.trans_b.upper() != 'N' else (cfg.k, cfg.n)
+        shape_a = (cfg.k, cfg.m) if cfg.trans_a.upper() != "N" else (cfg.m, cfg.k)
+        shape_b = (cfg.n, cfg.k) if cfg.trans_b.upper() != "N" else (cfg.k, cfg.n)
 
         mat_a = self.get_complex_mat(shape_a)
         mat_b = self.get_complex_mat(shape_b)
@@ -86,7 +89,7 @@ class CgemmComprehensiveTester:
         # 3. CPU 参考计算
         def apply_op(m, op):
             op = op.upper()
-            return m.t() if op == 'T' else (m.conj().t() if op == 'C' else m)
+            return m.t() if op == "T" else (m.conj().t() if op == "C" else m)
 
         a_ref = apply_op(mat_a.cpu(), cfg.trans_a)
         b_ref = apply_op(mat_b.cpu(), cfg.trans_b)
@@ -113,12 +116,14 @@ def main():
 
         # 构造配置对象 (解决参数过多问题)
         config = GemmConfig(
-            m=m, n=n, k=k,
+            m=m,
+            n=n,
+            k=k,
             alpha=tester.get_random_scalar(),
             beta=tester.get_random_scalar(),
-            trans_a=random.choice(['N', 'T', 'C']),
-            trans_b=random.choice(['N', 'T', 'C']),
-            name=f"Iter_{iteration}"
+            trans_a=random.choice(["N", "T", "C"]),
+            trans_b=random.choice(["N", "T", "C"]),
+            name=f"Iter_{iteration}",
         )
 
         if tester.run_case(config):
@@ -127,7 +132,63 @@ def main():
         if (iteration - 1) % 100 == 0:
             logger.info("Progress: %d/100 cases finished.", iteration)
 
-    return 0 if pass_count == iteration else 1
+    # 枚举域与形状一致性负向用例（issue #386）：非法 trans、非 2 维 A、B/C 与
+    # m/n/k 不匹配均应在绑定层报参数错误，不再静默下传内核。
+    # 包装层 trans 入参为字符串（"N"/"T"/"C"），非法枚举分两层验证：
+    # 包装层非法字符串报 ValueError；绕过包装层直连 torch.ops 传越界 int
+    # 触达 C++ 侧 TORCH_CHECK 报 RuntimeError（int 入参走包装层会先在
+    # _get_trans_enum 处 AttributeError，测不到 C++ 校验）
+    logger.info("-" * 60)
+    logger.info("Enum/shape negative cases (issue #386):")
+    mat_a = tester.get_complex_mat((4, 8))
+    mat_b = tester.get_complex_mat((8, 6))
+    mat_c = tester.get_complex_mat((4, 6))
+    a_in = tester.to_column_major(mat_a)
+    b_in = tester.to_column_major(mat_b)
+    c_in = tester.to_column_major(mat_c)
+
+    all_intercepted = True
+
+    # 包装层枚举域：非法字符串在包装层报 ValueError
+    try:
+        torch_sip.asd_blas_cgemm(a_in, b_in, c_in, 1.0, 0.0, "X", "N")
+    except ValueError as exc:
+        logger.info(
+            "  [PASS] invalid trans_a='X' (wrapper) 拦截成功: %s...", str(exc)[:60]
+        )
+    else:
+        logger.error("  [FAIL] invalid trans_a='X' 未被拦截!")
+        all_intercepted = False
+
+    # C++ 侧枚举域：直连 torch.ops 传越界 int，触达 C++ TORCH_CHECK
+    for msg, t_a, t_b in [
+        ("invalid transA=42 (torch.ops)", 42, 0),
+        ("invalid transB=42 (torch.ops)", 0, 42),
+    ]:
+        try:
+            torch.ops.torch_sip.asd_blas_cgemm(a_in, b_in, c_in, 1.0, 0.0, t_a, t_b)
+        except RuntimeError as exc:
+            logger.info("  [PASS] %s 拦截成功: %s...", msg, str(exc)[:60])
+        else:
+            logger.error("  [FAIL] %s 未被拦截!", msg)
+            all_intercepted = False
+
+    # 形状不匹配：合法枚举经包装层下传，触达 C++ 形状校验
+    negative_shape_suites = [
+        ("3D A", tester.get_complex_mat((2, 4, 8)), mat_b, mat_c),
+        ("B k-dim mismatch", mat_a, tester.get_complex_mat((16, 6)), mat_c),
+        ("C shape mismatch", mat_a, mat_b, tester.get_complex_mat((4, 8))),
+    ]
+    for msg, a_neg, b_neg, c_neg in negative_shape_suites:
+        try:
+            torch_sip.asd_blas_cgemm(a_neg, b_neg, c_neg, 1.0, 0.0, "N", "N")
+        except RuntimeError as exc:
+            logger.info("  [PASS] %s 拦截成功: %s...", msg, str(exc)[:60])
+        else:
+            logger.error("  [FAIL] %s 未被拦截!", msg)
+            all_intercepted = False
+
+    return 0 if pass_count == iteration and all_intercepted else 1
 
 
 if __name__ == "__main__":

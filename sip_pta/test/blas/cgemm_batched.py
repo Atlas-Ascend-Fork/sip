@@ -182,14 +182,27 @@ def main():
     # 错位；修复后基址取 data_ptr()，切片视图结果应与整块物化后切片一致（bit 级）
     logger.info("-" * 50)
     logger.info("Contiguous slice-view case (issue #368):")
-    big_a = torch.randn(6, 8, 16, dtype=torch.complex64, device="npu")
-    big_b = torch.randn(6, 16, 24, dtype=torch.complex64, device="npu")
-    big_c = torch.randn(6, 8, 24, dtype=torch.complex64, device="npu")
+    # 张量构造对齐本文件 get_complex_mat_3d 的 float 实部/虚部模式：
+    # torch.randn 直接以 complex64 在 NPU 上创建时 aclnnInplaceNormal 不支持
+    # DT_COMPLEX64（torch_npu 2.10 实测报 161002），complex 张量经 CPU 构造后搬运
+    # trans 入参对齐包装层字符串契约（int 会先在 _get_trans_enum 处 AttributeError）
+    big_a = torch.complex(
+        torch.randn(6, 8, 16, dtype=torch.float32),
+        torch.randn(6, 8, 16, dtype=torch.float32),
+    ).to("npu")
+    big_b = torch.complex(
+        torch.randn(6, 16, 24, dtype=torch.float32),
+        torch.randn(6, 16, 24, dtype=torch.float32),
+    ).to("npu")
+    big_c = torch.complex(
+        torch.randn(6, 8, 24, dtype=torch.float32),
+        torch.randn(6, 8, 24, dtype=torch.float32),
+    ).to("npu")
     a_view = big_a[2:]  # [4, 8, 16] 连续视图，storage_offset != 0
     b_view = big_b[2:]
     c_view = big_c[2:].clone()
     torch_sip.asd_blas_cgemm_batched(
-        a_view, b_view, c_view, alpha=1.0, beta=0.0, trans_a=0, trans_b=0
+        a_view, b_view, c_view, alpha=1.0, beta=0.0, trans_a="N", trans_b="N"
     )
     c_ref = big_c[2:].clone()
     torch_sip.asd_blas_cgemm_batched(
@@ -198,8 +211,8 @@ def main():
         c_ref,
         alpha=1.0,
         beta=0.0,
-        trans_a=0,
-        trans_b=0,
+        trans_a="N",
+        trans_b="N",
     )
     if torch.equal(c_view.cpu(), c_ref.cpu()):
         logger.info("  - slice-view cgemm_batched: PASSED (bit-exact)")
@@ -208,6 +221,63 @@ def main():
             "  - slice-view cgemm_batched: FAILED | slice view result mismatch"
         )
         all_passed = False
+
+    # 形状一致性负向用例（issue #386）：批数不一致与 k/m/n 不匹配均应在绑定层
+    # 报参数错误，不再按 C 侧 batchCount 静默下传（batch 不一致时存在越界读风险）。
+    # 包装层 trans 入参为字符串，合法 "N" 经包装层下传触达 C++ 形状校验
+    logger.info("-" * 50)
+    logger.info("Shape negative cases (issue #386):")
+    negative_suites = [
+        (
+            "batch count mismatch (A/B [4] vs C [2])",
+            (4, 8, 16),
+            (4, 16, 24),
+            (2, 8, 24),
+        ),
+        (
+            "k mismatch (A.size(2)=16 vs B.size(1)=12)",
+            (2, 8, 16),
+            (2, 12, 24),
+            (2, 8, 24),
+        ),
+        (
+            "n mismatch (B.size(2)=24 vs C.size(2)=16)",
+            (2, 8, 16),
+            (2, 16, 24),
+            (2, 8, 16),
+        ),
+        (
+            "m mismatch (A.size(1)=8 vs C.size(1)=4)",
+            (2, 8, 16),
+            (2, 16, 24),
+            (2, 4, 24),
+        ),
+    ]
+
+    for msg, a_shape, b_shape, c_shape in negative_suites:
+        # complex 张量经 float 实部/虚部构造后搬运：aclnnInplaceNormal 不支持
+        # DT_COMPLEX64（torch_npu 2.10 实测 161002），见上方切片用例同款注释
+        a_neg = torch.complex(
+            torch.randn(a_shape, dtype=torch.float32),
+            torch.randn(a_shape, dtype=torch.float32),
+        ).to("npu")
+        b_neg = torch.complex(
+            torch.randn(b_shape, dtype=torch.float32),
+            torch.randn(b_shape, dtype=torch.float32),
+        ).to("npu")
+        c_neg = torch.complex(
+            torch.randn(c_shape, dtype=torch.float32),
+            torch.randn(c_shape, dtype=torch.float32),
+        ).to("npu")
+        try:
+            torch_sip.asd_blas_cgemm_batched(
+                a_neg, b_neg, c_neg, alpha=1.0, beta=0.0, trans_a="N", trans_b="N"
+            )
+        except RuntimeError as exc:
+            logger.info("  [PASS] %s 拦截成功: %s...", msg, str(exc)[:60])
+        else:
+            logger.error("  [FAIL] %s 未被拦截!", msg)
+            all_passed = False
 
     logger.info("-" * 50)
     if all_passed:

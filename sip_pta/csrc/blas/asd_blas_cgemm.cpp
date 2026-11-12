@@ -28,6 +28,16 @@ at::Tensor asdBlasCgemm(const at::Tensor& A, const at::Tensor& B, at::Tensor& C,
                     C.scalar_type() == at::kComplexFloat,
                 "asd_blas_cgemm: Only ComplexFloat (Complex64) tensors are supported.");
 
+    // 枚举域与维度校验（issue #386，对齐 cgemv/#372 口径）：transA/transB 仅允许
+    // {0,1,2}，A/B/C 必须为 2 维；非法枚举经 static_cast 后 opA/opB 比较结果不确定，
+    // m/n/k/lda 推导随之错乱，不再静默下传内核
+    TORCH_CHECK(transA == 0 || transA == 1 || transA == 2, "asd_blas_cgemm: transA must be 0 (N), 1 (T) or 2 (C), got ",
+                transA);
+    TORCH_CHECK(transB == 0 || transB == 1 || transB == 2, "asd_blas_cgemm: transB must be 0 (N), 1 (T) or 2 (C), got ",
+                transB);
+    TORCH_CHECK(A.dim() == 2 && B.dim() == 2 && C.dim() == 2, "asd_blas_cgemm: A/B/C must be 2D, got A.dim()=", A.dim(),
+                " B.dim()=", B.dim(), " C.dim()=", C.dim());
+
     c10_npu::NPUGuard guard(A.device());
 
     // 处理转置枚举转换
@@ -41,6 +51,17 @@ at::Tensor asdBlasCgemm(const at::Tensor& A, const at::Tensor& B, at::Tensor& C,
     int64_t n = C.size(1);
 
     int64_t k = (opA == AsdSip::asdBlasOperation_t::ASDBLAS_OP_N) ? A.size(1) : A.size(0);
+
+    // 形状一致性校验（issue #386）：m/n 取自 C、k 由 A 按 trans 推导，B 的 k/n 对应维
+    // 须与 transB 语义一致，B/C 不匹配时按错误 ldb/k 下传内核，结果静默错误
+    TORCH_CHECK((opA == AsdSip::asdBlasOperation_t::ASDBLAS_OP_N) ? (m == A.size(0) && k == A.size(1)) :
+                                                                    (m == A.size(1) && k == A.size(0)),
+                "asd_blas_cgemm: A shape [", A.size(0), ", ", A.size(1), "] does not match transA=", transA,
+                " with C [", m, ", ", n, "]");
+    TORCH_CHECK((opB == AsdSip::asdBlasOperation_t::ASDBLAS_OP_N) ? (k == B.size(0) && n == B.size(1)) :
+                                                                    (k == B.size(1) && n == B.size(0)),
+                "asd_blas_cgemm: B shape [", B.size(0), ", ", B.size(1), "] does not match transB=", transB,
+                " with k=", k, " and C [", m, ", ", n, "]");
 
     // 设置 Leading Dimensions (主维步长)
     int64_t lda = A.size(0);
