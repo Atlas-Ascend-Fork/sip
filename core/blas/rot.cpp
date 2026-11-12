@@ -63,6 +63,14 @@ AspbStatus asdBlasRotImpl(OpParam::Rot::RotType rotType, asdBlasHandle handle, R
 
     CHECK_STATUS_WITH_ACL_RETURN(aclGetStorageShape(implParam.y, &storageDims, &rotStorageDimsNum),
                                  "asdBlasRotImpl: aclGetStorageShape");
+    // 先判空再解引用（issue #383）：y 侧原缺 0 维判空防护，0 维（标量）张量 dimsNum=0
+    // 且 dims 可能为空指针，直接解引用有宿主崩溃风险（对齐本文件 x 侧口径补齐）
+    if (storageDims == nullptr || rotStorageDimsNum < 1) {
+        delete[] storageDims;
+        storageDims = nullptr;
+        ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH) << "asdBlasRotImpl get 0-dim tensor.";
+        return ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH;
+    }
     if (*storageDims * COMPLEX_NUM != implParam.elementCount) {
         delete[] storageDims;
         storageDims = nullptr;

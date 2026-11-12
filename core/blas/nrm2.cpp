@@ -47,15 +47,15 @@ AspbStatus asdBlasNrm2Impl(asdBlasHandle handle, const int64_t n, aclTensor* x, 
 
     CHECK_STATUS_WITH_ACL_RETURN(aclGetStorageShape(result, &storageDims, &nrm2StorageDimsNum),
                                  "asdBlasNrm2Impl: aclGetStorageShape");
-    if (*storageDims != RESULT_SIZE) { // 先判空再解引用（issue #343）：0 维（标量）张量 dimsNum=0 且 dims 为空指针，
-        // 对齐 asdInterpWithCoeff/convolve 的 #245 口径，正常路径零改动
-        if (storageDims == nullptr || nrm2StorageDimsNum < 1) {
-            delete[] storageDims;
-            storageDims = nullptr;
-            ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH) << "asdBlasNrm2Impl get 0-dim tensor.";
-            return ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH;
-        }
-
+    // 先判空再解引用（issue #383）：0 维（标量）张量 dimsNum=0 且 dims 可能为空指针，
+    // 判空必须位于解引用之前才可达（对齐本文件 x 侧口径，正常路径零改动）
+    if (storageDims == nullptr || nrm2StorageDimsNum < 1) {
+        delete[] storageDims;
+        storageDims = nullptr;
+        ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH) << "asdBlasNrm2Impl get 0-dim tensor.";
+        return ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH;
+    }
+    if (*storageDims != RESULT_SIZE) {
         delete[] storageDims;
         storageDims = nullptr;
         ASDSIP_ELOG(ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH) << "blas asdBlasNrm2Impl get wrong result tensor num.";
