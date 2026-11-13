@@ -15,6 +15,12 @@
 #include "utils/mem_base.h"
 
 namespace AsdSip {
+extern "C" {
+AspbStatus asdKaiserWindowGetWorkspaceSize(size_t* workspaceSize);
+AspbStatus asdKaiserWindow(aclTensor* outTensor, int64_t windowLength, bool periodic, double beta, void* stream,
+                           void* workspace);
+}
+
 AsdSip::AspbStatus swapLast2AxesGetWorkspaceSize(size_t& size);
 
 AsdSip::AspbStatus swapLast2Axes(const aclTensor* inTensor, aclTensor* outTensor, void* stream,

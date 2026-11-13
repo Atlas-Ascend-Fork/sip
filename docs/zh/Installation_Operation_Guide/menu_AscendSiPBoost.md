@@ -11,6 +11,7 @@
     <!-- end id2 -->
     <!-- npu="950,A3,910b" id1 -->
     - [asdMul](../API_Reference/base/asdMul.md)
+    - [asdKaiserWindow](../API_Reference/base/asdKaiserWindow.md)
     <!-- end id1 -->
   - [BLAS](./BLAS.md)
     - [BLAS公共接口](../API_Reference/BLAS/BLAS公共接口.md)

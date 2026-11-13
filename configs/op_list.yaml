@@ -8,6 +8,11 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # -----------------------------------------------------------------------------------------------------------
 
+KaiserWindowOperation:
+    KaiserWindowKernel:
+        ascend910b: true
+    KaiserWindowArch35Kernel:
+        ascend950: true
 AsumOperation:
     SasumF32Kernel:
         ascend910b: true

@@ -12,7 +12,7 @@ See LICENSE in the root of the software repository for the full text of the Lice
 __version__ = "0.1.0"
 
 import math
-from typing import Tuple, Union
+from typing import Optional, Tuple, Union
 import torch
 
 # 副作用导入：加载 C++ 扩展以注册 torch.ops.torch_sip 算子族（issue #257 连带：
@@ -22,9 +22,53 @@ import sip_custom_ops_lib  # noqa: F401
 # npu_inv 快路径: 顶层绑定实现模块, 避免每次调用的函数内 import 查找 (~10us+/次)
 from torch_sip import _npu_inv_impl
 
+# Both entry points dispatch to the same registered factory. Compilers retain
+# the operator object; eager calls avoid boxing the scalar factory arguments.
+_asd_kaiser_window_op = torch.ops.torch_sip.asd_kaiser_window.default
+_asd_kaiser_window = sip_custom_ops_lib._asd_kaiser_window_typed
+_kaiser_is_compiling = torch.compiler.is_compiling
+
 
 def asd_mul(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     return torch.ops.torch_sip.asd_mul(x, y)
+
+
+def asd_kaiser_window(
+    window_length: int,
+    periodic: bool = True,
+    beta: float = 12.0,
+    *,
+    dtype: Optional[torch.dtype] = None,
+    layout: Optional[torch.layout] = torch.strided,
+    device: Optional[Union[torch.device, str]] = None,
+    requires_grad: bool = False,
+) -> torch.Tensor:
+    """Create a contiguous Kaiser window on NPU using the native SiP kernel.
+
+    ``dtype=None`` selects float32; float16 and bfloat16 are also supported.
+    ``device=None`` selects the current NPU. Only strided layout is supported
+    (``layout=None`` also selects strided). ``requires_grad=True`` creates a
+    leaf tensor whose gradient can be accumulated by subsequent operations.
+    """
+    if _kaiser_is_compiling():
+        return _asd_kaiser_window_op(
+            window_length,
+            periodic,
+            beta,
+            dtype=dtype,
+            layout=layout,
+            device=device,
+            requires_grad=requires_grad,
+        )
+    return _asd_kaiser_window(
+        window_length,
+        periodic,
+        beta,
+        dtype=dtype,
+        layout=layout,
+        device=device,
+        requires_grad=requires_grad,
+    )
 
 
 def conj(x: torch.Tensor) -> torch.Tensor:

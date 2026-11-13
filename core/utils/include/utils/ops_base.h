@@ -12,6 +12,8 @@
 
 #include <mki/utils/rt/rt.h>
 #include "op_desc.h"
+#include "mki/kernel.h"
+#include "mki/launch_param.h"
 #include "mki/tensor.h"
 #include "mki/utils/status/status.h"
 #include "mki/utils/SVector/SVector.h"
@@ -19,9 +21,14 @@
 
 constexpr size_t ASYNC_WORKSPACE_SIZE = 2048;
 
-Mki::Status RunAsdOps(MkiRtStream stream, const AsdSip::OpDesc &opDesc, const Mki::SVector<Mki::Tensor> &inTensorList,
-                      Mki::SVector<Mki::Tensor> &outTensorList, uint8_t *workspace = nullptr);
+Mki::Status RunAsdOps(MkiRtStream stream, const AsdSip::OpDesc& opDesc, const Mki::SVector<Mki::Tensor>& inTensorList,
+                      Mki::SVector<Mki::Tensor>& outTensorList, uint8_t* workspace = nullptr);
 
-Mki::Status RunAsdOpsV2(MkiRtStream stream, const AsdSip::OpDesc &opDesc, const Mki::SVector<aclTensor *> &inTensorList,
-                        Mki::SVector<aclTensor *> &outTensorList, uint8_t *workspace = nullptr);
+Mki::Status RunAsdOpsV2(MkiRtStream stream, const AsdSip::OpDesc& opDesc, const Mki::SVector<aclTensor*>& inTensorList,
+                        Mki::SVector<aclTensor*>& outTensorList, uint8_t* workspace = nullptr);
+
+// Reuse a caller-owned initialized zero-workspace kernel. The caller must
+// ensure that its metadata and device context match every invocation.
+Mki::Status RunAsdOpsV2(MkiRtStream stream, const Mki::LaunchParam& launch, uint8_t* workspace,
+                        Mki::Kernel& preparedKernel);
 #endif

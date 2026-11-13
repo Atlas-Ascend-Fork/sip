@@ -9,8 +9,9 @@
  */
 #include <torch/extension.h>
 #include <torch/library.h>
+#include "base/kaiser_window_python.h"
 
 namespace sip_pta {
 TORCH_LIBRARY(torch_sip, m) {}
-PYBIND11_MODULE(sip_custom_ops_lib, m) {}
+PYBIND11_MODULE(sip_custom_ops_lib, m) { RegisterKaiserWindowPython(m); }
 } // namespace sip_pta

@@ -331,6 +331,17 @@ Status RunAsdOpsV2(MkiRtStream stream, const AsdSip::OpDesc& opDesc, const SVect
     return Status::OkStatus();
 }
 
+Status RunAsdOpsV2(MkiRtStream stream, const LaunchParam& launch, uint8_t* workspace, Kernel& preparedKernel)
+{
+    if (stream == nullptr || preparedKernel.GetKernelInfo().GetTotalScratchSize() != 0) {
+        return Status::FailStatus(ERROR_INVALID_VALUE, "Prepared kernel requires a stream and zero workspace");
+    }
+    RunInfo runInfo;
+    runInfo.SetStream(stream);
+    runInfo.SetScratchDeviceAddr(workspace);
+    return preparedKernel.Run(launch, runInfo);
+}
+
 // #ifndef UNITTEST
 Status toAclTensor(const Tensor& inTensor, aclTensor*& outTensor, std::vector<int64_t> stride)
 {
