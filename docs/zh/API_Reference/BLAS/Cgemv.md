@@ -46,7 +46,7 @@ asdBlasCgemv：一个矩阵向量乘法，用于计算复数矩阵A与复数向�
     [ 1+2i,1+3i ]  ]\
 输入“x”为：\
 [ 2+i,2+2i ]\
-输入“y”为：[0+0i]\
+输入“y”为：[0+0i, 0+0i]\
 输入“m”为：2，输入“n”为： 2，输入“trans”为：ASDBLAS_OP_N，输入“alpha”为：1+i，“beta”为：2+2i。\
 输入“lda”为： 2，输入“incx”为：1，输入“incy”为：1。\
 调用“asdBlasMakeCgemvPlan”生成plan。\

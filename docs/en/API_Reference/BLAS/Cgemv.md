@@ -33,7 +33,7 @@ The input `A` is:\
     [ 1+2i,1+3i ]  ]\
 The input `x` is:\
 [ 2+i,2+2i ]\
-The input `y` is:[0+0i]\
+The input `y` is:[0+0i, 0+0i]\
 The input `m` is: 2, the input `n` is: 2, the input `trans` is: ASDBLAS_OP_N, the input `alpha` is: 1+i, `beta` is: 2+2i.\
 The input `lda` is: 2, the input `incx` is: 1, the input `incy` is: 1.\
 Call `asdBlasMakeCgemvPlan` to generate a plan.\
