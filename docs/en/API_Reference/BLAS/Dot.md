@@ -59,7 +59,7 @@
   The input `y` is:\
   [-0.1404+1.3380j, -0.4876+0.1842j]\
   After the `asdBlasCdotc` operator is called, the output `result` is:\
-  1.2877-0.1420j
+  1.2877+0.1420j
 
 ## Function Prototype
 
