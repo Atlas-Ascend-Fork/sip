@@ -29,7 +29,7 @@
 ## 功能说明
 
 - 接口功能：\
-  asdFftShift：将批量二维复数切片的零频分量移动到各切片中心（fftshift，对齐 CUDA 参考实现 fftShiftBatch2DKernel 语义），常用于二维 FFT 前后的频谱重排，典型场景为 MRI 重建等医学图像处理流水线。
+  asdFftShift：按下方公式对批量二维复数切片做正向循环移位（对齐 CUDA 参考实现 fftShiftBatch2DKernel 语义），常用于二维 FFT 前后的频谱重排，典型场景为 MRI 重建等医学图像处理流水线。偶数尺寸下零频分量移至切片中心；奇数尺寸下移位量取 (n+1)/2，零频分量落在中心索引的后一格，与 numpy.fft.ifftshift 一致、与 numpy.fft.fftshift 相差一格，详见「奇数尺寸说明」。
 - 计算公式：
 
   $$
@@ -41,6 +41,24 @@
   - $output[s]$ 为第 $s$ 个输出二维复数切片，输出为连续的 $batch \times row \times col$ 布局；
   - $dist \le 0$ 表示输入切片连续（$dist = row \cdot col$）；
   - 该算子为纯数据排列，输出与参考实现二进制一致，无浮点误差。
+
+### 奇数尺寸说明
+
+公式中的移位量为 `(row+1)/2`、`(col+1)/2`（整数除法，等价于向上取整）。`row`、`col` 均为偶数时零频分量落在切片中心；任一维为奇数时，该维移位量比 `numpy.fft.fftshift` 的 `n/2` 多 1，零频分量落在中心索引之后一格，与 `numpy.fft.ifftshift` 一致。
+
+以 `3×5` 切片为例：公式移位量为 `(2, 3)`，原点 `(0,0)` 的零频分量落到 `(2,3)`；`numpy.fft.fftshift` 移位量为 `(1, 2)`，落到中心 `(1,2)`。`1×5` 同样相差一格，`4×6` 等偶数尺寸两者一致。
+
+复算（CPU，仅核对文档公式，未运行 SiP/NPU 算子）：
+
+```python
+import numpy as np
+x = np.zeros((3, 5), dtype=np.complex64)
+x[0, 0] = 1
+documented = np.roll(x, ((3 + 1) // 2, (5 + 1) // 2), axis=(0, 1))
+print(np.argwhere(documented == 1))                    # [[2 3]]
+print(np.argwhere(np.fft.fftshift(x) == 1))             # [[1 2]]
+print(np.array_equal(documented, np.fft.ifftshift(x)))  # True
+```
 
 ## 函数原型
 
