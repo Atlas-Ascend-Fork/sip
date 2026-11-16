@@ -19,7 +19,8 @@ See LICENSE in the root of the software repository for the full text of the Lice
 # 实现 (dtype 路由):
 #   实数:  SiP asdBlasSmatinvBatched / HSmatinvBatched  (Gauss-Jordan 单 kernel, fp32 域计算)
 #   复数:  SiP asdBlasCmatinvBatched / HCmatinvBatched  (上游复数 kernel, c64/c32 原生)
-#   bf16:  实数 kernel + fp32 域计算 (cast 进出)
+#   fp16/bf16: 实数 kernel + fp32 域计算 (cast 进出; D-1 修复: fp16 大 N LU
+#              保底路径原先未提升导致 lu_factor 不支持 Half 报错)
 #
 # shape 路由 (折叠后 [B, N, N]):
 #   快速域 (性能优先):  实数 N < 32 且 B <= 3000 (Smatinv kernel 域)
@@ -281,9 +282,13 @@ def npu_inv(a: torch.Tensor, *, out: torch.Tensor = None) -> torch.Tensor:
         else:
             y = _lu_inv_large_n(x)
     else:
-        # ---- 实数路径 (bf16 经 fp32 域) ----
+        # ---- 实数路径 (低精度 fp16/bf16 经 fp32 域计算后回转) ----
+        # D-1 修复 (2026-11-13): fp16 原先未提升 fp32, N>256 LU 保底路径
+        # torch.linalg.lu_factor 不支持 Half ("lu_cpu not implemented for
+        # 'Half'") 直接报错。fp16 与 bf16 公开语义一致 (内部 fp32 计算),
+        # 统一提升 fp32 后回转。
         in_dtype = a.dtype
-        if in_dtype == torch.bfloat16:
+        if in_dtype in (torch.bfloat16, torch.float16):
             x = x.float()
         if n < _N_REAL_LIMIT and b <= _BATCH_LIMIT:
             y = _inv_real_fast(x, n)
@@ -296,7 +301,7 @@ def npu_inv(a: torch.Tensor, *, out: torch.Tensor = None) -> torch.Tensor:
             y = _inv_batch_fallback(_inv_real_via_c64, x, b, n, _FALLBACK_BATCH_CHUNK)
         else:
             y = _lu_inv_large_n(x)
-        if in_dtype == torch.bfloat16:
+        if in_dtype in (torch.bfloat16, torch.float16):
             y = y.to(in_dtype)
 
     y = y.reshape(*batch_dims, n, n)
