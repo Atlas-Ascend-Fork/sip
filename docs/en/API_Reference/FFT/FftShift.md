@@ -14,7 +14,7 @@
 ## Function Description
 
 - API function:\
-  `asdFftShift`: Shifts the zero-frequency component of batched 2D complex slices to the center of each slice (fftshift, aligned with the reference CUDA `fftShiftBatch2DKernel`). It is typically used for spectrum re-arrangement before/after 2D FFT, e.g. in MRI reconstruction pipelines.
+  `asdFftShift`: Performs a forward circular shift on batches of 2D complex slices according to the formula below (aligned with the reference CUDA `fftShiftBatch2DKernel`). It is typically used for spectrum re-arrangement before/after 2D FFT, e.g. in MRI reconstruction pipelines. For even-sized slices the zero-frequency component moves to the slice center; for odd-sized slices the shift is `(n+1)/2`, so the zero-frequency component lands one index after the center. See `Odd-sized inputs`.
 - Formula:
 
   $$
@@ -26,6 +26,24 @@
   - $output[s]$ is the $s$-th output 2D complex slice; the output is a contiguous $batch \times row \times col$ layout.
   - $dist \le 0$ means the input slices are contiguous ($dist = row \cdot col$).
   - The operator is a pure data permutation: the output is binary-identical to the reference implementation, with no floating-point error.
+
+### Odd-sized inputs
+
+The shift amounts in the formula, `(row+1)/2` and `(col+1)/2`, use integer division (equivalent to rounding up). When both `row` and `col` are even, the zero-frequency component lands at the slice center; when either dimension is odd, the shift along that dimension is 1 greater than `numpy.fft.fftshift`'s `n/2`, so the zero-frequency component lands one index after the center, matching `numpy.fft.ifftshift`.
+
+For a `3x5` slice, the documented shift is `(2, 3)`, so the origin `(0,0)` zero-frequency component lands at `(2,3)`; `numpy.fft.fftshift` uses `(1, 2)` and lands at the center `(1,2)`. `1x5` likewise differs by one index, while even sizes such as `4x6` agree.
+
+CPU re-check (documentation formula only; no SiP/NPU operator was run):
+
+```python
+import numpy as np
+x = np.zeros((3, 5), dtype=np.complex64)
+x[0, 0] = 1
+documented = np.roll(x, ((3 + 1) // 2, (5 + 1) // 2), axis=(0, 1))
+print(np.argwhere(documented == 1))                    # [[2 3]]
+print(np.argwhere(np.fft.fftshift(x) == 1))             # [[1 2]]
+print(np.array_equal(documented, np.fft.ifftshift(x)))  # True
+```
 
 ## Function Prototype
 
