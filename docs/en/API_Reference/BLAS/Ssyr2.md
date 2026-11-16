@@ -17,7 +17,7 @@
 
 - API function:
 `asdBlasMakeSsyr2Plan`: Initializes the `Ssyr2` operator configuration corresponding to the handle.
-`asdBlasSsyr2`: Computes the outer product of single-precision vectors and adds the result to a matrix.
+`asdBlasSsyr2`: Computes the outer product of single-precision vectors and adds the result to a matrix. Only the triangle selected by `uplo` is updated; the opposite triangle is unchanged.
 - Formula:
   $$
   A=alpha*x*y^T+alpha*y*x^T+A
@@ -29,11 +29,11 @@
  [   [ 1,2 ],
     [ 3,4 ]  ]\
   The input `y` is [ 3, 4 ]\
-  The input `uplo` is U\
+  The input `uplo` is `ASDBLAS_FILL_MODE_LOWER`\
   The input `n` is 2, the input `lda` is 2, the input `incx` is 1, and the input `incy` is 1.\
   The input `alpha` is 2.345.\
   After the `asdBlasSsyr2` operator is called, the output `A` is:\
- [   [ 15.07, 25.45 ],
+ [   [ 15.07, 2.00 ],
     [ 26.45,  41.52 ]  ].
 
 ## Function Prototype
