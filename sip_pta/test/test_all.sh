@@ -21,9 +21,7 @@ echo "顺序执行所有测试脚本并实时回显日志"
 echo "============================================================"
 
 # 查找所有包含 main 入口的 Python 脚本
-TEST_FILES=$(find . -name "*.py" -not -path "*/.*" -not -path "*__pycache__*")
-
-for FILE in $TEST_FILES; do
+while IFS= read -r -d '' FILE; do
     if grep -q "if __name__ == .__main__.:" "$FILE"; then
         TOTAL=$((TOTAL + 1))
 
@@ -53,7 +51,7 @@ for FILE in $TEST_FILES; do
         echo "------------------------------------------------------------"
         echo ""
     fi
-done
+done < <(find . -name '*.py' -not -path '*/.*' -not -path '*__pycache__*' -print0)
 
 # 最终汇总
 echo "============================================================"
