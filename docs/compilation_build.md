@@ -40,6 +40,17 @@ SiP的基本编译命令是`bash build.sh`，在默认构建模式下，该命�
   --ut                           编译执行单元测试用例.
 ```
 
+### 常见编译问题（Q&A）
+
+**Q：执行`bash build.sh`在编译ascend-boost-comm组件内核阶段报`fatal error: 'cstdint' file not found`（`sys_macros_impl.h:18`处`#include <cstdint>`），多个设备目标（如`ascend310p`/`ascend910b`）同时失败并以`make Error 2`中断，但系统`/usr/include/c++/<version>`目录下实际存在`cstdint`，如何处理？**
+
+**A**：该报错源于构建期自动拉取的`ascend-boost-comm`组件内嵌的ccec编译器（位于`3rdparty/compiler/ccec_compiler/bin/ccec`）：其调起时仅携带组件自身include路径，不搜索系统C++标准库头文件路径。可通过`CPLUS_INCLUDE_PATH`将系统C++标准库路径补充给内嵌编译器后重新编译（以Debian系g++ 12为例，其他系统/版本请按实际`g++ -dumpversion`与multiarch目录调整）：
+
+```sh
+export CPLUS_INCLUDE_PATH=/usr/include/c++/12:/usr/include/c++/12/backward:/usr/include/aarch64-linux-gnu/c++/12:/usr/include/c++/12/aarch64-linux-gnu
+bash build.sh
+```
+
 ### 编译目标芯片架构配置
 
 CANN 版本低于 9.1.0 时，即使配置启用了 `ascend950`，也会自动跳过全部 A5 设备内核。

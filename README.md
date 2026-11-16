@@ -137,6 +137,17 @@ source /usr/local/Ascend/cann/set_env.sh
 
  - 更多编译命令说明请参考[编译与构建](./docs/compilation_build.md)
 
+#### 常见编译问题（Q&A）
+
+**Q：执行`bash build.sh`在编译ascend-boost-comm组件内核阶段报`fatal error: 'cstdint' file not found`（`sys_macros_impl.h:18`处`#include <cstdint>`），多个设备目标（如`ascend310p`/`ascend910b`）同时失败并以`make Error 2`中断，但系统`/usr/include/c++/<version>`目录下实际存在`cstdint`，如何处理？**
+
+**A**：该报错源于构建期自动拉取的`ascend-boost-comm`组件内嵌的ccec编译器（位于`3rdparty/compiler/ccec_compiler/bin/ccec`）：其调起时仅携带组件自身include路径，不搜索系统C++标准库头文件路径，而『3.1.1 安装前准备』的依赖清单无法覆盖该项，依赖安装齐全也不会有前置提示。可通过`CPLUS_INCLUDE_PATH`将系统C++标准库路径补充给内嵌编译器后重新编译（以Debian系g++ 12为例，其他系统/版本请按实际`g++ -dumpversion`与multiarch目录调整）：
+
+```sh
+export CPLUS_INCLUDE_PATH=/usr/include/c++/12:/usr/include/c++/12/backward:/usr/include/aarch64-linux-gnu/c++/12:/usr/include/c++/12/aarch64-linux-gnu
+bash build.sh
+```
+
 ### 4.2  调用示例说明
 
 本节示例代码分别展示了如何通过C++调用算子。
