@@ -125,10 +125,8 @@ source /usr/local/Ascend/cann/set_env.sh
     - `Ascend-cann-SIP_${version}_linux-${arch}.run`是编译后通过makeself打包的包含算子执行所需文件的可执行产物，用户可以通过以下命令执行run包将包含算子信息的文件安装到指定目录。
 
         ```bash
-        # 确保安装包具有可执行权限
-        chmod +x Ascend-cann-SIP_${version}_linux-${arch}.run
-        # 安装命令
-        ./Ascend-cann-SIP_${version}_linux-${arch}.run --install --install-path=${install_path}
+        # 使用 Bash 运行自解压安装包，无需设置可执行权限
+        bash ./output/Ascend-cann-SIP_${version}_linux-${arch}.run --install --install-path=${install_path}
         # 设置加速库环境变量
         source ${install_path}/asdsip/set_env.sh
         ```

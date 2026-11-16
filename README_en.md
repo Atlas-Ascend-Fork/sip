@@ -131,13 +131,11 @@ After installing CANN, you can install some tools to facilitate subsequent devel
     ```
 
     Special notes:
-    - `Ascend-cann-SIP_${version}_linux_${arch}.run` is an executable product packaged by makeself after compilation. It contains the files required for operator execution. You can run the package with the following command to install the operator information files to the specified directory.
+    - `Ascend-cann-SIP_${version}_linux-${arch}.run` is an executable product packaged by makeself after compilation. It contains the files required for operator execution. You can run the package with the following command to install the operator information files to the specified directory.
 
         ```bash
-        # Ensure the installation package has executable permissions
-        chmod +x Ascend-cann-SIP_${version}_linux_${arch}.run
-        # Installation command
-        ./Ascend-cann-SIP_${version}_linux_${arch}.run --install --install-path=${install_path}
+        # Run the self-extracting installer with Bash; executable permissions are not required
+        bash ./output/Ascend-cann-SIP_${version}_linux-${arch}.run --install --install-path=${install_path}
         ```
 
     - The above compilation method only supports compiling the acceleration library downloaded via git. It does not support the compilation of acceleration libraries downloaded as zip archives.
