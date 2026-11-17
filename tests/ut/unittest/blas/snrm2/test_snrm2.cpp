@@ -25,7 +25,8 @@ namespace {
 constexpr float ATOL = 0.001;
 constexpr float RTOL = 0.001;
 
-std::string GetSnrm2OutputDirectory() {
+std::string GetSnrm2OutputDirectory()
+{
     const char* current_dir_env = std::getenv("CURRENT_DIR");
     if (current_dir_env) {
         return std::string(current_dir_env);
@@ -42,9 +43,14 @@ TEST(TestBlasSnrm2, TestSnrm2Case0)
     std::string mkdir_cmd = "mkdir -p " + ShellQuote(destPath);
     std::string copy_cmd = "cp -rf " + ShellQuote(originPath) + " " + ShellQuote(destPath);
     std::string chmod_cmd = "chmod -R 755 " + ShellQuote(destPath + "/snrm2_data/");
-    system(mkdir_cmd.c_str());
-    system(copy_cmd.c_str());
-    system(chmod_cmd.c_str());
+    int mkdir_rc = system(mkdir_cmd.c_str());
+    ASSERT_EQ(mkdir_rc, 0) << "data prep command failed: " << mkdir_cmd;
+
+    int copy_rc = system(copy_cmd.c_str());
+    ASSERT_EQ(copy_rc, 0) << "data prep command failed: " << copy_cmd;
+
+    int chmod_rc = system(chmod_cmd.c_str());
+    ASSERT_EQ(chmod_rc, 0) << "data prep command failed: " << chmod_cmd;
 
     int deviceId = 0;
     int64_t n = 8;
@@ -63,7 +69,8 @@ TEST(TestBlasSnrm2, TestSnrm2Case0)
     Tensor resultTensor = context.inTensors[1];
 
     for (size_t i = 0; i < context.inTensors.size(); i++) {
-        std::string filename = GetElementDtype(context.inTensors[i].desc.dtype) + "_input_" + std::to_string(i) + ".bin";
+        std::string filename = GetElementDtype(context.inTensors[i].desc.dtype) + "_input_" + std::to_string(i) +
+                               ".bin";
         if (SaveTensorToBin(context.inTensors[i], destPath + "/snrm2_data/" + filename)) {
             std::cout << "Tensor saved successfully: " << filename << std::endl;
         } else {
@@ -72,12 +79,13 @@ TEST(TestBlasSnrm2, TestSnrm2Case0)
     }
 
     std::string gen_data_cmd = "cd " + ShellQuote(destPath + "/snrm2_data/") + " && python3 gen_data.py";
-    system(gen_data_cmd.c_str());
+    int gen_data_rc = system(gen_data_cmd.c_str());
+    ASSERT_EQ(gen_data_rc, 0) << "data prep command failed: " << gen_data_cmd;
 
-    aclTensor *aclInputX = nullptr;
-    aclTensor *aclResult = nullptr;
-    void *inputXDeviceAddr = nullptr;
-    void *resultDeviceAddr = nullptr;
+    aclTensor* aclInputX = nullptr;
+    aclTensor* aclResult = nullptr;
+    void* inputXDeviceAddr = nullptr;
+    void* resultDeviceAddr = nullptr;
 
     std::vector<float> inputXHostData(n);
     float* inputXDataPtr = static_cast<float*>(inputTensorX.hostData);
@@ -105,7 +113,7 @@ TEST(TestBlasSnrm2, TestSnrm2Case0)
     blasStatus = asdBlasGetWorkspaceSize(handle, workSize);
     ASSERT_EQ(blasStatus, AsdSip::ErrorType::ACL_SUCCESS);
 
-    void *workspaceAddr = nullptr;
+    void* workspaceAddr = nullptr;
     if (workSize > 0) {
         ret = aclrtMalloc(&workspaceAddr, static_cast<int64_t>(workSize), ACL_MEM_MALLOC_HUGE_FIRST);
         ASSERT_EQ(ret, ::ACL_SUCCESS);
@@ -125,10 +133,7 @@ TEST(TestBlasSnrm2, TestSnrm2Case0)
 
     asdBlasDestroy(handle);
 
-    ret = aclrtMemcpy(resultTensor.hostData,
-                      resultTensor.dataSize,
-                      resultDeviceAddr,
-                      resultTensor.dataSize,
+    ret = aclrtMemcpy(resultTensor.hostData, resultTensor.dataSize, resultDeviceAddr, resultTensor.dataSize,
                       ACL_MEMCPY_DEVICE_TO_HOST);
     ASSERT_EQ(ret, ::ACL_SUCCESS);
 

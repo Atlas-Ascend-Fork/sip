@@ -28,7 +28,8 @@ constexpr float ATOL = 0.001;
 constexpr float RTOL = 0.001;
 constexpr float EXTENT_OF_ERROR = 0.001;
 
-std::string GetConjOutputDirectory() {
+std::string GetConjOutputDirectory()
+{
     const char* current_dir_env = std::getenv("CURRENT_DIR");
     if (current_dir_env) {
         // 直接返回一个确定的字符串，不涉及任何路径操作
@@ -39,7 +40,6 @@ std::string GetConjOutputDirectory() {
 }
 } // namespace
 
-
 TEST(TestOpConj, TestConjCase0)
 {
     // 获取加速库所在路径 + 算子文件拼接
@@ -47,8 +47,11 @@ TEST(TestOpConj, TestConjCase0)
     std::string destPath = GetConjOutputDirectory() + "/build/tests/ut/unittest/base/conj";
     std::string copy_cmd = "cp -rf " + ShellQuote(originPath) + " " + ShellQuote(destPath);
     std::string chmod_cmd = "chmod -R 755 " + ShellQuote(destPath + "/conj_data/");
-    system(copy_cmd.c_str());
-    system(chmod_cmd.c_str());
+    int copy_rc = system(copy_cmd.c_str());
+    ASSERT_EQ(copy_rc, 0) << "data prep command failed: " << copy_cmd;
+
+    int chmod_rc = system(chmod_cmd.c_str());
+    ASSERT_EQ(chmod_rc, 0) << "data prep command failed: " << chmod_cmd;
 
     Status status;
     int64_t m = 4;
@@ -66,17 +69,18 @@ TEST(TestOpConj, TestConjCase0)
     Tensor input = context.inTensors[0];
     Tensor output = context.inTensors[1];
 
-    for (int i = 0 ; i < context.inTensors.size(); i ++ ) {
-        std::string filename = GetElementDtype(context.inTensors[i].desc.dtype) + "_input_" + std::to_string(i) + ".bin";
+    for (int i = 0; i < context.inTensors.size(); i++) {
+        std::string filename = GetElementDtype(context.inTensors[i].desc.dtype) + "_input_" + std::to_string(i) +
+                               ".bin";
         if (SaveTensorToBin(context.inTensors[i], destPath + "/conj_data/" + filename)) {
             std::cout << "Tensor saved successfully" << std::endl;
         } else {
             std::cerr << "Failed to save tensor" << std::endl;
         }
-
     }
     std::string gen_data_cmd = "cd " + ShellQuote(destPath + "/conj_data/") + " && python3 gen_data.py";
-    system(gen_data_cmd.c_str());
+    int gen_data_rc = system(gen_data_cmd.c_str());
+    ASSERT_EQ(gen_data_rc, 0) << "data prep command failed: " << gen_data_cmd;
 
     AspbStatus blasStatus = Conj(input, output, stream);
     if (blasStatus != AsdSip::ErrorType::ACL_SUCCESS) {

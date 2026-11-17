@@ -162,7 +162,14 @@ static inline std::string PrepareDataDirOnce(const std::string& currentDir, cons
     }
     std::string cmd = "mkdir -p " + ShellQuote(destPath) + " && cp -rf " + ShellQuote(originPath) + " " +
                       ShellQuote(destPath) + " && chmod -R 755 " + ShellQuote(destPath + "/" + dataDirName + "/");
-    (void)system(cmd.c_str());
+    // 数据准备失败必须可见：静默失败会残留旧 golden 造成假阳性比对（issue #417）。
+    // 失败时不记忆化且返回空路径：调用方拼接的数据目录必然不存在，golden 生成/读取
+    // 或调用方 exists() 断言会硬失败，避免失败仅停留 stderr、被用例结果静默吞掉
+    int prepRc = system(cmd.c_str());
+    if (prepRc != 0) {
+        std::cerr << "PrepareDataDirOnce: data prep command failed (rc=" << prepRc << "): " << cmd << std::endl;
+        return std::string();
+    }
     doneKeys.insert(destPath);
     return destPath;
 }

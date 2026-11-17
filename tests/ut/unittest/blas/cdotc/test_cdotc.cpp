@@ -44,9 +44,14 @@ TEST(TestBlasCdotc, TestCdotcCase0)
     std::string mkdir_cmd = "mkdir -p " + ShellQuote(destPath);
     std::string copy_cmd = "cp -rf " + ShellQuote(originPath) + " " + ShellQuote(destPath);
     std::string chmod_cmd = "chmod -R 755 " + ShellQuote(destPath + "/cdotc_data/");
-    system(mkdir_cmd.c_str());
-    system(copy_cmd.c_str());
-    system(chmod_cmd.c_str());
+    int mkdir_rc = system(mkdir_cmd.c_str());
+    ASSERT_EQ(mkdir_rc, 0) << "data prep command failed: " << mkdir_cmd;
+
+    int copy_rc = system(copy_cmd.c_str());
+    ASSERT_EQ(copy_rc, 0) << "data prep command failed: " << copy_cmd;
+
+    int chmod_rc = system(chmod_cmd.c_str());
+    ASSERT_EQ(chmod_rc, 0) << "data prep command failed: " << chmod_cmd;
 
     int deviceId = 0;
     int64_t n = 6;
@@ -78,7 +83,8 @@ TEST(TestBlasCdotc, TestCdotcCase0)
     }
 
     std::string gen_data_cmd = "cd " + ShellQuote(destPath + "/cdotc_data/") + " && python3 gen_data.py";
-    system(gen_data_cmd.c_str());
+    int gen_data_rc = system(gen_data_cmd.c_str());
+    ASSERT_EQ(gen_data_rc, 0) << "data prep command failed: " << gen_data_cmd;
 
     aclTensor* aclInputX = nullptr;
     aclTensor* aclInputY = nullptr;

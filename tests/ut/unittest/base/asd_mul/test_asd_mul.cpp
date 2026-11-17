@@ -30,7 +30,8 @@ namespace {
 constexpr float ATOL = 0.001;
 constexpr float RTOL = 0.001;
 
-std::string GetAsdMulOutputDirectory() {
+std::string GetAsdMulOutputDirectory()
+{
     const char* current_dir_env = std::getenv("CURRENT_DIR");
     if (current_dir_env) {
         return std::string(current_dir_env);
@@ -42,12 +43,10 @@ std::string GetAsdMulOutputDirectory() {
 
 TEST(TestOpAsdMul, TestAsdMulComplex64Case0)
 {
-    std::string originPath = GetAsdMulOutputDirectory() + "/tests/ut/unittest/base/asd_mul/asd_mul_data";
-    std::string destPath = GetAsdMulOutputDirectory() + "/build/tests/ut/unittest/base/asd_mul";
-    std::string copy_cmd = "cp -rf " + originPath + " " + destPath;
-    std::string chmod_cmd = "chmod -R 755 " + destPath + "/asd_mul_data/";
-    system(copy_cmd.c_str());
-    system(chmod_cmd.c_str());
+    // 数据准备统一走 PrepareDataDirOnce：mkdir/cp/chmod 一次执行 + dest 按 shard 隔离，
+    // 消除双 shard 并发对同一 dest 的 cp 竞争假失败（issue #417）
+    static std::string destPath = PrepareDataDirOnce(GetAsdMulOutputDirectory(), "base/asd_mul", "asd_mul_data");
+    ASSERT_TRUE(std::filesystem::exists(destPath + "/asd_mul_data")) << "data prep command failed, dest: " << destPath;
 
     Status status;
     int64_t n = 16;
@@ -67,19 +66,21 @@ TEST(TestOpAsdMul, TestAsdMulComplex64Case0)
     Tensor outputZ = context.inTensors[2];
 
     for (size_t i = 0; i < context.inTensors.size(); i++) {
-        std::string filename = GetElementDtype(context.inTensors[i].desc.dtype) + "_input_" + std::to_string(i) + ".bin";
+        std::string filename = GetElementDtype(context.inTensors[i].desc.dtype) + "_input_" + std::to_string(i) +
+                               ".bin";
         SaveTensorToBin(context.inTensors[i], destPath + "/asd_mul_data/" + filename);
     }
 
-    std::string gen_data_cmd = "cd " + destPath + "/asd_mul_data/" + " && python3 gen_data.py --dtype c64";
-    system(gen_data_cmd.c_str());
+    std::string gen_data_cmd = "cd " + ShellQuote(destPath + "/asd_mul_data/") + " && python3 gen_data.py --dtype c64";
+    int gen_data_rc = system(gen_data_cmd.c_str());
+    ASSERT_EQ(gen_data_rc, 0) << "data prep command failed: " << gen_data_cmd;
 
-    aclTensor *aclInputX = nullptr;
-    aclTensor *aclInputY = nullptr;
-    aclTensor *aclOutputZ = nullptr;
-    void *inputXDeviceAddr = nullptr;
-    void *inputYDeviceAddr = nullptr;
-    void *outputZDeviceAddr = nullptr;
+    aclTensor* aclInputX = nullptr;
+    aclTensor* aclInputY = nullptr;
+    aclTensor* aclOutputZ = nullptr;
+    void* inputXDeviceAddr = nullptr;
+    void* inputYDeviceAddr = nullptr;
+    void* outputZDeviceAddr = nullptr;
 
     std::vector<std::complex<float>> inputXHostData(n);
     std::complex<float>* inputXDataPtr = static_cast<std::complex<float>*>(inputX.hostData);
@@ -112,7 +113,8 @@ TEST(TestOpAsdMul, TestAsdMulComplex64Case0)
 
     MkiRtStreamSynchronize(stream);
 
-    ret = aclrtMemcpy(outputZ.hostData, outputZ.dataSize, outputZDeviceAddr, outputZ.dataSize, ACL_MEMCPY_DEVICE_TO_HOST);
+    ret = aclrtMemcpy(outputZ.hostData, outputZ.dataSize, outputZDeviceAddr, outputZ.dataSize,
+                      ACL_MEMCPY_DEVICE_TO_HOST);
     ASSERT_EQ(ret, ::ACL_SUCCESS);
 
     std::string filename = GetElementDtype(outputZ.desc.dtype) + "_output_" + ".bin";
@@ -127,7 +129,8 @@ TEST(TestOpAsdMul, TestAsdMulComplex64Case0)
 
     OpTestEnd(deviceId, context, stream);
 
-    std::string cmp_data_cmd = "cd " + destPath + "/asd_mul_data/" + " && python3 compare_data.py --dtype c64";
+    std::string cmp_data_cmd = "cd " + ShellQuote(destPath + "/asd_mul_data/") +
+                               " && python3 compare_data.py --dtype c64";
     int res = system(cmp_data_cmd.c_str());
     std::cout << "compare result = " << res << std::endl;
     ASSERT_EQ(res, 0);
@@ -135,12 +138,10 @@ TEST(TestOpAsdMul, TestAsdMulComplex64Case0)
 
 TEST(TestOpAsdMul, TestAsdMulComplex32Case0)
 {
-    std::string originPath = GetAsdMulOutputDirectory() + "/tests/ut/unittest/base/asd_mul/asd_mul_data";
-    std::string destPath = GetAsdMulOutputDirectory() + "/build/tests/ut/unittest/base/asd_mul";
-    std::string copy_cmd = "cp -rf " + originPath + " " + destPath;
-    std::string chmod_cmd = "chmod -R 755 " + destPath + "/asd_mul_data/";
-    system(copy_cmd.c_str());
-    system(chmod_cmd.c_str());
+    // 数据准备统一走 PrepareDataDirOnce：mkdir/cp/chmod 一次执行 + dest 按 shard 隔离，
+    // 消除双 shard 并发对同一 dest 的 cp 竞争假失败（issue #417）
+    static std::string destPath = PrepareDataDirOnce(GetAsdMulOutputDirectory(), "base/asd_mul", "asd_mul_data");
+    ASSERT_TRUE(std::filesystem::exists(destPath + "/asd_mul_data")) << "data prep command failed, dest: " << destPath;
 
     Status status;
     int64_t n = 16;
@@ -160,19 +161,21 @@ TEST(TestOpAsdMul, TestAsdMulComplex32Case0)
     Tensor outputZ = context.inTensors[2];
 
     for (size_t i = 0; i < context.inTensors.size(); i++) {
-        std::string filename = GetElementDtype(context.inTensors[i].desc.dtype) + "_input_" + std::to_string(i) + ".bin";
+        std::string filename = GetElementDtype(context.inTensors[i].desc.dtype) + "_input_" + std::to_string(i) +
+                               ".bin";
         SaveTensorToBin(context.inTensors[i], destPath + "/asd_mul_data/" + filename);
     }
 
-    std::string gen_data_cmd = "cd " + destPath + "/asd_mul_data/" + " && python3 gen_data.py --dtype c32";
-    system(gen_data_cmd.c_str());
+    std::string gen_data_cmd = "cd " + ShellQuote(destPath + "/asd_mul_data/") + " && python3 gen_data.py --dtype c32";
+    int gen_data_rc = system(gen_data_cmd.c_str());
+    ASSERT_EQ(gen_data_rc, 0) << "data prep command failed: " << gen_data_cmd;
 
-    aclTensor *aclInputX = nullptr;
-    aclTensor *aclInputY = nullptr;
-    aclTensor *aclOutputZ = nullptr;
-    void *inputXDeviceAddr = nullptr;
-    void *inputYDeviceAddr = nullptr;
-    void *outputZDeviceAddr = nullptr;
+    aclTensor* aclInputX = nullptr;
+    aclTensor* aclInputY = nullptr;
+    aclTensor* aclOutputZ = nullptr;
+    void* inputXDeviceAddr = nullptr;
+    void* inputYDeviceAddr = nullptr;
+    void* outputZDeviceAddr = nullptr;
 
     std::vector<int64_t> shape = {n};
     std::vector<int64_t> strides = {1};
@@ -190,11 +193,14 @@ TEST(TestOpAsdMul, TestAsdMulComplex32Case0)
     ret = aclrtMalloc(&outputZDeviceAddr, outputZ.dataSize, ACL_MEM_MALLOC_HUGE_FIRST);
     ASSERT_EQ(ret, ::ACL_SUCCESS);
 
-    aclInputX = aclCreateTensor(shape.data(), shape.size(), aclDataType::ACL_COMPLEX32, strides.data(), 0, aclFormat::ACL_FORMAT_ND, shape.data(), shape.size(), inputXDeviceAddr);
+    aclInputX = aclCreateTensor(shape.data(), shape.size(), aclDataType::ACL_COMPLEX32, strides.data(), 0,
+                                aclFormat::ACL_FORMAT_ND, shape.data(), shape.size(), inputXDeviceAddr);
     ASSERT_NE(aclInputX, nullptr);
-    aclInputY = aclCreateTensor(shape.data(), shape.size(), aclDataType::ACL_COMPLEX32, strides.data(), 0, aclFormat::ACL_FORMAT_ND, shape.data(), shape.size(), inputYDeviceAddr);
+    aclInputY = aclCreateTensor(shape.data(), shape.size(), aclDataType::ACL_COMPLEX32, strides.data(), 0,
+                                aclFormat::ACL_FORMAT_ND, shape.data(), shape.size(), inputYDeviceAddr);
     ASSERT_NE(aclInputY, nullptr);
-    aclOutputZ = aclCreateTensor(shape.data(), shape.size(), aclDataType::ACL_COMPLEX32, strides.data(), 0, aclFormat::ACL_FORMAT_ND, shape.data(), shape.size(), outputZDeviceAddr);
+    aclOutputZ = aclCreateTensor(shape.data(), shape.size(), aclDataType::ACL_COMPLEX32, strides.data(), 0,
+                                 aclFormat::ACL_FORMAT_ND, shape.data(), shape.size(), outputZDeviceAddr);
     ASSERT_NE(aclOutputZ, nullptr);
 
     aclrtStream aclStream = static_cast<aclrtStream>(stream);
@@ -206,7 +212,8 @@ TEST(TestOpAsdMul, TestAsdMulComplex32Case0)
 
     MkiRtStreamSynchronize(stream);
 
-    ret = aclrtMemcpy(outputZ.hostData, outputZ.dataSize, outputZDeviceAddr, outputZ.dataSize, ACL_MEMCPY_DEVICE_TO_HOST);
+    ret = aclrtMemcpy(outputZ.hostData, outputZ.dataSize, outputZDeviceAddr, outputZ.dataSize,
+                      ACL_MEMCPY_DEVICE_TO_HOST);
     ASSERT_EQ(ret, ::ACL_SUCCESS);
 
     std::string filename = GetElementDtype(outputZ.desc.dtype) + "_output_" + ".bin";
@@ -221,7 +228,8 @@ TEST(TestOpAsdMul, TestAsdMulComplex32Case0)
 
     OpTestEnd(deviceId, context, stream);
 
-    std::string cmp_data_cmd = "cd " + destPath + "/asd_mul_data/" + " && python3 compare_data.py --dtype c32";
+    std::string cmp_data_cmd = "cd " + ShellQuote(destPath + "/asd_mul_data/") +
+                               " && python3 compare_data.py --dtype c32";
     int res = system(cmp_data_cmd.c_str());
     std::cout << "compare result = " << res << std::endl;
     ASSERT_EQ(res, 0);

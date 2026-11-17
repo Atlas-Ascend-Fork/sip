@@ -44,14 +44,10 @@ float GetRandomAlpha()
 
 void RunSsyrTest(asdBlasFillMode_t uplo, const std::string& uploStr)
 {
-    std::string originPath = GetSsyrOutputDirectory() + "/tests/ut/unittest/blas/ssyr/ssyr_data";
-    std::string destPath = GetSsyrOutputDirectory() + "/build/tests/ut/unittest/blas/ssyr";
-    std::string mkdir_cmd = "mkdir -p " + ShellQuote(destPath);
-    std::string copy_cmd = "cp -rf " + ShellQuote(originPath) + " " + ShellQuote(destPath);
-    std::string chmod_cmd = "chmod -R 755 " + ShellQuote(destPath + "/ssyr_data/");
-    system(mkdir_cmd.c_str());
-    system(copy_cmd.c_str());
-    system(chmod_cmd.c_str());
+    // 数据准备统一走 PrepareDataDirOnce：mkdir/cp/chmod 一次执行 + dest 按 shard 隔离，
+    // 消除双 shard 并发对同一 dest 的 cp/chmod 竞争假失败（issue #417）
+    static std::string destPath = PrepareDataDirOnce(GetSsyrOutputDirectory(), "blas/ssyr", "ssyr_data");
+    ASSERT_TRUE(std::filesystem::exists(destPath + "/ssyr_data")) << "data prep command failed, dest: " << destPath;
 
     int deviceId = 0;
     int64_t n = 6;
@@ -83,7 +79,8 @@ void RunSsyrTest(asdBlasFillMode_t uplo, const std::string& uploStr)
 
     std::string gen_data_cmd = "cd " + ShellQuote(destPath + "/ssyr_data/") + " && python3 gen_data.py " +
                                std::to_string(alpha) + " " + uploStr;
-    system(gen_data_cmd.c_str());
+    int gen_data_rc = system(gen_data_cmd.c_str());
+    ASSERT_EQ(gen_data_rc, 0) << "data prep command failed: " << gen_data_cmd;
 
     aclTensor* aclInputX = nullptr;
     aclTensor* aclInputA = nullptr;
