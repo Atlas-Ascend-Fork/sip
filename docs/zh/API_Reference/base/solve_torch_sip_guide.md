@@ -36,7 +36,7 @@ print(x.cpu())                 # tensor([[[1., 2.], [3., 4.], [5., 6.]]])
 
 | 项 | 约束 |
 |---|---|
-| shape | `A [batch, n, n]`、`B [batch|1, n, nrhs]`，输出 `X [batch, n, nrhs]`（batch 跟随 A）；均为 3 维 |
+| shape | `A [batch, n, n]`、`B [batch\1, n, nrhs]`，输出 `X [batch, n, nrhs]`（batch 跟随 A）；均为 3 维 |
 | dtype | `float32`（仅此一种） |
 | n | `[2, 256]` |
 | nrhs | ≥ 1 |
