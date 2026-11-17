@@ -9,6 +9,11 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 #
 
+# 编译/运行任一环节失败立即退出，避免失败被末行命令的退出码掩盖（issue #414）
+set -e
+# 产物清理置于 EXIT trap：不作为脚本末行命令，失败路径也能清理且不覆盖退出码
+trap 'rm -f example' EXIT
+
 # 检查环境变量 ASDSIP_HOME_PATH 是否已设置
 if [ -z "$ASDSIP_HOME_PATH" ]; then
     echo "the env params ASDSIP_HOME_PATH is not set."
@@ -40,4 +45,3 @@ g++  example_acl_fft_shift.cpp \
 
 echo "Execute the example of FftShiftOperation, shifting the zero-frequency component to the slice center:"
 ./example
-rm example
