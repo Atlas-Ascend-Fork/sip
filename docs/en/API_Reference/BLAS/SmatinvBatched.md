@@ -34,6 +34,31 @@ asdBlasSmatinvBatched: Computes the inverse of a batch of single-precision real 
 - Calculation formula:\
 Computes the inverse matrix of each real matrix in a batch. Each real matrix must satisfy $A^{-1}A=I$, where A is a non-singular square matrix of size n*n and I is the identity matrix.
 
+  Example:\
+Input "A" is:\
+[2, 1, 1, 1\
+1, 2, 1, 1\
+1, 1, 2, 1\
+1, 1, 1, 2]\
+
+  [3, 1, 1, 1\
+1, 3, 1, 1\
+1, 1, 3, 1\
+1, 1, 1, 3]\
+Input "n" is: 4\
+Input "batchSize" is: 2\
+After calling "asdBlasSmatinvBatched",\
+output "Ainv" is:\
+[0.8, -0.2, -0.2, -0.2\
+-0.2, 0.8, -0.2, -0.2\
+-0.2, -0.2, 0.8, -0.2\
+-0.2, -0.2, -0.2, 0.8]
+
+   [0.4167, -0.0833, -0.0833, -0.0833\
+-0.0833, 0.4167, -0.0833, -0.0833\
+-0.0833, -0.0833, 0.4167, -0.0833\
+-0.0833, -0.0833, -0.0833, 0.4167]
+
 ## Function Prototype
 
 ```Cpp
