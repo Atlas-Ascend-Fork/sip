@@ -54,17 +54,17 @@ trap exit_solver EXIT
 function log() {
     if [ ! -f "$log_file" ]; then
         if [ ! -d "${LOG_PATH}" ];then
-            mkdir -p ${LOG_PATH}
+            mkdir -p "${LOG_PATH}"
         fi
-        touch $log_file
+        touch "$log_file"
     fi
     if [ x"$log_file" = x ]; then
         echo -e "[cann-asdsip] [$(date +%Y%m%d-%H:%M:%S)] [$1] $2"
     else
-        if [ $(stat -c %s $log_file) -gt $MAX_LOG_SIZE ];then
+        if [ $(stat -c %s "$log_file") -gt $MAX_LOG_SIZE ];then
             echo -e "[cann-asdsip] [$(date +%Y%m%d-%H:%M:%S)] [$1] log file is bigger than $MAX_LOG_SIZE, stop write log to file"
         else
-            echo -e "[cann-asdsip] [$(date +%Y%m%d-%H:%M:%S)] [$1] $2" >>$log_file
+            echo -e "[cann-asdsip] [$(date +%Y%m%d-%H:%M:%S)] [$1] $2" >>"$log_file"
         fi
     fi
 }
@@ -73,18 +73,18 @@ function log() {
 function print() {
     if [ ! -f "$log_file" ]; then
         if [ ! -d "${LOG_PATH}" ];then
-            mkdir -p ${LOG_PATH}
+            mkdir -p "${LOG_PATH}"
         fi
-        touch $log_file
+        touch "$log_file"
     fi
     if [ x"$log_file" = x ]; then
         echo -e "[cann-asdsip] [$(date +%Y%m%d-%H:%M:%S)] [$1] $2"
     else
-        if [ $(stat -c %s $log_file) -gt $MAX_LOG_SIZE ];then
+        if [ $(stat -c %s "$log_file") -gt $MAX_LOG_SIZE ];then
             echo -e "[cann-asdsip] [$(date +%Y%m%d-%H:%M:%S)] [$1] log file is bigger than $MAX_LOG_SIZE, stop write log to file"
             echo -e "[cann-asdsip] [$(date +%Y%m%d-%H:%M:%S)] [$1] $2"
         else
-            echo -e "[cann-asdsip] [$(date +%Y%m%d-%H:%M:%S)] [$1] $2" | tee -a $log_file
+            echo -e "[cann-asdsip] [$(date +%Y%m%d-%H:%M:%S)] [$1] $2" | tee -a "$log_file"
         fi
     fi
 }
@@ -92,7 +92,7 @@ function print() {
 # 创建文件夹
 function make_dir() {
     log "INFO" "mkdir ${1}"
-    mkdir -p ${1} 2>/dev/null
+    mkdir -p "${1}" 2>/dev/null
     if [ $? -ne 0 ]; then
         print "ERROR" "create $1 failed !"
         exit 1
@@ -102,7 +102,7 @@ function make_dir() {
 # 创建文件
 function make_file() {
     log "INFO" "touch ${1}"
-    touch ${1} 2>/dev/null
+    touch "${1}" 2>/dev/null
     if [ $? -ne 0 ]; then
         print "ERROR" "create $1 failed !"
         exit 1
@@ -120,7 +120,7 @@ function log_init() {
     if [ ! -f "$log_file" ]; then
         make_file "$log_file"
         # 安装日志权限
-        chmod_recursion ${LOG_PATH} "750" "dir"
+        chmod_recursion "${LOG_PATH}" "750" "dir"
         chmod 640 ${log_file}
     else
         local filesize=$(ls -l $log_file | awk '{ print $5}')
@@ -139,49 +139,49 @@ function log_init() {
 
 function chmod_authority() {
     # 修改文件和目录权限
-    chmod_file ${default_install_path}
-    chmod_file ${install_dir}
+    chmod_file "${default_install_path}"
+    chmod_file "${install_dir}"
     if [ "${install_for_all_flag}" == "y" ]; then
-        chmod 444 ${install_dir}/scripts/filelist.csv
+        chmod 444 "${install_dir}/scripts/filelist.csv"
     else
-        chmod 440 ${install_dir}/scripts/filelist.csv
+        chmod 440 "${install_dir}/scripts/filelist.csv"
     fi
     if [ -d "${install_dir}/bin" ]; then
-        chmod 550 ${install_dir}/bin/*
+        chmod 550 "${install_dir}/bin/"*
     fi
     local file_rights=$([ "${install_for_all_flag}" == "y" ] && echo 555 || echo 550)
     chmod ${file_rights} "${install_dir}/scripts/uninstall.sh"
     chmod ${file_rights} "${install_dir}/install.sh"
-    chmod_dir ${default_install_path} "550"
-    chmod_dir ${install_dir} "550"
+    chmod_dir "${default_install_path}" "550"
+    chmod_dir "${install_dir}" "550"
     local path_rights=$([ "${install_for_all_flag}" == "y" ] && echo 755 || echo 750)
     chmod ${path_rights} "${default_install_path}"
     chmod ${path_rights} "${install_dir}"
 }
 
 function chmod_file() {
-    chmod_recursion ${1} "550" "file" "*.sh"
-    chmod_recursion ${1} "440" "file" "*.bin"
-    chmod_recursion ${1} "440" "file" "*.h"
-    chmod_recursion ${1} "440" "file" "*.info"
-    chmod_recursion ${1} "440" "file" "*.so"
-    chmod_recursion ${1} "440" "file" "*.ini"
-    chmod_recursion ${1} "440" "file" "*.a"
+    chmod_recursion "$1" "550" "file" "*.sh"
+    chmod_recursion "$1" "440" "file" "*.bin"
+    chmod_recursion "$1" "440" "file" "*.h"
+    chmod_recursion "$1" "440" "file" "*.info"
+    chmod_recursion "$1" "440" "file" "*.so"
+    chmod_recursion "$1" "440" "file" "*.ini"
+    chmod_recursion "$1" "440" "file" "*.a"
 }
 
 function chmod_dir() {
-    chmod_recursion ${1} ${2} "dir"
+    chmod_recursion "$1" "$2" "dir"
 }
 
 function chmod_recursion() {
     # install-for-all 实际上是给other组用户赋予了和同组用户相同的权限
     local parameter2=$2
-    local rights="$(echo ${parameter2:0:2})""$(echo ${parameter2:1:1})"
-    rights=$([ "${install_for_all_flag}" == "y" ] && echo ${rights} || echo $2)
+    local rights="$(echo "${parameter2:0:2}")""$(echo "${parameter2:1:1}")"
+    rights=$([ "${install_for_all_flag}" == "y" ] && echo "${rights}" || echo "$2")
     if [ "$3" = "dir" ]; then
-        find $1 -type d -exec chmod ${rights} {} \; 2>/dev/null
+        find "$1" -type d -exec chmod ${rights} {} \; 2>/dev/null
     elif [ "$3" = "file" ]; then
-        find $1 -type f -name "$4" -exec chmod ${rights} {} \; 2>/dev/null
+        find "$1" -type f -name "$4" -exec chmod ${rights} {} \; 2>/dev/null
     fi
 }
 
@@ -199,7 +199,7 @@ function parse_script_args() {
         ;;
         --install-path=*)
         install_path_flag=y
-        target_dir=$(echo $1 | cut -d"=" -f2-)
+        target_dir=${1#--install-path=}
         target_dir=${target_dir}/asdsip
         shift
         ;;
@@ -231,12 +231,12 @@ function check_target_dir_owner() {
         return
     fi
     #计算被'/'符号分割的段数
-    local seg_num=$(expr $(echo ${1} | grep -o "/" | wc -l) + "1")
+    local seg_num=$(expr $(echo "${1}" | grep -o "/" | wc -l) + "1")
     local path=""
     #根据段数遍历所有路径
     for((i=1;i<=$seg_num;i++))
     do
-        local split=$(echo ${1} | cut -d "/" -f$i)
+        local split=$(echo "${1}" | cut -d "/" -f$i)
         if [ "$split" = "" ];then
             continue
         fi
@@ -253,7 +253,7 @@ function check_target_dir_owner() {
 
 function check_path() {
     if [ ! -d "${install_dir}" ]; then
-        mkdir -p ${install_dir}
+        mkdir -p "${install_dir}"
         if [ ! -d "${install_dir}" ]; then
             print "ERROR" "Install failed, [ERROR] create ${install_dir} failed"
             exit 1
@@ -267,7 +267,7 @@ function delete_file_with_authority() {
     if [ "${dir_path}" != "." ];then
         dir_authority=$(stat -c %a "${dir_path}")
         chmod 700 "${dir_path}"
-        if [ -d ${file_path} ];then
+        if [ -d "${file_path}" ];then
             rm -rf "${file_path}"
         else
             rm -f "${file_path}"
@@ -275,7 +275,7 @@ function delete_file_with_authority() {
         chmod "${dir_authority}" "${dir_path}"
     else
         chmod 700 "${file_path}"
-        if [ -d ${file_path} ];then
+        if [ -d "${file_path}" ];then
             rm -rf "${file_path}"
         else
             rm -f "${file_path}"
@@ -284,17 +284,17 @@ function delete_file_with_authority() {
 }
 
 function delete_empty_recursion() {
-    if [ ! -d $1 ];then
+    if [ ! -d "$1" ];then
         return 0
     fi
-    for file in $1/*
+    for file in "$1"/*
     do
-        if [ -d $file ];then
-            delete_empty_recursion $file
+        if [ -d "$file" ];then
+            delete_empty_recursion "$file"
         fi
     done
-    if [ -z "$(ls -A $1)" ];then
-        delete_file_with_authority $1
+    if [ -z "$(ls -A "$1")" ];then
+        delete_file_with_authority "$1"
     fi
 }
 
@@ -309,14 +309,14 @@ function delete_installed_files() {
         [ -n "$1" ] && rm -rf "$1"
         return 0
     fi
-    cat ${csv_path} | while read line
+    cat "${csv_path}" | while read line
     do
         if [ ${is_first_line} == "false" ];then
-            file_path=$(echo ${line} | awk '{print $1}')
-            if [ ! -f ${file_path} ];then
+            file_path=$(echo "${line}" | awk '{print $1}')
+            if [ ! -f "${file_path}" ];then
                 continue
             fi
-            delete_file_with_authority ${file_path}
+            delete_file_with_authority "${file_path}"
         fi
         is_first_line=false
     done
@@ -346,8 +346,8 @@ function delete_installed_files() {
         "include/utils"
     )
     for file_path in "${residual_files[@]}"; do
-        if [ -e ${file_path} ];then
-            delete_file_with_authority ${file_path}
+        if [ -e "${file_path}" ];then
+            delete_file_with_authority "${file_path}"
         fi
     done
 
@@ -369,7 +369,7 @@ function check_csv_exist() {
     #判断是否存在csv文件，存在则按文件删除，不存在则整文件夹删除
     install_dir=$1
     csv_path=$install_dir/scripts/filelist.csv
-    if [ -f $csv_path ];then
+    if [ -f "$csv_path" ];then
         return 0
     else
         return 1
@@ -378,41 +378,41 @@ function check_csv_exist() {
 
 function uninstall_process() {
     #检查对应版本目录下的文件是否需要删除，是则进行删除
-    if [ ! -d $1 ];then
+    if [ ! -d "$1" ];then
         return 0
     fi
-    print "INFO" "Ascend-cann-asdsip $(basename $1) uninstall start!"
-    asdsip_dir=$(cd $1/..;pwd)
-    delete_latest $1
-    delete_installed_files $1
-    if [ -d $1 ];then
-        delete_empty_recursion $1
+    print "INFO" "Ascend-cann-asdsip $(basename "$1") uninstall start!"
+    asdsip_dir=$(cd "$1/..";pwd)
+    delete_latest "$1"
+    delete_installed_files "$1"
+    if [ -d "$1" ];then
+        delete_empty_recursion "$1"
     fi
 
-    if [ "$2" == "y" -a -z "$(ls $asdsip_dir)" ];then
+    if [ "$2" == "y" -a -z "$(ls "$asdsip_dir")" ];then
         rm -rf "$asdsip_dir"
     fi
-    print "INFO" "Ascend-cann-asdsip $(basename $1) uninstall success!"
+    print "INFO" "Ascend-cann-asdsip $(basename "$1") uninstall success!"
 }
 
 function install_to_path() {
     install_dir=${default_install_path}/${VERSION}
-    if [ -d ${install_dir} ];then
+    if [ -d "${install_dir}" ];then
         print "INFO" "The installation directory exists, uninstall first.."
     fi
-    uninstall_process ${install_dir}
-    check_target_dir_owner ${install_dir}
+    uninstall_process "${install_dir}"
+    check_target_dir_owner "${install_dir}"
     check_path
     cd "${install_dir}"
     copy_files
     [ -f "${default_install_path}/set_env.sh" ] && rm -rf "${default_install_path}/set_env.sh"
     mv "${install_dir}/set_env.sh" "${default_install_path}"
     cd "${default_install_path}"
-    ln -snf $VERSION latest
+    ln -snf "$VERSION" latest
 }
 
 function copy_files() {
-    cp -r ${sourcedir}/* "$install_dir"
+    cp -r "${sourcedir}"/* "$install_dir"
 }
 
 function install_process() {
@@ -479,7 +479,7 @@ function uninstall() {
         print "ERROR" "Uninstall failed, can not find ${VERSION_INFO_PATH}, the installation may be broken. Please reinstall or remove ${default_install_path} manually."
         exit 1
     fi
-    old_version=$(grep -E 'Ascend-cann-asdsip :' $VERSION_INFO_PATH | cut -d ':' -f2)
+    old_version=$(grep -E 'Ascend-cann-asdsip :' "$VERSION_INFO_PATH" | cut -d ':' -f2)
     old_version=$(echo "$old_version" | sed 's/^[ 	]*//')
 
     # 容错: 提取到的版本号为空时直接报错, 避免拼接出带尾斜杠的无效路径
@@ -492,7 +492,7 @@ function uninstall() {
     echo "Version is: $old_version"
 
     install_dir=${default_install_path}/${old_version}
-    uninstall_process ${install_dir} y
+    uninstall_process "${install_dir}" y
 }
 
 function check_uninstall_path() {
@@ -564,9 +564,9 @@ function recover_old_version() {
     fi
     mv "${back_up_dir}" "${version_dir}"
     mv "${default_install_path}/set_env_recover.sh" "${default_install_path}/set_env.sh"
-    local version=$(basename ${version_dir})
+    local version=$(basename "${version_dir}")
     cd "${default_install_path}"
-    ln -snf ${version} latest
+    ln -snf "${version}" latest
     print "INFO" "recover old Ascend-cann-asdsip version success!"
 }
 
@@ -586,7 +586,7 @@ function upgrade() {
     check_upgrade_path
     back_up_old_version
 
-    uninstall_process ${version_dir}
+    uninstall_process "${version_dir}"
     recover_flag=y
     install_process
     print "INFO" "finish install process!"
@@ -610,7 +610,7 @@ function print_usage() {
 }
 
 function main() {
-    parse_script_args $*
+    parse_script_args "$@"
     if [ "${uninstall_flag}" == "y" ]; then
         check_uninstall_path
         print "INFO" "Ascend-cann-asdsip uninstall start!"
@@ -631,4 +631,4 @@ function main() {
     fi
 }
 
-main $*
+main "$@"
