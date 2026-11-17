@@ -80,7 +80,7 @@ bool FftC2CRegBaseCore::PreAllocateInDevice()
         return tensor.release();
     });
 
-    OpParam::FftC2CRegBase param = {n, problemDesc.batch, problemDesc.forward ? 0 : 1, optimizedConfig_};
+    OpParam::FftC2CRegBase param = {n, problemDesc.batch, problemDesc.forward ? 0 : 1, optimizedConfig_, multirow_};
     Tensor input;
     input.desc = {TENSOR_DTYPE_COMPLEX64, TENSOR_FORMAT_ND, {problemDesc.batch, n}, {}, 0};
     input.dataSize = static_cast<size_t>(problemDesc.batch) * n * 2 * sizeof(float);

@@ -17,6 +17,8 @@
 #include "radix4.h"
 #include "radix57.h"
 #include "odd_symmetric.h"
+#include "batched_vf.h"
+#include "tile_simd.h"
 namespace fft_mixed {
 __simd_callee__ inline void Radix2Body(__ubuf__ float* src, __ubuf__ float* dst, __ubuf__ float* roots, uint32_t size,
                                        uint32_t rootN, uint32_t half)
@@ -86,96 +88,229 @@ __no_simd_vf_fusion__ __simd_vf__ inline void Radix2Prefix(__ubuf__ float* src, 
         half *= 2;
     }
 }
-__simt_vf__ __launch_bounds__(256) inline void RealBoundary(__ubuf__ float* src, __ubuf__ float* dst,
-                                                            __ubuf__ float* roots, int n, bool inverse)
+template <AscendC::HardEvent Event>
+__aicore__ inline void SetRowSlot(int slot)
 {
-    const int m = n / 2;
-    const int count = inverse ? m : m + 1;
-    for (int k = threadIdx.x; k < count; k += 256) {
-        const int a = inverse ? k : k % m, b = inverse ? m - k : (m - k) % m;
-        const float ar = src[2 * a], ai = src[2 * a + 1], br = src[2 * b], bi = src[2 * b + 1];
-        const float dr = ar - br, di = ai + bi, wr = roots[2 * k], wi = roots[2 * k + 1];
-        if (inverse) {
-            // Twice the packed inverse spectrum: an unnormalized M inverse
-            // then yields the public unnormalized N real inverse.
-            dst[2 * k] = ar + br - wr * di - wi * dr;
-            dst[2 * k + 1] = ai - bi + wr * dr - wi * di;
-        } else {
-            dst[2 * k] = 0.5f * (ar + br + wr * di + wi * dr);
-            dst[2 * k + 1] = 0.5f * (ai - bi - wr * dr + wi * di);
-            if (k == 0 || k == m)
-                dst[2 * k + 1] = 0;
+    if (slot == 0)
+        AscendC::SetFlag<Event>(EVENT_ID0);
+    else
+        AscendC::SetFlag<Event>(EVENT_ID1);
+}
+template <AscendC::HardEvent Event>
+__aicore__ inline void WaitRowSlot(int slot)
+{
+    if (slot == 0)
+        AscendC::WaitFlag<Event>(EVENT_ID0);
+    else
+        AscendC::WaitFlag<Event>(EVENT_ID1);
+}
+// Preserve the specialized small-radix formulas; larger prime stages retain
+// planar symmetry and single/two-frequency reuse, all over the actual tile rows.
+__aicore__ inline __ubuf__ float* ComputeTileButterfly(__ubuf__ float* a, __ubuf__ float* b, __ubuf__ float* roots,
+                                                       const __gm__ AsdSip::OpParam::MixedCommonTiling* t, int rows,
+                                                       int stride)
+{
+    const int n = t->n, pass = t->pass, size = pass == 0 ? n : n / 2;
+    if (pass == 2) {
+        asc_vf_call<BatchedRealBoundary>(dim3(256), a, b, roots, n, true, rows, stride);
+        AscendC::PipeBarrier<PIPE_V>();
+        auto* tmp = a;
+        a = b;
+        b = tmp;
+    }
+    TilePrefix(a, b, roots, uint32_t(size), uint32_t(n), t->radix2Stages, t->inverse != 0, uint32_t(rows),
+               uint32_t(stride));
+    AscendC::PipeBarrier<PIPE_V>();
+    if (((t->radix2Stages + 1) / 2) & 1) {
+        auto* tmp = a;
+        a = b;
+        b = tmp;
+    }
+    for (int s = 0; s < t->oddStages; ++s) {
+        const int radix = t->radix[s], prev = t->prev[s];
+        if (radix == 3)
+            TileRadix3(a, b, roots, size, n, prev, t->inverse != 0, rows, stride);
+        else if (radix == 5)
+            TileRadix5(a, b, roots, size, n, prev, t->inverse != 0, rows, stride);
+        else if (radix == 7)
+            TileRadix7(a, b, roots, size, n, prev, t->inverse != 0, rows, stride);
+        else if (t->twoFrequencies)
+            asc_vf_call<BatchedOddStage<true, true>>(dim3(256), a, b, roots, size, n, radix, prev, rows, stride);
+        else
+            asc_vf_call<BatchedOddStage<false, true>>(dim3(256), a, b, roots, size, n, radix, prev, rows, stride);
+        AscendC::PipeBarrier<PIPE_V>();
+        if (radix <= 7) {
+            auto* tmp = a;
+            a = b;
+            b = tmp;
         }
     }
+    if (pass == 1) {
+        asc_vf_call<BatchedRealBoundary>(dim3(256), a, b, roots, n, false, rows, stride);
+        AscendC::PipeBarrier<PIPE_V>();
+        a = b;
+    }
+    return a;
 }
-
-// Contiguous independent 1D transforms. All stages of a row remain in UB.
-template <int Capacity>
-__aicore__ inline void Rows(__gm__ float* input, __gm__ float* coeff, __gm__ float* output,
-                            const __gm__ AsdSip::OpParam::MixedCommonTiling* t)
+// A single complex row needs no cross-row index arithmetic. Keep its original
+// dedicated butterflies while the caller retains dynamic UB and DMA scheduling.
+__aicore__ inline __ubuf__ float* ComputeSingleComplexRow(__ubuf__ float* a, __ubuf__ float* b, __ubuf__ float* roots,
+                                                          const __gm__ AsdSip::OpParam::MixedCommonTiling* t)
 {
+    const int n = t->n;
+    Radix2Prefix(a, b, roots, uint32_t(n), uint32_t(n), t->radix2Stages, t->inverse != 0);
+    AscendC::PipeBarrier<PIPE_V>();
+    if (((t->radix2Stages + 1) / 2) & 1) {
+        auto* temp = a;
+        a = b;
+        b = temp;
+    }
+    for (int stage = 0; stage < t->oddStages; ++stage) {
+        const int radix = t->radix[stage], prev = t->prev[stage];
+        if (radix == 3)
+            Radix3(a, b, roots, n, n, prev, t->inverse != 0);
+        else if (radix == 5)
+            Radix5(a, b, roots, n, n, prev, t->inverse != 0);
+        else if (radix == 7)
+            Radix7(a, b, roots, n, n, prev, t->inverse != 0);
+        else if (t->twoFrequencies)
+            asc_vf_call<OddSymmetricStage<true, true>>(dim3(256), a, b, roots, n, n, radix, prev);
+        else
+            asc_vf_call<OddSymmetricStage<false, true>>(dim3(256), a, b, roots, n, n, radix, prev);
+        AscendC::PipeBarrier<PIPE_V>();
+        if (radix <= 7) {
+            auto* temp = a;
+            a = b;
+            b = temp;
+        }
+    }
+    return a;
+}
+template <bool CompactReal = false, int Slots = 2>
+__aicore__ inline void RowsTileAdaptive(__gm__ float* input, __gm__ float* coeff, __gm__ float* output,
+                                        const __gm__ AsdSip::OpParam::MixedCommonTiling* t)
+{
+    static_assert(Slots == 1 || Slots == 2);
+    static_assert(Slots == 2 || !CompactReal);
+    // Slots == 1 is key 26 only: the host selects complex N >= 6752, where tileRows is exactly one.
+    // The 212 KiB arena reserves exactly
+    // 2*N root floats; each of the data regions is 32-byte aligned.
+    constexpr int ArenaFloats = 212 * 1024 / sizeof(float);
+    __ubuf__ float arena[ArenaFloats];
     const int n = t->n, pass = t->pass;
-    const int size = pass == 0 ? n : n / 2;
-    __ubuf__ float b0[2 * Capacity + 128], b1[2 * Capacity + 128], roots[2 * Capacity];
-    const int64_t blockCount = static_cast<int64_t>(AscendC::GetBlockNum());
-    const int64_t blockIndex = static_cast<int64_t>(AscendC::GetBlockIdx());
-    const int64_t quotient = t->rows / blockCount;
-    const int64_t remainder = t->rows - quotient * blockCount;
-    const int64_t count = quotient + (blockIndex < remainder ? 1 : 0);
-    const int64_t start = blockIndex * quotient + (blockIndex < remainder ? blockIndex : remainder);
-    asc_copy_gm2ub_align(roots, coeff, 1, n * 8, 0, 0, false, 0, 0, 0);
+    // Real FFT uses N/2 complex values. N+128 also covers the N+2 half spectrum.
+    const int stride = (CompactReal ? n : 2 * n) + 128;
+    const int SlotFloats = ((ArenaFloats - 2 * n) / (2 * Slots) / 8) * 8;
+    __ubuf__ float* a = arena;
+    __ubuf__ float* b = arena + Slots * SlotFloats;
+    __ubuf__ float* roots = arena + 2 * Slots * SlotFloats;
+    const int tileRows = SlotFloats / stride;
+    const int blocks = AscendC::GetBlockNum(), block = AscendC::GetBlockIdx();
+    const int q = t->rows / blocks, rem = t->rows % blocks;
+    const int count = q + (block < rem), start = block * q + (block < rem ? block : rem);
     const int inFloats = pass == 1 ? n : pass == 2 ? n + 2 : 2 * n;
     const int outFloats = pass == 1 ? n + 2 : pass == 2 ? n : 2 * n;
-    for (int row = int(start); row < int(start + count); ++row) {
-        asc_copy_gm2ub_align(b0, input + row * inFloats, 1, inFloats * 4, 0, 0, false, 0, 0, 0);
-        AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(EVENT_ID0);
-        AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(EVENT_ID0);
-        __ubuf__ float* a = b0;
-        __ubuf__ float* b = b1;
-        if (pass == 2) {
-            asc_vf_call<RealBoundary>(dim3(256), a, b, roots, n, true);
-            AscendC::PipeBarrier<PIPE_V>();
-            auto* tmp = a;
-            a = b;
-            b = tmp;
-        }
-        Radix2Prefix(a, b, roots, uint32_t(size), uint32_t(n), t->radix2Stages, t->inverse != 0);
-        AscendC::PipeBarrier<PIPE_V>();
-        if (((t->radix2Stages + 1) / 2) & 1) {
-            auto* tmp = a;
-            a = b;
-            b = tmp;
-        }
-        for (int s = 0; s < t->oddStages; ++s) {
-            const int r = t->radix[s], prev = t->prev[s];
-            if (r == 3)
-                Radix3(a, b, roots, size, n, prev, t->inverse != 0);
-            else if (r == 5)
-                Radix5(a, b, roots, size, n, prev, t->inverse != 0);
-            else if (r == 7)
-                Radix7(a, b, roots, size, n, prev, t->inverse != 0);
-            else if (t->twoFrequencies)
-                asc_vf_call<OddSymmetricStage<true, true>>(dim3(256), a, b, roots, size, n, r, prev);
-            else
-                asc_vf_call<OddSymmetricStage<false, true>>(dim3(256), a, b, roots, size, n, r, prev);
-            AscendC::PipeBarrier<PIPE_V>();
-            // The planar odd stage returns in a, unlike the small-radix stages.
-            if (r <= 7) {
-                auto* tmp = a;
-                a = b;
-                b = tmp;
+    const int tiles = (count + tileRows - 1) / tileRows;
+    asc_copy_gm2ub_align(roots, coeff, 1, n * 8, 0, 0, false, 0, 0, 0);
+    const int firstRows = count < tileRows ? count : tileRows;
+    asc_copy_gm2ub_align(a, input + start * inFloats, firstRows, inFloats * 4, 0, 0, false, 0, inFloats * 4,
+                         stride * 4);
+    SetRowSlot<AscendC::HardEvent::MTE2_V>(0);
+    for (int tile = 0; tile < tiles; ++tile) {
+        const int slot = tile % Slots, next = (tile + 1) % Slots;
+        if constexpr (Slots == 2) {
+            if (tile + 1 < tiles) {
+                if (tile > 0)
+                    WaitRowSlot<AscendC::HardEvent::MTE3_MTE2>(next);
+                const int left = count - (tile + 1) * tileRows;
+                const int rows = left < tileRows ? left : tileRows;
+                asc_copy_gm2ub_align(a + next * SlotFloats, input + (start + (tile + 1) * tileRows) * inFloats, rows,
+                                     inFloats * 4, 0, 0, false, 0, inFloats * 4, stride * 4);
+                SetRowSlot<AscendC::HardEvent::MTE2_V>(next);
             }
         }
-        if (pass == 1) {
-            asc_vf_call<RealBoundary>(dim3(256), a, b, roots, n, false);
-            AscendC::PipeBarrier<PIPE_V>();
-            a = b;
+        WaitRowSlot<AscendC::HardEvent::MTE2_V>(slot);
+        const int left = count - tile * tileRows, rows = left < tileRows ? left : tileRows;
+        __ubuf__ float* result;
+        if constexpr (Slots == 1)
+            result = ComputeSingleComplexRow(a, b, roots, t);
+        else
+            result = ComputeTileButterfly(a + slot * SlotFloats, b + slot * SlotFloats, roots, t, rows, stride);
+        SetRowSlot<AscendC::HardEvent::V_MTE3>(slot);
+        WaitRowSlot<AscendC::HardEvent::V_MTE3>(slot);
+        asc_copy_ub2gm_align(output + (start + tile * tileRows) * outFloats, result, rows, outFloats * 4, 0,
+                             outFloats * 4, stride * 4);
+        SetRowSlot<AscendC::HardEvent::MTE3_MTE2>(slot);
+        if constexpr (Slots == 1) {
+            WaitRowSlot<AscendC::HardEvent::MTE3_MTE2>(slot);
+            if (tile + 1 < tiles) {
+                const int remain = count - (tile + 1) * tileRows;
+                const int nextRows = remain < tileRows ? remain : tileRows;
+                asc_copy_gm2ub_align(a, input + (start + (tile + 1) * tileRows) * inFloats, nextRows, inFloats * 4, 0,
+                                     0, false, 0, inFloats * 4, stride * 4);
+                SetRowSlot<AscendC::HardEvent::MTE2_V>(0);
+            }
         }
-        AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(EVENT_ID0);
-        AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(EVENT_ID0);
-        asc_copy_ub2gm_align(output + row * outFloats, a, 1, outFloats * 4, 0, 0, 0);
-        AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID0);
-        AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID0);
     }
+    if constexpr (Slots == 2) {
+        WaitRowSlot<AscendC::HardEvent::MTE3_MTE2>(0);
+        if (tiles > 1)
+            WaitRowSlot<AscendC::HardEvent::MTE3_MTE2>(1);
+    }
+}
+// Three complete tile buffers rotate through input, compute scratch and output.
+// The previous output must finish MTE3 before that buffer is reused by MTE2.
+template <bool CompactReal>
+__aicore__ inline void RowsTileThree(__gm__ float* input, __gm__ float* coeff, __gm__ float* output,
+                                     const __gm__ AsdSip::OpParam::MixedCommonTiling* t)
+{
+    constexpr int ArenaFloats = 212 * 1024 / sizeof(float);
+    __ubuf__ float arena[ArenaFloats];
+    const int n = t->n, stride = (CompactReal ? n : 2 * n) + 128;
+    const int inFloats = t->pass == 0 ? 2 * n : t->pass == 1 ? n : n + 2;
+    const int outFloats = t->pass == 0 ? 2 * n : t->pass == 1 ? n + 2 : n;
+    const int capacity = ((ArenaFloats - 2 * n) / 3 / 8) * 8;
+    const int tileRows = capacity / stride;
+    __ubuf__ float* current = arena;
+    __ubuf__ float* scratch = arena + capacity;
+    __ubuf__ float* spare = arena + 2 * capacity;
+    __ubuf__ float* roots = arena + 3 * capacity;
+    const int blocks = AscendC::GetBlockNum(), block = AscendC::GetBlockIdx();
+    const int q = t->rows / blocks, rem = t->rows % blocks;
+    const int count = q + (block < rem), start = block * q + (block < rem ? block : rem);
+    const int tiles = (count + tileRows - 1) / tileRows;
+    asc_copy_gm2ub_align(roots, coeff, 1, n * 8, 0, 0, false, 0, 0, 0);
+    const int firstRows = count < tileRows ? count : tileRows;
+    asc_copy_gm2ub_align(current, input + start * inFloats, firstRows, inFloats * 4, 0, 0, false, 0, inFloats * 4,
+                         stride * 4);
+    SetRowSlot<AscendC::HardEvent::MTE2_V>(0);
+    for (int tile = 0; tile < tiles; ++tile) {
+        // Consume every output-completion flag, including the penultimate one
+        // when the last tile has no further input to prefetch.
+        if (tile > 0)
+            WaitRowSlot<AscendC::HardEvent::MTE3_MTE2>(0);
+        if (tile + 1 < tiles) {
+            const int left = count - (tile + 1) * tileRows;
+            const int rows = left < tileRows ? left : tileRows;
+            asc_copy_gm2ub_align(spare, input + (start + (tile + 1) * tileRows) * inFloats, rows, inFloats * 4, 0, 0,
+                                 false, 0, inFloats * 4, stride * 4);
+            SetRowSlot<AscendC::HardEvent::MTE2_V>((tile + 1) % 2);
+        }
+        WaitRowSlot<AscendC::HardEvent::MTE2_V>(tile % 2);
+        const int left = count - tile * tileRows, rows = left < tileRows ? left : tileRows;
+        __ubuf__ float* result = ComputeTileButterfly(current, scratch, roots, t, rows, stride);
+        SetRowSlot<AscendC::HardEvent::V_MTE3>(0);
+        WaitRowSlot<AscendC::HardEvent::V_MTE3>(0);
+        asc_copy_ub2gm_align(output + (start + tile * tileRows) * outFloats, result, rows, outFloats * 4, 0,
+                             outFloats * 4, stride * 4);
+        SetRowSlot<AscendC::HardEvent::MTE3_MTE2>(0);
+        // Keep the output buffer unavailable to the next compute; the other
+        // compute buffer becomes scratch. The already-prefetched spare is input.
+        __ubuf__ float* freeBuffer = result == current ? scratch : current;
+        current = spare;
+        scratch = freeBuffer;
+        spare = result;
+    }
+    WaitRowSlot<AscendC::HardEvent::MTE3_MTE2>(0);
 }
 } // namespace fft_mixed

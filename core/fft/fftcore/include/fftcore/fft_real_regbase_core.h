@@ -14,6 +14,8 @@ class FftRealRegBaseCore : public FFTCoreBase {
 public:
     FftRealRegBaseCore(unsigned nDone, unsigned nDoing, unsigned nLeft, unsigned batch, AsdSip::asdFftType fftType,
                        bool forward, int optimizedConfig = 0);
+    FftRealRegBaseCore(unsigned nDone, unsigned nDoing, unsigned nLeft, unsigned batch, AsdSip::asdFftType fftType,
+                       bool forward, int optimizedConfig, bool multirow);
     ~FftRealRegBaseCore() override;
     size_t EstimateWorkspaceSize() override;
     void Run(Tensor& input, Tensor& output, void* stream, workspace::Workspace& workspace) override;

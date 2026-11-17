@@ -33,6 +33,32 @@ inline bool ValidMixedCommon(const FftMixedCommon& p)
     return MixedCommonLength(p.n) && p.rows >= 1 && p.rows <= 8192 && int(p.pass) >= 0 && int(p.pass) <= 2 &&
            (p.pass != MixedCommonPass::Real || !p.inverse) && (p.pass != MixedCommonPass::Hermitian || p.inverse);
 }
+// Keep every eligible mixed pass on the capacity-based scheduler, including
+// one-row tiles. Two data regions remain when three no longer fit a full row.
+struct MixedCommonTilePlan {
+    int key, buffers, capacity, rows;
+};
+inline MixedCommonTilePlan SelectMixedCommonTile(const FftMixedCommon& p)
+{
+    if (!ValidMixedCommon(p))
+        return {-1, 0, 0, 0};
+    constexpr int arenaFloats = 212 * 1024 / sizeof(float);
+    const bool real = p.pass != MixedCommonPass::Complex;
+    const int stride = (real ? p.n : 2 * p.n) + 128;
+    int buffers;
+    if (real)
+        buffers = p.n > 5312 && p.n <= 6688 ? 3 : 4;
+    else if (p.n <= 2944)
+        buffers = 4;
+    else
+        buffers = ((arenaFloats - 2 * p.n) / 3 / 8) * 8 >= stride ? 3 : 2;
+    const int capacity = ((arenaFloats - 2 * p.n) / buffers / 8) * 8;
+    const int rows = capacity / stride;
+    if (rows == 0)
+        return {-1, 0, 0, 0};
+    const int key = real ? (buffers == 3 ? 25 : 21) : buffers == 4 ? 19 : buffers == 3 ? 22 : 26;
+    return {key, buffers, capacity, rows};
+}
 inline int64_t MixedCommonFloats(const FftMixedCommon& p, bool output)
 {
     if (p.pass == MixedCommonPass::Real)

@@ -106,18 +106,69 @@ def generate(case, root):
     return g, sha(root / "input.bin")
 
 
-def optimized(case):
+def optimized(case, multirow=True):
+    # Candidate dispatch enables multirow by default; --multirow only selects test cases.
     n, b, dim, op, direction, _, _ = case
     return (
-        ((dim == 1 and b == n) or (dim == 2 and b == 1))
+        (
+            (
+                dim == 1
+                and (
+                    b == n
+                    or (
+                        multirow
+                        and 1 <= b <= 8192
+                        and n <= (4096 if op == "c2c" else 8192)
+                    )
+                )
+            )
+            or (dim == 2 and b == 1)
+        )
         and n in [32, 64, 128, 256, 512, 1024, 2048, 4096, 8192]
         and (op == "c2c" or direction == ("inverse" if op == "c2r" else "forward"))
     )
 
 
-def check_route(case, label, log):
-    n, _, dim, op, direction, _, _ = case
-    expected = label == "candidate" and optimized(case)
+def common_mixed(case):
+    n, b, dim, op, direction, _, _ = case
+    return (
+        32 <= n <= 8192
+        and n % 32 == 0
+        and n & (n - 1)
+        and ((dim == 1 and 1 <= b <= 8192) or (dim == 2 and b == 1))
+        and (
+            op == "c2c"
+            or (n > 1024 and direction == ("inverse" if op == "c2r" else "forward"))
+        )
+    )
+
+
+def check_route(case, label, log, parent_optimized=False):
+    n, b, dim, op, direction, _, _ = case
+    if common_mixed(case):
+        traces = re.findall(r"^ASDSIP_MIXED_FFT (.+)$", log, re.M)
+        if label == "candidate" or parent_optimized:
+            expected = (
+                [(b, {"c2c": 0, "r2c": 1, "c2r": 2}[op])]
+                if dim == 1
+                else (
+                    [(n, 0), (n, 0)]
+                    if op == "c2c"
+                    else [(n, 1 if op == "r2c" else 2), (n // 2 + 1, 0)]
+                )
+            )
+            fields = [dict(re.findall(r"(\w+)=(\S+)", trace)) for trace in traces]
+            actual = [(int(f.get("batch", -1)), int(f.get("pass", -1))) for f in fields]
+            if sorted(actual) != sorted(expected) or any(
+                f.get("N") != str(n)
+                or f.get("inverse") != str(int(direction == "inverse"))
+                for f in fields
+            ):
+                raise RuntimeError("Incorrect mixed FFT route")
+        return
+    expected = optimized(case, label == "candidate") and (
+        label == "candidate" or parent_optimized
+    )
     trace = "A5_C2C_Optimized" if op == "c2c" else "paired_boundary=1"
     if (trace in log) != expected:
         raise RuntimeError("Unexpected optimized route")
@@ -146,7 +197,7 @@ def check_route(case, label, log):
         required = dict(
             kind=op,
             N=str(n),
-            effective_batch=str(n),
+            effective_batch=str(b if dim == 1 else n),
             inverse=str(int(direction == "inverse")),
             launches="1",
             config=str(configs[n]),
@@ -163,6 +214,8 @@ def check_route(case, label, log):
             + 4 * (op == "c2r")
             + (fields["slots"] == "2")
         )
+        if label == "candidate" and dim == 1 and fields["slots"] == "2":
+            key += 20000000 if n >= 1024 else 10000000
         if real_stages != [(optimized_kernel, str(key))]:
             raise RuntimeError("Incorrect optimized real kernel/key")
     if expected:
@@ -170,7 +223,13 @@ def check_route(case, label, log):
             int(v)
             for v in re.findall(r"A5_C2C_Optimized N=\d+ effective_batch=(\d+)", log)
         ]
-        expected_rows = [n] * dim if op == "c2c" else [n // 2 + 1] if dim == 2 else []
+        expected_rows = (
+            ([b] if dim == 1 else [n] * dim)
+            if op == "c2c"
+            else [n // 2 + 1]
+            if dim == 2
+            else []
+        )
         if sorted(complex_rows) != sorted(expected_rows):
             raise RuntimeError(f"Incorrect complex axis route: {complex_rows}")
 
@@ -212,7 +271,8 @@ def suite():
                     1,
                     ["baseline", "candidate"],
                 )
-    # Non-target batches, mixed-radix and 3D retain original kernels.
+    # Off-diagonal 1D batches now use candidate multirow; mixed uses its common core.
+    # Non-target 2D batches and 3D still exercise fallback routes.
     for n, b, dim in [
         (32, 1, 1),
         (512, 511, 1),
@@ -239,12 +299,94 @@ def suite():
                 )
 
 
+def multirow_suite():
+    formal = [
+        (64, 8192, "c2c", "forward"),
+        (256, 8192, "c2c", "forward"),
+        (512, 8192, "c2c", "inverse"),
+        (4096, 8192, "c2c", "forward"),
+        (256, 8192, "r2c", "forward"),
+        (1024, 8192, "c2r", "inverse"),
+        (4096, 8192, "r2c", "forward"),
+        (8192, 8192, "c2r", "inverse"),
+        (544, 8192, "c2c", "forward"),
+        (2016, 8192, "c2c", "inverse"),
+        (2944, 8192, "c2c", "inverse"),
+        (2976, 8192, "c2c", "inverse"),
+        (3808, 8192, "c2c", "inverse"),
+        (3840, 8192, "c2c", "forward"),
+        (5312, 8192, "r2c", "forward"),
+        (5344, 8192, "c2r", "inverse"),
+        (6688, 8192, "r2c", "forward"),
+        (6720, 8192, "c2r", "inverse"),
+        (6720, 8192, "c2c", "forward"),
+        (6752, 8192, "c2c", "inverse"),
+        (8160, 8192, "c2c", "inverse"),
+    ]
+    functional = [
+        (64, 7, "c2c", "inverse"),
+        (512, 65, "c2c", "inverse"),
+        (1024, 129, "r2c", "forward"),
+        (4096, 193, "c2r", "inverse"),
+        (2944, 129, "c2c", "inverse"),
+        (3808, 193, "c2c", "inverse"),
+        (5344, 65, "r2c", "forward"),
+        (6688, 193, "c2r", "inverse"),
+        (3840, 193, "c2c", "inverse"),
+        (6720, 65, "c2c", "inverse"),
+        (6752, 193, "c2c", "inverse"),
+        (8160, 7, "c2c", "forward"),
+        (512, 8192, "r2c", "forward"),
+    ]
+    for samples, rounds, cases in ((300, 2, formal), (3, 1, functional)):
+        for n, b, op, direction in cases:
+            yield (
+                (n, b, 1, op, direction, "random", False),
+                samples,
+                rounds,
+                ["baseline", "candidate"],
+            )
+
+
+def mixed_2d_suite():
+    formal = [
+        (544, "c2c", "forward"),
+        (2016, "c2c", "inverse"),
+        (1536, "r2c", "forward"),
+        (1536, "c2r", "inverse"),
+    ]
+    functional = [
+        (3840, "c2c", "forward"),
+        (6752, "c2c", "inverse"),
+        (5344, "r2c", "forward"),
+    ]
+    for samples, rounds, cases in ((300, 2, formal), (3, 1, functional)):
+        for n, op, direction in cases:
+            yield (
+                (n, 1, 2, op, direction, "random", False),
+                samples,
+                rounds,
+                ["baseline", "candidate"],
+            )
+
+
 def main():
     p = argparse.ArgumentParser()
     for name in ["baseline", "candidate", "binary", "output"]:
         p.add_argument("--" + name, type=Path, required=True)
     p.add_argument("--device", type=int, required=True)
     p.add_argument("--smoke", action="store_true")
+    selection = p.add_mutually_exclusive_group()
+    selection.add_argument(
+        "--mixed-2d",
+        action="store_true",
+        help="Run seven square-2D common mixed replacements against the previous mixed scheduler",
+    )
+    selection.add_argument(
+        "--multirow",
+        action="store_true",
+        help="Run the bounded multirow integration suite against its optimized parent",
+    )
     a = p.parse_args()
     a.output.mkdir(parents=True, exist_ok=False)
     if a.device < 0 or any(
@@ -291,7 +433,9 @@ def main():
         ):
             raise RuntimeError("Incorrect dynamic library resolution")
         envs[label] = env
-    selected = list(suite())
+    selected = list(
+        mixed_2d_suite() if a.mixed_2d else multirow_suite() if a.multirow else suite()
+    )
     if a.smoke:
         selected = [
             (c, 2, 1, ["baseline", "candidate"])
@@ -352,7 +496,7 @@ def main():
                     (attempt / "run.log").write_text(log)
                     if run.returncode or "input_unchanged=1" not in log:
                         raise RuntimeError(f"Execution failed: {attempt}")
-                    check_route(case, label, log)
+                    check_route(case, label, log, a.multirow or a.mixed_2d)
                     output = np.fromfile(
                         attempt / "output.bin",
                         dtype=np.float32 if op == "c2r" else np.complex64,
@@ -366,7 +510,7 @@ def main():
                     if not np.isfinite(error) or error > 1e-3:
                         raise RuntimeError(f"FP64 relative L2 failed: {error}")
                     digest = sha(attempt / "output.bin")
-                    if not optimized(case):
+                    if not optimized(case) and not common_mixed(case):
                         if comparison_hash is not None and digest != comparison_hash:
                             raise RuntimeError("Fallback output changed")
                         comparison_hash = digest

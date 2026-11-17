@@ -14,6 +14,16 @@ odd factors use a shared symmetric stage with single or paired outputs. Paired
 outputs are selected for lengths of at least 1824. There is no per-prime top-level
 implementation or experimental configuration switch.
 
+All common mixed passes, including those reused by square 2D plans, use
+UB-sized multirow tiles. Complex lengths up
+to 2944 use four data regions; 2976 through 6720 use three rotating regions (one row above 3808).
+Larger supported mixed lengths use two dynamically sized data regions; a tile
+completes its output before reusing these regions.
+Real transforms use a compact N+128-float row stride, with three regions for
+5344 through 6688 and four elsewhere. The fixed-capacity row kernels and the old/new scheduler flag are removed.
+Existing small-real DFT selection and the public transpose are preserved. See the [integration report](../fft1d_optimized/MULTIROW_REPORT.md)
+for the bounded validation suite and measured coverage.
+
 After sourcing CANN and building/installing SIP, build the tests with:
 
 ```bash
@@ -22,7 +32,8 @@ python3 tests/standalone/fft_mixed/run.py --candidate <install> \
     --binary <bin>/fft_bench --device <device> --output <new-results> --smoke
 ```
 
-The build runs 768 factor-plan/selection checks and 11 negative checks, and
+The build runs 741 capacity-layout checks, 768 factor-plan/selection checks and
+11 negative selection checks, and
 compiles the existing `fft1d_optimized/bench.cpp` public tensor-API benchmark.
 Python validation reuses its FP64 golden generator and device snapshot helpers;
 NumPy is required. Use `--alias` for exact in-place validation. Every execution
@@ -51,3 +62,7 @@ performance guarantee. Separate structured, alias, high-prime and 2D reuse
 checks passed. These are historical measurements of that frozen build, not a
 new timing claim for the cleaned submission. Detailed experiment archives are
 kept outside this repository's proposed changes.
+
+The square-2D replacement suite is available through
+`../fft1d_optimized/run.py --mixed-2d` with the same baseline/candidate, binary,
+device and output arguments: four formal comparisons and three functional cases.

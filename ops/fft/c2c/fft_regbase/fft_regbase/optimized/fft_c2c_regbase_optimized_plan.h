@@ -27,7 +27,7 @@ inline int CanonicalRegBaseOptimizedConfig(int32_t n, int config)
 }
 
 inline RegBaseOptimizedDescriptor SelectRegBaseOptimized(int32_t n, int64_t batch, bool inverse, uint32_t aivCount,
-                                                         int config)
+                                                         int config, bool useMultirow = false)
 {
     if (n < 32 || n > 8192 || (n & (n - 1)) != 0)
         throw std::invalid_argument("C2C RegBase Optimized requires a power-of-two size in [32,8192]");
@@ -50,15 +50,28 @@ inline RegBaseOptimizedDescriptor SelectRegBaseOptimized(int32_t n, int64_t batc
                                                SmallVariant::FusedRadix4UnrolledDirect;
     }
     const bool resident = n <= 256;
+    const bool multirow = useMultirow && n <= 4096 && (n >= 512 || !inverse) && d.doubleBuffer;
+    const bool three = multirow && n >= 512;
+    if (multirow) {
+        const int budget = 212 * 1024;
+        const int bytesPerPoint = resident ? 16 : (three ? 24 : 32);
+        const int guards = resident ? 0 : (three ? 1536 : 2048);
+        const int rows = (budget - 8 * n - guards) / bytesPerPoint / n;
+        d.core.tilePoints = rows * n;
+    }
     d.core.phaseAUbBytes = size_t{d.doubleBuffer ? 2U : 1U} * (resident ? 1U : 2U) * size_t{8} *
                                (d.core.tilePoints + (resident ? 0 : 64)) +
                            d.core.twiddleBytes;
+    if (three)
+        d.core.phaseAUbBytes = 3U * 8U * (d.core.tilePoints + 64U) + d.core.twiddleBytes;
     if (d.core.phaseAUbBytes > kUserUbBytes)
         throw std::logic_error("C2C RegBase Optimized UB budget exceeded");
     // Register variants encode direction entirely in their radix-2 twiddles.
     // Radix-4 additionally specializes its +/-i rotation by direction.
     d.tilingKey = 2000000ULL + static_cast<uint64_t>(n) * 16 + static_cast<uint64_t>(d.config - 1) * 4 +
                   (d.doubleBuffer ? 2 : 0) + (n >= 512 && inverse ? 1 : 0);
+    if (multirow)
+        d.tilingKey += three ? 20000000ULL : 10000000ULL;
     return d;
 }
 

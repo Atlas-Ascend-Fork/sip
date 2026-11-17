@@ -11,6 +11,8 @@ add_kernel(fft_mixed_common ascend950 vector kernel/mixed.asc FftMixedCommonKern
     CACHE_POLICY compiler-default
     INCLUDE_DIRECTORIES ${PROJECT_SOURCE_DIR}/ops/include
     DEPENDS ${CMAKE_CURRENT_LIST_DIR}/kernel/row_fft.h
+        ${CMAKE_CURRENT_LIST_DIR}/kernel/batched_vf.h
+        ${CMAKE_CURRENT_LIST_DIR}/kernel/tile_simd.h
         ${CMAKE_CURRENT_LIST_DIR}/kernel/radix3.h
         ${CMAKE_CURRENT_LIST_DIR}/kernel/radix4.h
         ${CMAKE_CURRENT_LIST_DIR}/kernel/radix57.h

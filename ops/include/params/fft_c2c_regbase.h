@@ -45,10 +45,12 @@ struct FftC2CRegBase {
     int32_t isInverse = 0;
     int32_t optimizedConfig = 0; // Zero preserves the original C2C kernel and coefficient layout.
 
+    bool multirow = false;
+
     bool operator==(const FftC2CRegBase& other) const
     {
         return fftN == other.fftN && batchSize == other.batchSize && isInverse == other.isInverse &&
-               optimizedConfig == other.optimizedConfig;
+               optimizedConfig == other.optimizedConfig && multirow == other.multirow;
     }
 
     std::string ToString() const

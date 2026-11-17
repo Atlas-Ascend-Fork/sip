@@ -710,12 +710,19 @@ void addFFTSteps(FFTPlan& plan, int dim, int64_t batchSize, asdFftType fftType)
         config = fft1d::OptimizedSquareConfig(fftSize, plan.fftSizes[1 - dim], plan.batchSize, batchSize, kind,
                                               kindOf(plan.fftType), !plan.isForward(), ascend950, fftStride == 1);
     }
+    const bool multirow = ascend950 && !UseOpsFftKernelBackend() && plan.fftSizes.size() == 1 && fftStride == 1 &&
+                          batchSize >= 1 && batchSize <= 8192 && fftSize >= 32 &&
+                          fftSize <= (kind == fft1d::Kind::C2C ? 4096 : 8192) && (fftSize & (fftSize - 1)) == 0 &&
+                          (kind == fft1d::Kind::C2C || (kind == fft1d::Kind::R2C && plan.isForward()) ||
+                           (kind == fft1d::Kind::C2R && !plan.isForward()));
+    if (multirow)
+        config = fft1d::OptimizedConfig(fftSize, fftSize, kind, !plan.isForward(), true, true);
     if (config != 0) {
         std::unique_ptr<FftOperation> core;
         if (kind == fft1d::Kind::C2C)
-            core.reset(new FftC2CRegBaseCore(1, fftSize, 1, batchSize, fftType, plan.isForward(), config));
+            core.reset(new FftC2CRegBaseCore(1, fftSize, 1, batchSize, fftType, plan.isForward(), config, multirow));
         else
-            core.reset(new FftRealRegBaseCore(1, fftSize, 1, batchSize, fftType, plan.isForward(), config));
+            core.reset(new FftRealRegBaseCore(1, fftSize, 1, batchSize, fftType, plan.isForward(), config, multirow));
         if (core->init()) {
             plan.steps.push_back(PlanStep{std::move(core)});
             return;

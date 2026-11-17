@@ -54,7 +54,7 @@ public:
             launch.GetOutTensorCount() != 1)
             return false;
         const auto& p = AnyCast<FftMixedCommon>(launch.GetParam());
-        if (!ValidMixedCommon(p))
+        if (SelectMixedCommonTile(p).rows == 0)
             return false;
         for (int i = 0; i < 3; ++i) {
             const auto& t = i == 2 ? launch.GetOutTensor(0) : launch.GetInTensor(i);
@@ -79,8 +79,9 @@ public:
         auto& tiling = *reinterpret_cast<MixedCommonTiling*>(kernelInfo_.GetTilingHostAddr());
         ASDSIP_CHECK(BuildMixedCommonTiling(p, tiling), "Invalid mixed common factor plan",
                      return Status::FailStatus(ERROR_INVALID_VALUE));
+        // Every launched block owns at least one row; the device drains a completion event per active slot.
         kernelInfo_.SetBlockDim(std::min(cores, p.rows));
-        kernelInfo_.SetTilingId(p.n <= 128 ? 0 : p.n <= 512 ? 1 : p.n <= 2048 ? 2 : 3);
+        kernelInfo_.SetTilingId(SelectMixedCommonTile(p).key);
         kernelInfo_.SetLocalMemorySize(0);
         kernelInfo_.GetScratchSizes() = {0};
         return Status::OkStatus();

@@ -26,7 +26,7 @@ using namespace Mki;
 namespace {
 enum class Slot { Input, Output, Scratch, CoreWork };
 fft::real::Descriptor SelectRealDescriptor(unsigned n, unsigned batch, asdFftType type, bool forward,
-                                           int optimizedConfig)
+                                           int optimizedConfig, bool multirow)
 {
     const auto kind = type == asdFftType::ASCEND_FFT_C2R ? fft::real::Kind::C2R : fft::real::Kind::R2C;
     const auto cores = PlatformInfo::Instance().GetCoreNum(CoreType::CORE_TYPE_VECTOR);
@@ -35,7 +35,7 @@ fft::real::Descriptor SelectRealDescriptor(unsigned n, unsigned batch, asdFftTyp
     if (optimizedConfig != 0) {
         if (PlatformInfo::Instance().GetPlatformType() != PlatformType::ASCEND_950)
             throw std::invalid_argument("real FFT Optimized requires Ascend950");
-        return fft::real::SelectOptimized(n, batch, kind, !forward, cores, optimizedConfig);
+        return fft::real::SelectOptimized(n, batch, kind, !forward, cores, optimizedConfig, multirow);
     }
     return fft::real::Select(n, batch, kind, !forward, cores);
 }
@@ -57,16 +57,20 @@ struct FftRealRegBaseCore::Impl {
     fft::real::Descriptor descriptor;
     std::vector<std::shared_ptr<FFTensor>> coefficients;
     std::vector<std::unique_ptr<RealStage>> stages;
-    Impl(unsigned n, unsigned batch, asdFftType type, bool forward, int optimizedConfig)
-        : descriptor(SelectRealDescriptor(n, batch, type, forward, optimizedConfig))
+    Impl(unsigned n, unsigned batch, asdFftType type, bool forward, int optimizedConfig, bool multirow)
+        : descriptor(SelectRealDescriptor(n, batch, type, forward, optimizedConfig, multirow))
     {}
 };
 
 FftRealRegBaseCore::FftRealRegBaseCore(unsigned nDone, unsigned nDoing, unsigned nLeft, unsigned batch, asdFftType type,
-                                       bool forward, int optimizedConfig)
+                                       bool forward, int optimizedConfig, bool multirow)
     : FFTCoreBase(type == asdFftType::ASCEND_FFT_C2R ? kFftC2RRegBase : kFftR2CRegBase, nDone, nDoing, nLeft, batch,
                   type, forward),
-      impl_(std::make_unique<Impl>(nDoing, batch, type, forward, optimizedConfig))
+      impl_(std::make_unique<Impl>(nDoing, batch, type, forward, optimizedConfig, multirow))
+{}
+FftRealRegBaseCore::FftRealRegBaseCore(unsigned nDone, unsigned nDoing, unsigned nLeft, unsigned batch, asdFftType type,
+                                       bool forward, int optimizedConfig)
+    : FftRealRegBaseCore(nDone, nDoing, nLeft, batch, type, forward, optimizedConfig, false)
 {}
 FftRealRegBaseCore::~FftRealRegBaseCore() = default;
 
@@ -132,8 +136,8 @@ bool FftRealRegBaseCore::PreAllocateInDevice()
         return true;
     };
     auto realStage = [&](S kind, Slot input, Slot output) {
-        OpParam::FftRealRegBase p{d.n,  d.batch,          d.inverse ? 1 : 0, d.kind == fft::real::Kind::C2R ? 1 : 0,
-                                  kind, d.optimizedConfig};
+        OpParam::FftRealRegBase p{d.n,  d.batch,           d.inverse ? 1 : 0, d.kind == fft::real::Kind::C2R ? 1 : 0,
+                                  kind, d.optimizedConfig, d.multirow};
         auto stage = std::make_unique<RealStage>();
         stage->input = input;
         stage->output = output;

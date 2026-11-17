@@ -89,5 +89,34 @@ int main()
             }
         }
     }
+    // Multirow scheduling must preserve coefficients and the legacy descriptor.
+    for (int n : {32, 64, 128, 256, 512, 1024, 2048, 4096}) {
+        for (int batch : {1, 7, 65, 129, 193, 8192}) {
+            for (bool inverse : {false, true}) {
+                const auto old = fft::c2c::SelectRegBaseOptimized(n, batch, inverse, 64, 1);
+                const auto tile = fft::c2c::SelectRegBaseOptimized(n, batch, inverse, 64, 1, true);
+                Require(tile.core.phaseABlocks == old.core.phaseABlocks);
+                Require(tile.core.phaseAUbBytes <= 212U * 1024U);
+                Require(fft::c2c::BuildLocalTwiddles(tile.core) == fft::c2c::BuildLocalTwiddles(old.core));
+                if (!old.doubleBuffer || (n < 512 && inverse))
+                    Require(tile.tilingKey == old.tilingKey);
+                else
+                    Require(tile.tilingKey == old.tilingKey + (n >= 512 ? 20000000ULL : 10000000ULL));
+            }
+        }
+    }
+    for (int n : {32, 64, 128, 256, 512, 1024, 2048, 4096, 8192}) {
+        for (int batch : {1, 7, 65, 129, 193, 8192}) {
+            for (auto kind : {fft::real::Kind::R2C, fft::real::Kind::C2R}) {
+                const bool inverse = kind == fft::real::Kind::C2R;
+                const auto apiKind = inverse ? Kind::C2R : Kind::R2C;
+                const int config = AsdSip::fft1d::OptimizedConfig(n, n, apiKind, inverse, true, true);
+                const auto tile = fft::real::SelectOptimized(n, batch, kind, inverse, 64, config, true);
+                Require(tile.multirow && tile.fusedTileBatch > 0 && tile.fusedUbBytes <= 212U * 1024U);
+                Require(fft::real::SupportsOptimized(n, batch, kind, inverse, true));
+                Require(fft::real::SupportsOptimized(n, batch, kind, inverse) == (batch == n));
+            }
+        }
+    }
     std::cout << "PASS " << count << " selection cases and target tiling checks\n";
 }

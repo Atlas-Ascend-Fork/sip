@@ -19,6 +19,31 @@ void require(bool b)
 }
 int main()
 {
+    // All eligible lengths must fit their selected dynamic layout; boundaries
+    // change the number of buffers, never fall back just because rows == 1.
+    for (int n = 32; n <= 8192; n += 32) {
+        if (!OpParam::MixedCommonLength(n))
+            continue;
+        for (auto pass :
+             {OpParam::MixedCommonPass::Complex, OpParam::MixedCommonPass::Real, OpParam::MixedCommonPass::Hermitian}) {
+            OpParam::FftMixedCommon p{n, 193, pass, pass == OpParam::MixedCommonPass::Hermitian};
+            auto plan = OpParam::SelectMixedCommonTile(p);
+            require(plan.rows >= 1 && plan.buffers >= 2 && plan.buffers <= 4);
+            require(plan.buffers * plan.capacity + 2 * n <= 54272 && plan.capacity % 8 == 0);
+            const int stride = (pass == OpParam::MixedCommonPass::Complex ? 2 * n : n) + 128;
+            require(plan.rows * stride <= plan.capacity && (plan.rows + 1) * stride > plan.capacity);
+            if (pass == OpParam::MixedCommonPass::Complex)
+                require(plan.key == (n <= 2944 ? 19 : n <= 6720 ? 22 : 26));
+            else
+                require(plan.key == (n > 5312 && n <= 6688 ? 25 : 21));
+            // Key 26 computes one complex row, so its DMA tile must also contain exactly one row.
+            if (plan.key == 26)
+                require(pass == OpParam::MixedCommonPass::Complex && plan.rows == 1);
+            p.rows = 0;
+            require(OpParam::SelectMixedCommonTile(p).key == -1);
+            require(OpParam::SelectMixedCommonTile(p).buffers == 0);
+        }
+    }
     int count = 0;
     for (int k = 1; k <= 256; ++k)
         for (int pass = 0; pass < 3; ++pass) {

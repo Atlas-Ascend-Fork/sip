@@ -42,7 +42,8 @@ AspbStatus FftC2CRegBaseTiling(const LaunchParam& launchParam, KernelInfo& kerne
     if (param.optimizedConfig != 0) {
         try {
             const auto d = fft::c2c::SelectRegBaseOptimized(static_cast<int32_t>(param.fftN), param.batchSize,
-                                                            param.isInverse != 0, aivCount, param.optimizedConfig);
+                                                            param.isInverse != 0, aivCount, param.optimizedConfig,
+                                                            param.multirow);
             *tiling = {param.batchSize, d.core.n, d.core.tilePoints};
             kernelInfo.SetBlockDim(d.core.phaseABlocks);
             kernelInfo.SetTilingId(d.tilingKey);

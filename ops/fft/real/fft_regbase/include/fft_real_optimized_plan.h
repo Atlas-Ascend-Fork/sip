@@ -11,9 +11,9 @@
 #include "fft_real_plan.h"
 
 namespace fft::real {
-inline bool SupportsOptimized(int32_t n, int64_t batch, Kind kind, bool inverse)
+inline bool SupportsOptimized(int32_t n, int64_t batch, Kind kind, bool inverse, bool multirow = false)
 {
-    return n >= 32 && n <= 8192 && (n & (n - 1)) == 0 && batch == n &&
+    return n >= 32 && n <= 8192 && (n & (n - 1)) == 0 && (batch == n || (multirow && batch >= 1 && batch <= 8192)) &&
            ((kind == Kind::R2C && !inverse) || (kind == Kind::C2R && inverse));
 }
 inline int NormalizeOptimizedConfig(int n, int config)
@@ -28,12 +28,14 @@ inline int NormalizeOptimizedConfig(int n, int config)
         throw std::invalid_argument("Unsupported optimized real FFT configuration");
     return config;
 }
-inline Descriptor SelectOptimized(int32_t n, int64_t batch, Kind kind, bool inverse, uint32_t aivCount, int config)
+inline Descriptor SelectOptimized(int32_t n, int64_t batch, Kind kind, bool inverse, uint32_t aivCount, int config,
+                                  bool multirow = false)
 {
-    if (!SupportsOptimized(n, batch, kind, inverse) || aivCount == 0)
+    if (!SupportsOptimized(n, batch, kind, inverse, multirow) || aivCount == 0)
         throw std::invalid_argument("real FFT Optimized requires a standard-direction A5 target row batch");
     auto d = Select(n, batch, kind, inverse, aivCount);
     d.optimizedConfig = NormalizeOptimizedConfig(n, config);
+    d.multirow = multirow;
     d.variant = Variant::FusedUb;
     const int m = n / 2;
     d.fusedTileBatch = m <= 256 ? 256 / m : (m == 512 ? 2 : 1);
@@ -46,12 +48,21 @@ inline Descriptor SelectOptimized(int32_t n, int64_t batch, Kind kind, bool inve
     // Keep original row distribution. Only local DMA/compute tile capacity changes.
     d.fusedBlocks = d.core.phaseABlocks;
     d.fusedUbSlots = d.optimizedConfig != 5 && batch > int64_t{d.fusedBlocks} * d.fusedTileBatch ? 2 : 1;
+    const bool three = multirow && n >= 1024 && n <= 8192 && d.fusedUbSlots == 2;
+    if (multirow && n <= 8192 && d.fusedUbSlots == 2) {
+        const int rootsFloats = n + n / 2 + 8;
+        const int guards = m >= 512 ? (three ? 384 : 512) : 0;
+        const int perRow = m >= 512 ? (three ? 3 : 4) * (n + 8) : 2 * (2 * n + 8);
+        d.fusedTileBatch = (54272 - rootsFloats - guards) / perRow;
+    }
     d.scratchBytes = d.workspaceBytes = d.boundaryBlocks = d.boundaryUbBytes = 0;
     // Only W[0..M/2] is needed by the paired conversion. Pad to a 32-byte transfer.
     d.boundaryTwiddleBytes = size_t(n / 2 + 8) * sizeof(float);
     const size_t packed = m >= 512 ? d.fusedTileBatch * (n + 8U) + 128U : d.fusedTileBatch * n;
     const size_t half = m >= 512 ? packed : d.fusedTileBatch * (n + 8U);
     d.fusedUbBytes = sizeof(float) * (d.fusedUbSlots * (packed + half) + n + n / 2 + 8U);
+    if (three)
+        d.fusedUbBytes = sizeof(float) * (3 * packed + n + n / 2 + 8U);
     if (d.fusedUbBytes > c2c::kUserUbBytes)
         throw std::logic_error("real FFT Optimized UB budget exceeded");
     return d;

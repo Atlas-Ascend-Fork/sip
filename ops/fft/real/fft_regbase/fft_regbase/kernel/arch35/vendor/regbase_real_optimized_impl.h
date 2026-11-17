@@ -153,7 +153,7 @@ __aicore__ inline void LoadTile(__ubuf__ float* packed, __ubuf__ float* half, __
         asc_copy_gm2ub_align(packed, input + globalBatch * N, 1, count * N * 4, 0, 0, false, 0, 0, 0);
 }
 
-template <int N, bool C2R, int Config, bool DoubleBuffer>
+template <int N, bool C2R, int Config, bool DoubleBuffer, bool Multirow = false>
 __aicore__ inline void Run(__gm__ float* input, __gm__ float* coreTwiddles, __gm__ float* boundaryTwiddles,
                            __gm__ float* output, int64_t batch)
 {
@@ -162,9 +162,14 @@ __aicore__ inline void Run(__gm__ float* input, __gm__ float* coreTwiddles, __gm
     static_assert(Config != 5 || !DoubleBuffer);
     constexpr int m = N / 2;
     constexpr int baseCapacity = m <= 256 ? 256 / m : (m == 512 ? 2 : 1);
-    constexpr int tileCapacity = Config == 4 || (Config == 6 && N == 512) ? 4 :
-                                 Config == 3 || Config == 5               ? 2 :
-                                                                            baseCapacity;
+    constexpr int oldCapacity = Config == 4 || (Config == 6 && N == 512) ? 4 :
+                                Config == 3 || Config == 5               ? 2 :
+                                                                           baseCapacity;
+    constexpr int rootsFloats = N + N / 2 + 8;
+    constexpr int guards = m >= 512 ? 512 : 0;
+    constexpr int perRow = m >= 512 ? 4 * (N + 8) : 2 * (2 * N + 8);
+    constexpr int tileCapacity = Multirow ? (54272 - rootsFloats - guards) / perRow : oldCapacity;
+    static_assert(!Multirow || DoubleBuffer);
     constexpr int packedFloats = m >= 512 ? tileCapacity * (N + 8) + 128 : tileCapacity * N;
     constexpr int halfFloats = m >= 512 ? packedFloats : tileCapacity * (N + 8);
     constexpr int slots = DoubleBuffer ? 2 : 1;
@@ -252,5 +257,79 @@ __aicore__ inline void Run(__gm__ float* input, __gm__ float* coreTwiddles, __gm
     if constexpr (DoubleBuffer)
         AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID1);
 }
+
+template <int N, bool C2R, int Config>
+__aicore__ inline void RunThree(__gm__ float* input, __gm__ float* coreTwiddles, __gm__ float* boundaryTwiddles,
+                                __gm__ float* output, int64_t batch)
+{
+    static_assert(N >= 1024 && N <= 8192);
+    constexpr int m = N / 2;
+    constexpr int rows = (54272 - N - N / 2 - 8 - 384) / (3 * (N + 8));
+    constexpr int size = rows * (N + 8) + 128;
+    static_assert(rows >= 1 && 4 * (3 * size + N + N / 2 + 8) <= 212 * 1024);
+    __ubuf__ float storage[3 * size];
+    __ubuf__ float fftTw[N];
+    __ubuf__ float realTw[N / 2 + 8];
+    auto range = GetCoreBatchRange(batch);
+    if (!range.count)
+        return;
+    __ubuf__ float* current = storage;
+    __ubuf__ float* scratch = storage + size;
+    __ubuf__ float* spare = storage + 2 * size;
+    asc_copy_gm2ub_align(fftTw, coreTwiddles, 1, N * 4, 0, 0, false, 0, 0, 0);
+    asc_copy_gm2ub_align(realTw, boundaryTwiddles, 1, (N / 2 + 8) * 4, 0, 0, false, 0, 0, 0);
+    const uint16_t first = range.count < rows ? range.count : rows;
+    LoadTile<N, C2R>(current, current, input, range.start, first);
+    AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(EVENT_ID0);
+    int tile = 0;
+    for (int64_t local = 0; local < range.count; local += rows, ++tile) {
+        const int event = (tile & 1) ? EVENT_ID1 : EVENT_ID0;
+        const int nextEvent = (tile & 1) ? EVENT_ID0 : EVENT_ID1;
+        const uint16_t count = range.count - local < rows ? range.count - local : rows;
+        if (tile)
+            AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID0);
+        if (local + rows < range.count) {
+            const uint16_t nextCount = range.count - local - rows < rows ? range.count - local - rows : rows;
+            LoadTile<N, C2R>(spare, spare, input, range.start + local + rows, nextCount);
+            AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(nextEvent);
+        }
+        AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(event);
+        __ubuf__ float* packed = current;
+        __ubuf__ float* half = scratch;
+        if constexpr (C2R) {
+            ConvertRows<N, true, Config != 1>(current, realTw, scratch, count);
+            AscendC::PipeBarrier<PIPE_V>();
+            packed = scratch;
+            half = current;
+        }
+        StockhamRadix4FusedUnrolledDirectVf<m, C2R>(packed, fftTw, half, count);
+        __ubuf__ float* fftOutput = packed;
+        __ubuf__ float* halfOutput = half;
+        if constexpr ((FftTraits<m>::kRadix4Passes & 1) != 0) {
+            fftOutput = half;
+            halfOutput = packed;
+        }
+        __ubuf__ float* result = fftOutput;
+        if constexpr (!C2R) {
+            AscendC::PipeBarrier<PIPE_V>();
+            ConvertRows<N, false, Config != 1>(fftOutput, realTw, halfOutput, count);
+            result = halfOutput;
+        }
+        __ubuf__ float* freeBuffer = result == current ? scratch : current;
+        AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(EVENT_ID0);
+        AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(EVENT_ID0);
+        if constexpr (C2R)
+            asc_copy_ub2gm_align(output + (range.start + local) * N, result, 1, count * N * 4, 0, 0, 0);
+        else
+            asc_copy_ub2gm_align(output + (range.start + local) * (N + 2), result, count, (N + 2) * 4, 0, (N + 2) * 4,
+                                 (N + 8) * 4);
+        AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID0);
+        current = spare;
+        scratch = freeBuffer;
+        spare = result;
+    }
+    AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID0);
+}
+
 } // namespace real_optimized
 #endif

@@ -22,10 +22,11 @@ struct FftRealRegBase {
     int32_t isC2R;
     FftRealStage stage;
     int32_t optimizedConfig = 0;
+    bool multirow = false;
     bool operator==(const FftRealRegBase& p) const
     {
         return fftN == p.fftN && batchSize == p.batchSize && isInverse == p.isInverse && isC2R == p.isC2R &&
-               stage == p.stage && optimizedConfig == p.optimizedConfig;
+               stage == p.stage && optimizedConfig == p.optimizedConfig && multirow == p.multirow;
     }
     std::string ToString() const
     {
@@ -41,7 +42,7 @@ inline fft::real::Descriptor RealDescriptor(const FftRealRegBase& p, uint32_t co
         throw std::invalid_argument("Invalid real FFT kind or direction");
     if (p.stage == FftRealStage::Optimized)
         return fft::real::SelectOptimized(p.fftN, p.batchSize, p.isC2R ? fft::real::Kind::C2R : fft::real::Kind::R2C,
-                                          p.isInverse != 0, cores, p.optimizedConfig);
+                                          p.isInverse != 0, cores, p.optimizedConfig, p.multirow);
     if (p.optimizedConfig != 0)
         throw std::invalid_argument("Original real FFT stages cannot carry a Optimized configuration");
     return fft::real::Select(p.fftN, p.batchSize, p.isC2R ? fft::real::Kind::C2R : fft::real::Kind::R2C,
@@ -77,8 +78,14 @@ inline int64_t RealCoefficientFloats(const FftRealRegBase& p, const fft::real::D
 }
 inline uint64_t RealTilingKey(const FftRealRegBase& p, const fft::real::Descriptor& d)
 {
-    if (p.stage == FftRealStage::Optimized)
-        return 1000000U + 128U * p.fftN + 8U * d.optimizedConfig + 4U * p.isC2R + (d.fusedUbSlots == 2 ? 1U : 0U);
+    if (p.stage == FftRealStage::Optimized) {
+        const bool multirow = p.multirow && p.fftN <= 8192 && d.fusedUbSlots == 2;
+        const bool three = multirow && p.fftN >= 1024;
+        return (three    ? 21000000U :
+                multirow ? 11000000U :
+                           1000000U) +
+               128U * p.fftN + 8U * d.optimizedConfig + 4U * p.isC2R + (d.fusedUbSlots == 2 ? 1U : 0U);
+    }
     if (p.stage == FftRealStage::Boundary)
         return 2 * d.boundaryTilePoints + p.isC2R;
     if (p.stage == FftRealStage::Small)

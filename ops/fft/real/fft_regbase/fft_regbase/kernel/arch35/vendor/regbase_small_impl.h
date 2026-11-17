@@ -1470,6 +1470,55 @@ __aicore__ inline void RunDoubleBufferedDirectPrefetch(__gm__ float* input, __gm
     AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID1);
 }
 
+template <int32_t N, int32_t TilePoints, bool Inverse>
+__aicore__ inline void RunThreeBufferedDirect(__gm__ float* input, __gm__ float* twiddles, __gm__ float* output,
+                                              int64_t batch)
+{
+    static_assert(N >= 512 && N <= 4096);
+    constexpr int rows = TilePoints / N;
+    constexpr int size = 2 * TilePoints + 128;
+    constexpr auto variant = FftC2CRegBaseSmallVariant::FusedRadix4UnrolledDirectDoubleBuffer;
+    static_assert((3 * size + 2 * N) * 4 <= 212 * 1024);
+    __ubuf__ float storage[3 * size];
+    __ubuf__ float roots[2 * N];
+    auto range = GetCoreBatchRange(batch);
+    if (!range.count)
+        return;
+    __ubuf__ float* current = storage;
+    __ubuf__ float* scratch = storage + size;
+    __ubuf__ float* spare = storage + 2 * size;
+    asc_copy_gm2ub_align(roots, twiddles, 1, N * 8, 0, 0, false, 0, 0, 0);
+    const uint16_t first = range.count < rows ? range.count : rows;
+    asc_copy_gm2ub_align(current, input + range.start * N * 2, 1, first * N * 8, 0, 0, false, 0, 0, 0);
+    AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(EVENT_ID0);
+    int tile = 0;
+    for (int64_t local = 0; local < range.count; local += rows, ++tile) {
+        const int event = (tile & 1) ? EVENT_ID1 : EVENT_ID0;
+        const int nextEvent = (tile & 1) ? EVENT_ID0 : EVENT_ID1;
+        const uint16_t count = range.count - local < rows ? range.count - local : rows;
+        if (tile)
+            AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID0);
+        if (local + rows < range.count) {
+            const uint16_t nextCount = range.count - local - rows < rows ? range.count - local - rows : rows;
+            asc_copy_gm2ub_align(spare, input + (range.start + local + rows) * N * 2, 1, nextCount * N * 8, 0, 0, false,
+                                 0, 0, 0);
+            AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(nextEvent);
+        }
+        AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(event);
+        RunCompute<N, variant, Inverse>(current, roots, scratch, count);
+        __ubuf__ float* result = FinalBuffer<N, variant>(current, scratch);
+        __ubuf__ float* freeBuffer = result == current ? scratch : current;
+        AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(EVENT_ID0);
+        AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(EVENT_ID0);
+        asc_copy_ub2gm_align(output + (range.start + local) * N * 2, result, 1, count * N * 8, 0, 0, 0);
+        AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID0);
+        current = spare;
+        scratch = freeBuffer;
+        spare = result;
+    }
+    AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID0);
+}
+
 template <int32_t N, int32_t TilePoints>
 __aicore__ inline int64_t LoadBatch(__gm__ uint8_t* tiling)
 {
