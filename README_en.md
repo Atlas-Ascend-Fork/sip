@@ -136,6 +136,8 @@ After installing CANN, you can install some tools to facilitate subsequent devel
         ```bash
         # Run the self-extracting installer with Bash; executable permissions are not required
         bash ./output/Ascend-cann-SIP_${version}_linux-${arch}.run --install --install-path=${install_path}
+        # Set the acceleration library environment variables
+        source ${install_path}/asdsip/set_env.sh
         ```
 
     - The above compilation method only supports compiling the acceleration library downloaded via git. It does not support the compilation of acceleration libraries downloaded as zip archives.
