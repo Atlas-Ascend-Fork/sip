@@ -13,7 +13,9 @@ import json
 import logging
 import os
 import re
+import shlex
 import stat
+import subprocess
 import sys
 
 
@@ -380,10 +382,17 @@ def get_arch(soc, channel):
 
 def exe_cmd(cmd):
     # Keep the effective device compiler/linker flags in the build log.
-    print(cmd, flush=True)
-    if os.system(cmd) != 0:
+    print(" ".join(shlex.quote(part) for part in cmd), flush=True)
+    # 可执行文件缺失/不可执行时对齐旧 os.system 契约：记录日志并返回失败，不抛 traceback
+    try:
+        rc = subprocess.run(cmd).returncode
+    except OSError as e:
+        logging.error("execute command failed: %s", e)
+        logging.debug("command: %s", " ".join(shlex.quote(part) for part in cmd))
+        return -1
+    if rc != 0:
         logging.error("execute command failed")
-        logging.debug("command: %s", cmd)
+        logging.debug("command: %s", " ".join(shlex.quote(part) for part in cmd))
         return -1
     return 0
 
@@ -410,12 +419,19 @@ def run_parallel(pending_cmds, jobs):
 
     def worker(item):
         dst, cmd = item
-        print(cmd, flush=True)
-        if os.system(cmd) != 0:
+        print(" ".join(shlex.quote(part) for part in cmd), flush=True)
+        try:
+            rc = subprocess.run(cmd).returncode
+        except OSError as e:
+            logging.error("execute command failed: %s", e)
+            failed.append(dst)
+            return
+        if rc != 0:
             failed.append(dst)
 
-    # os.system blocks on subprocesses and releases the GIL, so threads are
-    # sufficient; pending_cmds is built in source order so dsts order is stable.
+    # subprocess.run blocks on child processes and releases the GIL, so
+    # threads are sufficient; pending_cmds is built in source order so dsts
+    # order is stable.
     with ThreadPoolExecutor(max_workers=jobs) as pool:
         list(pool.map(worker, pending_cmds))
     if failed:
@@ -433,7 +449,12 @@ def compile_ascendc_operation(args):
     options = get_common_options(args)
     arch = get_arch(args.soc, args.channel)
     link_cmd = ""
-    ascend_home_path = os.getenv("ASCEND_HOME_PATH", "ASCEND_HOME_PATH does not exist.")
+    if args.use_mssanitizer == "ON" and not os.getenv("ASCEND_HOME_PATH"):
+        logging.error(
+            "env ASCEND_HOME_PATH not set: mssanitizer build requires a valid CANN installation"
+        )
+        sys.exit(1)
+    ascend_home_path = os.getenv("ASCEND_HOME_PATH", "")
     mssanitizer_path = os.path.join(ascend_home_path, "tools", "mssanitizer", "lib64")
 
     if arch == "None":
@@ -447,7 +468,7 @@ def compile_ascendc_operation(args):
                 f"-D{args.kernel}={args.kernel}_{key}",
                 f"-DTILING_KEY_VAR={key}",
             ]
-            compile_cmd = " ".join(gen_compile_cmd(args, dst, arch, opt))
+            compile_cmd = gen_compile_cmd(args, dst, arch, opt)
             pending_cmds.append((dst, compile_cmd))
             dsts.append(dst)
             if args.use_mssanitizer == "ON" and args.soc == "ascend310p":
@@ -462,7 +483,7 @@ def compile_ascendc_operation(args):
                     f"-D{args.kernel}={args.kernel}_{key}",
                     f"-DTILING_KEY_VAR={key}",
                 ]
-                compile_cmd = " ".join(gen_compile_cmd_v220(args, dst, arch, opt))
+                compile_cmd = gen_compile_cmd_v220(args, dst, arch, opt)
                 pending_cmds.append((dst, compile_cmd))
                 dsts.append(dst)
                 if args.use_mssanitizer == "ON":
@@ -483,9 +504,7 @@ def compile_ascendc_operation(args):
                     f"-D{args.kernel}={args.kernel}_{key}_mix_aic",
                     f"-DTILING_KEY_VAR={key}",
                 ]
-                compile_cmd = " ".join(
-                    gen_compile_cmd_v220(args, dst, "dav-c220-cube", aic_opt)
-                )
+                compile_cmd = gen_compile_cmd_v220(args, dst, "dav-c220-cube", aic_opt)
                 pending_cmds.append((dst, compile_cmd))
                 dsts.append(dst)
                 if args.use_mssanitizer == "ON":
@@ -500,9 +519,7 @@ def compile_ascendc_operation(args):
                     f"-D{args.kernel}={args.kernel}_{key}_mix_aiv",
                     f"-DTILING_KEY_VAR={key}",
                 ]
-                compile_cmd = " ".join(
-                    gen_compile_cmd_v220(args, dst, "dav-c220-vec", aiv_opt)
-                )
+                compile_cmd = gen_compile_cmd_v220(args, dst, "dav-c220-vec", aiv_opt)
                 pending_cmds.append((dst, compile_cmd))
                 dsts.append(dst)
                 if args.use_mssanitizer == "ON":
@@ -518,7 +535,7 @@ def compile_ascendc_operation(args):
                 f"-D{args.kernel}={args.kernel}_{key}",
                 f"-DTILING_KEY_VAR={key}",
             ]
-            compile_cmd = " ".join(gen_compile_cmd_v300(args, dst, arch, opt))
+            compile_cmd = gen_compile_cmd_v300(args, dst, arch, opt)
             pending_cmds.append((dst, compile_cmd))
             dsts.append(dst)
         elif args.soc == "ascend950":
@@ -530,7 +547,7 @@ def compile_ascendc_operation(args):
                     f"-D{args.kernel}={args.kernel}_{key}",
                     f"-DTILING_KEY_VAR={key}",
                 ]
-                compile_cmd = " ".join(gen_compile_cmd_c310(args, dst, arch, opt))
+                compile_cmd = gen_compile_cmd_c310(args, dst, arch, opt)
                 pending_cmds.append((dst, compile_cmd))
                 dsts.append(dst)
             else:
@@ -539,9 +556,7 @@ def compile_ascendc_operation(args):
                     f"-D{args.kernel}={args.kernel}_{key}_mix_aic",
                     f"-DTILING_KEY_VAR={key}",
                 ]
-                compile_cmd = " ".join(
-                    gen_compile_cmd_c310(args, dst, "dav-c310", aic_opt)
-                )
+                compile_cmd = gen_compile_cmd_c310(args, dst, "dav-c310", aic_opt)
                 pending_cmds.append((dst, compile_cmd))
                 dsts.append(dst)
                 dst = os.path.splitext(args.dst)[0] + f"_mix_aiv_{key}.o"
@@ -549,9 +564,7 @@ def compile_ascendc_operation(args):
                     f"-D{args.kernel}={args.kernel}_{key}_mix_aiv",
                     f"-DTILING_KEY_VAR={key}",
                 ]
-                compile_cmd = " ".join(
-                    gen_compile_cmd_c310(args, dst, "dav-c310", aiv_opt)
-                )
+                compile_cmd = gen_compile_cmd_c310(args, dst, "dav-c310", aiv_opt)
                 pending_cmds.append((dst, compile_cmd))
                 dsts.append(dst)
         else:
@@ -565,7 +578,7 @@ def compile_ascendc_operation(args):
     if run_parallel(pending_cmds, parse_parallel_jobs()) != 0:
         return -1
 
-    link_cmd = " ".join(gen_fatbin_cmd(args, dsts, args.dst))
+    link_cmd = gen_fatbin_cmd(args, dsts, args.dst)
     if (exe_cmd(link_cmd)) != 0:
         return -1
     gen_json(args, kernels)
