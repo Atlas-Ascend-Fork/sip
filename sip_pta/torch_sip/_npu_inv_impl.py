@@ -307,6 +307,28 @@ def npu_inv(a: torch.Tensor, *, out: torch.Tensor = None) -> torch.Tensor:
     y = y.reshape(*batch_dims, n, n)
 
     if out is not None:
+        # out= 语义对齐 torch.linalg.inv (issue #425): grad 开启且输入或 out 自身
+        # requires_grad 时 torch 对 out 变体显式报错 (compute_requires_grad(self, out)
+        # 口径), 不静默断图; shape/dtype/device 不匹配直接报错, 不静默广播/精度
+        # 转换/跨设备拷贝
+        if torch.is_grad_enabled() and (a.requires_grad or out.requires_grad):
+            raise RuntimeError(
+                "npu_inv(): functions with out=... arguments don't support "
+                "automatic differentiation, but one of the arguments requires grad"
+            )
+        if out.shape != y.shape:
+            raise RuntimeError(
+                f"npu_inv(): expected out tensor to have shape {tuple(y.shape)}, "
+                f"but got {tuple(out.shape)}"
+            )
+        if out.dtype != y.dtype:
+            raise RuntimeError(
+                f"npu_inv(): expected out tensor to have dtype {y.dtype}, but got {out.dtype}"
+            )
+        if out.device != y.device:
+            raise RuntimeError(
+                f"npu_inv(): expected out tensor to have device {y.device}, but got {out.device}"
+            )
         out.copy_(y)
         return out
     return y
