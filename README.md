@@ -98,6 +98,7 @@ source /usr/local/Ascend/cann/set_env.sh
 
     ```sh
     git clone https://gitcode.com/cann/sip.git
+    sip_root_path="$(realpath sip)" || exit 1
     ```
 
    您可自行选择需要的分支。
@@ -105,7 +106,7 @@ source /usr/local/Ascend/cann/set_env.sh
     编译加速库：
 
     ```sh
-    cd ${sip_root_path}
+    cd "${sip_root_path:?Set the repository root path first}" || exit 1
     bash build.sh
     ```
 

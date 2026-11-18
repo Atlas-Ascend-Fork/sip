@@ -6,6 +6,7 @@
 
 ```shell
 git clone https://gitcode.com/cann/sip.git
+SiP_root_path="$(realpath sip)" || exit 1
 ```
 
 您可自行选择需要的分支。
@@ -15,7 +16,7 @@ git clone https://gitcode.com/cann/sip.git
 用户需进入加速库的根目录并进行编译
 
 ```shell
-cd ${SiP_root_path}
+cd "${SiP_root_path:?Set the repository root path first}" || exit 1
 bash build.sh
 ```
 

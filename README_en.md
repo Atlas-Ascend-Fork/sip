@@ -118,6 +118,7 @@ After installing CANN, you can install some tools to facilitate subsequent devel
 
     ```sh
     git clone https://gitcode.com/cann/sip.git
+    sip_root_path="$(realpath sip)" || exit 1
     ```
 
     You can select any branch as needed.
@@ -125,7 +126,7 @@ After installing CANN, you can install some tools to facilitate subsequent devel
     Compile the acceleration library and set the acceleration library environment variables:
 
     ```sh
-    cd ${sip_root_path}
+    cd "${sip_root_path:?Set the repository root path first}" || exit 1
     bash build.sh
     source output/set_env.sh
     ```
