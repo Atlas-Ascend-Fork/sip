@@ -140,6 +140,13 @@ AspbStatus asdBlasSdot(asdBlasHandle handle, const int64_t n, aclTensor* x, cons
     CHECK_STATUS_WITH_ACL_RETURN(aclGetDataType(result, &dataType), "asdBlasSdot: aclGetDataType");
     ASDSIP_ECHECK(dataType == aclDataType::ACL_FLOAT, "blas asdBlasSdot get wrong result tensor dtype.",
                   ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
+    // n 上界收紧（issue #424）：原无 n 上限检查，n >= 2^32 时 tiling 侧
+    // static_cast<uint32_t>（sdot tiling data n 字段为 uint32_t）回绕为 0 后按错误
+    // 长度计算；上限取 INT32_MAX（=UINT32_MAX/2，issue 主口径）：uint32 承载不回绕
+    // 且元素偏移不越 int32 正域。实数计数承载不适用 rot #344 的 INT32_MAX/2——
+    // 该口径系 2n 载荷 + rot tiling elementCount 为 int32 的特例（dot 族 tiling 为 uint32）
+    ASDSIP_ECHECK(n > 0 && n <= INT32_MAX, "blas asdBlasSdot get n <= 0 or n > INT32_MAX.",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
     DotImplParam param = {n, x, incx, y, incy, result, 0};
     return asdBlasDotImpl(handle, param, 1);
 }
@@ -159,7 +166,10 @@ AspbStatus asdBlasCdotu(asdBlasHandle handle, const int64_t n, aclTensor* x, con
     CHECK_STATUS_WITH_ACL_RETURN(aclGetDataType(result, &dataType), "asdBlasCdotu: aclGetDataType");
     ASDSIP_ECHECK(dataType == aclDataType::ACL_COMPLEX64, "blas asdBlasCdotu get wrong result tensor dtype.",
                   ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
-    ASDSIP_ECHECK(n > 0 && n <= UINT32_MAX, "blas asdBlasCdotu get n <= 0 or n > 2^32.",
+    // n 上界收紧（issue #424）：复数按 ELEMENTS_EACH_COMPLEX64*n=2n 传参，n > INT32_MAX/2
+    // 时 2n 越过 uint32 承载（cdot tiling data n 字段为 uint32_t，n=2^32 时 2n=2^33 回绕
+    // 为 0）与 int32 元素偏移正域，静默算错，须显式拒绝（对齐 rot #344 的 2n 载荷上限口径）
+    ASDSIP_ECHECK(n > 0 && n <= INT32_MAX / 2, "blas asdBlasCdotu get n <= 0 or n > INT32_MAX / 2.",
                   ErrorType::ACL_ERROR_INVALID_PARAM);
     DotImplParam param = {ELEMENTS_EACH_COMPLEX64 * n, x, incx, y, incy, result, 0};
     return asdBlasDotImpl(handle, param, 0);
@@ -180,7 +190,10 @@ AspbStatus asdBlasCdotc(asdBlasHandle handle, const int64_t n, aclTensor* x, con
     CHECK_STATUS_WITH_ACL_RETURN(aclGetDataType(result, &dataType), "asdBlasCdotc: aclGetDataType");
     ASDSIP_ECHECK(dataType == aclDataType::ACL_COMPLEX64, "blas asdBlasCdotc get wrong result tensor dtype.",
                   ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
-    ASDSIP_ECHECK(n > 0 && n <= UINT32_MAX, "blas asdBlasCdotc get n <= 0 or n > 2^32.",
+    // n 上界收紧（issue #424）：复数按 ELEMENTS_EACH_COMPLEX64*n=2n 传参，n > INT32_MAX/2
+    // 时 2n 越过 uint32 承载（cdot tiling data n 字段为 uint32_t，n=2^32 时 2n=2^33 回绕
+    // 为 0）与 int32 元素偏移正域，静默算错，须显式拒绝（对齐 rot #344 的 2n 载荷上限口径）
+    ASDSIP_ECHECK(n > 0 && n <= INT32_MAX / 2, "blas asdBlasCdotc get n <= 0 or n > INT32_MAX / 2.",
                   ErrorType::ACL_ERROR_INVALID_PARAM);
     DotImplParam param = {ELEMENTS_EACH_COMPLEX64 * n, x, incx, y, incy, result, 1};
     return asdBlasDotImpl(handle, param, 0);

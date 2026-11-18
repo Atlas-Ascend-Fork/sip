@@ -123,7 +123,10 @@ AspbStatus asdBlasScnrm2(asdBlasHandle handle, const int64_t n, aclTensor* x, co
     CHECK_STATUS_WITH_ACL_RETURN(aclGetDataType(result, &dataType), "asdBlasScnrm2: aclGetDataType");
     ASDSIP_ECHECK(dataType == aclDataType::ACL_FLOAT, "blas asdBlasScnrm2 get wrong result tensor dtype.",
                   ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
-    ASDSIP_ECHECK(n > 0 && n <= UINT32_MAX, "blas asdBlasScnrm2 get n <= 0 or n > 2^32.",
+    // n 上界收紧（issue #424）：复数按 ELEMENTS_EACH_COMPLEX64*n=2n 传参，n > INT32_MAX/2
+    // 时 2n 越过 uint32 承载（CommonTilingData n 字段为 uint32_t，n=2^32 时 2n=2^33 回绕
+    // 为 0）与 int32 元素偏移正域，静默算错，须显式拒绝（对齐 rot #344 的 2n 载荷上限口径）
+    ASDSIP_ECHECK(n > 0 && n <= INT32_MAX / 2, "blas asdBlasScnrm2 get n <= 0 or n > INT32_MAX / 2.",
                   ErrorType::ACL_ERROR_INVALID_PARAM);
     return asdBlasNrm2Impl(handle, ELEMENTS_EACH_COMPLEX64 * n, x, incx, result, 1);
 }

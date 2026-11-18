@@ -129,6 +129,14 @@ AspbStatus asdBlasIsamax(asdBlasHandle handle, const int64_t n, aclTensor* x, co
     ASDSIP_ECHECK(dataType == aclDataType::ACL_INT32, "blas asdBlasIsamax get wrong result tensor dtype.",
                   ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
 
+    // n 上界收紧（issue #424）：原仅 impl 层 n>0 校验，n >= 2^32 时 tiling 侧
+    // static_cast<uint32_t>（iamax tiling numberElements 为 uint32_t）回绕后按错误
+    // 长度计算；上限取 INT32_MAX（=UINT32_MAX/2，issue 主口径）：uint32 承载不回绕
+    // 且元素偏移不越 int32 正域（rot #344 的 INT32_MAX/2 系 2n 载荷 + int32
+    // elementCount 特例，iamax 为实数计数承载，不适用）
+    ASDSIP_ECHECK(n > 0 && n <= INT32_MAX, "blas asdBlasIsamax get n <= 0 or n > INT32_MAX.",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
+
     return asdBlasIamaxImpl(handle, {n, x, incx, result, 0});
 }
 
@@ -143,6 +151,14 @@ AspbStatus asdBlasIcamax(asdBlasHandle handle, const int64_t n, aclTensor* x, co
     CHECK_STATUS_WITH_ACL_RETURN(aclGetDataType(result, &dataType), "asdBlasIcamax: aclGetDataType");
     ASDSIP_ECHECK(dataType == aclDataType::ACL_INT32, "blas asdBlasIcamax get wrong result tensor dtype.",
                   ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
+
+    // n 上界收紧（issue #424）：原仅 impl 层 n>0 校验，n >= 2^32 时 tiling 侧
+    // static_cast<uint32_t>（iamax tiling numberElements 为 uint32_t）回绕后按错误
+    // 长度计算；上限取 INT32_MAX（=UINT32_MAX/2，issue 主口径）：uint32 承载不回绕
+    // 且元素偏移不越 int32 正域（rot #344 的 INT32_MAX/2 系 2n 载荷 + int32
+    // elementCount 特例，iamax 为实数计数承载，不适用）
+    ASDSIP_ECHECK(n > 0 && n <= INT32_MAX, "blas asdBlasIcamax get n <= 0 or n > INT32_MAX.",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
 
     return asdBlasIamaxImpl(handle, {n, x, incx, result, 1});
 }
