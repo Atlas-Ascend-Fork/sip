@@ -43,26 +43,11 @@ AspbStatus CtrmvShapeCheck(CtrmvTensorParam param, const int64_t n, const int64_
     return ErrorType::ACL_SUCCESS;
 }
 
-AspbStatus asdBlasCtrmv(asdBlasHandle handle, asdBlasFillMode_t uplo, asdBlasOperation_t trans, asdBlasDiagType_t diag,
-                        const int64_t n, aclTensor* A, const int64_t lda, aclTensor* x, const int64_t incx)
+// 入口枚举校验与 tiling 参数映射（issue #345/#422）：非法枚举显式拒绝而非静默映射
+// （原 transLocal=-1 透传 tiling，内核对非 1/2 回落 OP_N），合法值映射 tiling 参数
+AspbStatus CtrmvCheckAndMapParam(asdBlasFillMode_t uplo, asdBlasOperation_t trans, asdBlasDiagType_t diag,
+                                 const int64_t n, const int64_t lda, const int64_t incx, AsdSip::OpParam::Ctrmv& param)
 {
-    std::lock_guard<std::mutex> lock(blas_mtx);
-    ASDSIP_ECHECK(BlasPlanCache::doesPlanExist(handle), "blas Ctrmv get cached plan failed.",
-                  ErrorType::ACL_ERROR_INTERNAL_ERROR);
-
-    struct CtrmvTensorParam parm {
-        A, x
-    };
-    ASDSIP_CHECK(CtrmvDtypeCheck(parm) == ErrorType::ACL_SUCCESS, "blas asdBlasCtrmv dtype check failed.",
-                 return ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
-    auto ret = CtrmvShapeCheck(parm, n, incx, lda);
-    ASDSIP_CHECK(ret == ErrorType::ACL_SUCCESS, "blas asdBlasCtrmv shape check failed.", return ret);
-
-    Status status;
-    OpDesc opDesc;
-    opDesc.opName = "CtrmvOperation";
-    AsdSip::OpParam::Ctrmv param;
-
     int64_t transLocal = -1;
     if (trans == asdBlasOperation_t::ASDBLAS_OP_N) {
         transLocal = 0;
@@ -84,21 +69,51 @@ AspbStatus asdBlasCtrmv(asdBlasHandle handle, asdBlasFillMode_t uplo, asdBlasOpe
     ASDSIP_ECHECK(diag == asdBlasDiagType_t::ASDBLAS_DIAG_NON_UNIT || diag == asdBlasDiagType_t::ASDBLAS_DIAG_UNIT,
                   "blas asdBlasCtrmv get invalid diag enum.", ErrorType::ACL_ERROR_INVALID_PARAM);
 
-    int64_t uploLocal = (uplo == asdBlasFillMode_t::ASDBLAS_FILL_MODE_LOWER) ? 0 : 1;
-    int64_t diagLocal = (diag == asdBlasDiagType_t::ASDBLAS_DIAG_NON_UNIT) ? 0 : 1;
-
-    param.uplo = uploLocal;
+    param.uplo = (uplo == asdBlasFillMode_t::ASDBLAS_FILL_MODE_LOWER) ? 0 : 1;
     param.trans = transLocal;
-    param.diag = diagLocal;
+    param.diag = (diag == asdBlasDiagType_t::ASDBLAS_DIAG_NON_UNIT) ? 0 : 1;
     param.n = n;
     param.lda = lda;
     param.incx = incx;
+    return ErrorType::ACL_SUCCESS;
+}
+
+AspbStatus asdBlasCtrmv(asdBlasHandle handle, asdBlasFillMode_t uplo, asdBlasOperation_t trans, asdBlasDiagType_t diag,
+                        const int64_t n, aclTensor* A, const int64_t lda, aclTensor* x, const int64_t incx)
+{
+    std::lock_guard<std::mutex> lock(blas_mtx);
+    ASDSIP_ECHECK(BlasPlanCache::doesPlanExist(handle), "blas Ctrmv get cached plan failed.",
+                  ErrorType::ACL_ERROR_INTERNAL_ERROR);
+
+    struct CtrmvTensorParam parm {
+        A, x
+    };
+    ASDSIP_CHECK(CtrmvDtypeCheck(parm) == ErrorType::ACL_SUCCESS, "blas asdBlasCtrmv dtype check failed.",
+                 return ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
+    auto ret = CtrmvShapeCheck(parm, n, incx, lda);
+    ASDSIP_CHECK(ret == ErrorType::ACL_SUCCESS, "blas asdBlasCtrmv shape check failed.", return ret);
+
+    AsdSip::OpParam::Ctrmv param;
+    AspbStatus pstat = CtrmvCheckAndMapParam(uplo, trans, diag, n, lda, incx, param);
+    ASDSIP_CHECK(pstat == ErrorType::ACL_SUCCESS, "blas asdBlasCtrmv param check failed.", return pstat);
+
+    Status status;
+    OpDesc opDesc;
+    opDesc.opName = "CtrmvOperation";
     opDesc.specificParam = param;
     ASDSIP_LOG(DEBUG) << "OpDesc: " << opDesc.opName << "; OpDesc info: " << param.ToString();
 
     try {
         AsdSip::BlasCtrmvPlan& plan = dynamic_cast<AsdSip::BlasCtrmvPlan&>(BlasPlanCache::getPlan(handle));
         ASDSIP_ECHECK(plan.IsInitialized(), "Ctrmv plan init Error!.", ErrorType::ACL_ERROR_INTERNAL_ERROR);
+
+        // plan 一致性校验（issue #422，对齐 smatinv_batched 的 plan.GetN() 校验口径）：
+        // uplo 掩码张量与 workspace 均按 MakePlan 时的 uplo/n 生成，调用侧参数与 plan
+        // 不一致时三角选取消隐错乱或越界写 workspace，须显式拦截
+        ASDSIP_ECHECK(plan.GetUplo() == uplo && plan.GetN() == n,
+                      "blas asdBlasCtrmv uplo/n mismatch with plan (plan was made with different uplo/n, "
+                      "re-make plan first).",
+                      ErrorType::ACL_ERROR_INVALID_PARAM);
 
         SVector<aclTensor*> inTensors{A, x, plan.GetUploAclTensor()};
         SVector<aclTensor*> outTensors;

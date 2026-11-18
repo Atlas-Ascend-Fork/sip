@@ -114,4 +114,130 @@ TEST(TestBlasStrmvNegative, ZeroDimTensorRejected)
     OpTestEnd(deviceId, context, stream);
 }
 
+// 枚举负向用例（issue #423，对齐 ctrmv/strmm 的 #345 加固口径）：strmv 为实数算子，
+// trans=OP_C 与越界枚举应显式拒绝而非静默按转置计算；diag 越界应拒绝而非静默按 NON_UNIT 计算
+AspbStatus RunStrmvWithEnum(asdBlasFillMode_t uplo, asdBlasOperation_t trans, asdBlasDiagType_t diag)
+{
+    MkiRtStream stream = OpTestInit(0);
+    const int64_t n = 4;
+    std::vector<float> xHost(n, 1.0f);
+    std::vector<float> aHost(n * n, 1.0f);
+    aclTensor* aclX = nullptr;
+    aclTensor* aclA = nullptr;
+    void* xAddr = nullptr;
+    void* aAddr = nullptr;
+    if (CreateAclTensor(xHost, std::vector<int64_t>{n}, &xAddr, aclDataType::ACL_FLOAT, &aclX) != 0) {
+        return AsdSip::ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
+    if (CreateAclTensor(aHost, std::vector<int64_t>{n, n}, &aAddr, aclDataType::ACL_FLOAT, &aclA) != 0) {
+        aclDestroyTensor(aclX);
+        aclrtFree(xAddr);
+        return AsdSip::ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
+
+    asdBlasHandle handle;
+    AspbStatus st = asdBlasCreate(handle);
+    if (st == AsdSip::ErrorType::ACL_SUCCESS) {
+        st = asdBlasMakeStrmvPlan(handle, asdBlasFillMode_t::ASDBLAS_FILL_MODE_LOWER, asdBlasOperation_t::ASDBLAS_OP_N,
+                                  n);
+    }
+    if (st == AsdSip::ErrorType::ACL_SUCCESS) {
+        st = asdBlasStrmv(handle, uplo, trans, diag, n, aclA, n, aclX, 1);
+    }
+
+    asdBlasDestroy(handle);
+    aclDestroyTensor(aclX);
+    aclDestroyTensor(aclA);
+    aclrtFree(xAddr);
+    aclrtFree(aAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+    return st;
+}
+
+TEST(TestBlasStrmvEnumGuard, RejectOpCTrans)
+{
+    EXPECT_EQ(RunStrmvWithEnum(asdBlasFillMode_t::ASDBLAS_FILL_MODE_LOWER, asdBlasOperation_t::ASDBLAS_OP_C,
+                               asdBlasDiagType_t::ASDBLAS_DIAG_NON_UNIT),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+}
+
+TEST(TestBlasStrmvEnumGuard, RejectInvalidTrans)
+{
+    EXPECT_EQ(RunStrmvWithEnum(asdBlasFillMode_t::ASDBLAS_FILL_MODE_LOWER, static_cast<asdBlasOperation_t>(42),
+                               asdBlasDiagType_t::ASDBLAS_DIAG_NON_UNIT),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+}
+
+TEST(TestBlasStrmvEnumGuard, RejectInvalidDiag)
+{
+    EXPECT_EQ(RunStrmvWithEnum(asdBlasFillMode_t::ASDBLAS_FILL_MODE_LOWER, asdBlasOperation_t::ASDBLAS_OP_N,
+                               static_cast<asdBlasDiagType_t>(42)),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+}
+
+// plan 一致性负向用例（issue #422，对齐 smatinv_batched 的 plan.GetN() 校验口径）：
+// plan 与调用的 uplo/n 不一致应返回 ACL_ERROR_INVALID_PARAM，而非用 plan 期掩码与
+// plan 期 workspace 静默算错或越界写
+AspbStatus RunStrmvWithPlanConsistency(asdBlasFillMode_t makeUplo, int64_t makeN, asdBlasFillMode_t callUplo,
+                                       int64_t callN)
+{
+    MkiRtStream stream = OpTestInit(0);
+    std::vector<float> xHost(callN, 1.0f);
+    std::vector<float> aHost(callN * callN, 1.0f);
+    aclTensor* aclX = nullptr;
+    aclTensor* aclA = nullptr;
+    void* xAddr = nullptr;
+    void* aAddr = nullptr;
+    if (CreateAclTensor(xHost, std::vector<int64_t>{callN}, &xAddr, aclDataType::ACL_FLOAT, &aclX) != 0) {
+        return AsdSip::ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
+    if (CreateAclTensor(aHost, std::vector<int64_t>{callN, callN}, &aAddr, aclDataType::ACL_FLOAT, &aclA) != 0) {
+        aclDestroyTensor(aclX);
+        aclrtFree(xAddr);
+        return AsdSip::ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
+
+    asdBlasHandle handle;
+    AspbStatus st = asdBlasCreate(handle);
+    if (st == AsdSip::ErrorType::ACL_SUCCESS) {
+        st = asdBlasMakeStrmvPlan(handle, makeUplo, asdBlasOperation_t::ASDBLAS_OP_N, makeN);
+    }
+    if (st == AsdSip::ErrorType::ACL_SUCCESS) {
+        st = asdBlasStrmv(handle, callUplo, asdBlasOperation_t::ASDBLAS_OP_N, asdBlasDiagType_t::ASDBLAS_DIAG_NON_UNIT,
+                          callN, aclA, callN, aclX, 1);
+    }
+
+    asdBlasDestroy(handle);
+    aclDestroyTensor(aclX);
+    aclDestroyTensor(aclA);
+    aclrtFree(xAddr);
+    aclrtFree(aAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+    return st;
+}
+
+TEST(TestBlasStrmvPlanGuard, RejectUploMismatch)
+{
+    EXPECT_EQ(RunStrmvWithPlanConsistency(asdBlasFillMode_t::ASDBLAS_FILL_MODE_LOWER, 4,
+                                          asdBlasFillMode_t::ASDBLAS_FILL_MODE_UPPER, 4),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+}
+
+TEST(TestBlasStrmvPlanGuard, RejectUploMismatchReverse)
+{
+    EXPECT_EQ(RunStrmvWithPlanConsistency(asdBlasFillMode_t::ASDBLAS_FILL_MODE_UPPER, 4,
+                                          asdBlasFillMode_t::ASDBLAS_FILL_MODE_LOWER, 4),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+}
+
+TEST(TestBlasStrmvPlanGuard, RejectNMismatch)
+{
+    // plan 按 n=4 建（掩码/workspace 均按 4），调用 n=8（张量按 8 建以通过 shape 校验）
+    EXPECT_EQ(RunStrmvWithPlanConsistency(asdBlasFillMode_t::ASDBLAS_FILL_MODE_LOWER, 4,
+                                          asdBlasFillMode_t::ASDBLAS_FILL_MODE_LOWER, 8),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+}
+
 } // namespace

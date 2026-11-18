@@ -41,6 +41,31 @@ AspbStatus StrmvShapeCheck(struct StrmvTensorParam parm, const int64_t n)
     return ErrorType::ACL_SUCCESS;
 }
 
+// 入口参数护栏与 tiling 参数映射（issue #125/#423/#422）：非法 incx/lda/trans/diag
+// 枚举显式拒绝而非静默按默认值计算（原 else 映射把 OP_C 与越界枚举静默按转置、
+// diag 非法值按 NON_UNIT 计算，接口假成功），合法值映射 tiling 参数
+AspbStatus StrmvCheckAndMapParam(asdBlasFillMode_t uplo, asdBlasOperation_t trans, asdBlasDiagType_t diag,
+                                 const int64_t n, const int64_t lda, const int64_t incx, AsdSip::OpParam::Strmv& param)
+{
+    ASDSIP_ECHECK(incx == 1, "blas asdBlasStrmv only supports incx == 1 currently.",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
+    ASDSIP_ECHECK(lda == n, "blas asdBlasStrmv only supports lda == n currently.", ErrorType::ACL_ERROR_INVALID_PARAM);
+    ASDSIP_ECHECK(
+        uplo == asdBlasFillMode_t::ASDBLAS_FILL_MODE_LOWER || uplo == asdBlasFillMode_t::ASDBLAS_FILL_MODE_UPPER,
+        "blas asdBlasStrmv get invalid uplo (only LOWER/UPPER supported).", ErrorType::ACL_ERROR_INVALID_PARAM);
+    // 非法 trans/diag 枚举显式拒绝（issue #423，对齐 ctrmv/strmm 的 #345 加固口径）：strmv 为实数算子，OP_C 无意义
+    ASDSIP_ECHECK(trans == asdBlasOperation_t::ASDBLAS_OP_N || trans == asdBlasOperation_t::ASDBLAS_OP_T,
+                  "blas asdBlasStrmv get invalid trans enum.", ErrorType::ACL_ERROR_INVALID_PARAM);
+    ASDSIP_ECHECK(diag == asdBlasDiagType_t::ASDBLAS_DIAG_UNIT || diag == asdBlasDiagType_t::ASDBLAS_DIAG_NON_UNIT,
+                  "blas asdBlasStrmv get invalid diag enum.", ErrorType::ACL_ERROR_INVALID_PARAM);
+    param.trans = (trans == asdBlasOperation_t::ASDBLAS_OP_N) ? 0 : 1;
+    param.uplo = (uplo == asdBlasFillMode_t::ASDBLAS_FILL_MODE_UPPER) ? 1 : 0;
+    param.diag = (diag == asdBlasDiagType_t::ASDBLAS_DIAG_UNIT) ? 1 : 0;
+    param.incx = 1;
+    param.lda = n;
+    return ErrorType::ACL_SUCCESS;
+}
+
 AspbStatus asdBlasStrmv(asdBlasHandle handle, asdBlasFillMode_t uplo, asdBlasOperation_t trans, asdBlasDiagType_t diag,
                         const int64_t n, aclTensor* A, const int64_t lda, aclTensor* x, const int64_t incx)
 {
@@ -56,41 +81,24 @@ AspbStatus asdBlasStrmv(asdBlasHandle handle, asdBlasFillMode_t uplo, asdBlasOpe
     auto ret = StrmvShapeCheck(parm, n);
     ASDSIP_CHECK(ret == ErrorType::ACL_SUCCESS, "blas asdBlasStrmv shape check failed.", return ret);
 
-    // 参数护栏：内核当前仅支持紧凑存储与单位步长，非法取值直接拦截而非静默按默认值计算（issue #125）
-    ASDSIP_ECHECK(incx == 1, "blas asdBlasStrmv only supports incx == 1 currently.",
-                  ErrorType::ACL_ERROR_INVALID_PARAM);
-    ASDSIP_ECHECK(lda == n, "blas asdBlasStrmv only supports lda == n currently.", ErrorType::ACL_ERROR_INVALID_PARAM);
-    ASDSIP_ECHECK(
-        uplo == asdBlasFillMode_t::ASDBLAS_FILL_MODE_LOWER || uplo == asdBlasFillMode_t::ASDBLAS_FILL_MODE_UPPER,
-        "blas asdBlasStrmv get invalid uplo (only LOWER/UPPER supported).", ErrorType::ACL_ERROR_INVALID_PARAM);
+    AsdSip::OpParam::Strmv param = {0, 0, 0, 0, 0};
+    AspbStatus pstat = StrmvCheckAndMapParam(uplo, trans, diag, n, lda, incx, param);
+    ASDSIP_CHECK(pstat == ErrorType::ACL_SUCCESS, "blas asdBlasStrmv param check failed.", return pstat);
 
     try {
         AsdSip::BlasStrmvPlan& plan = dynamic_cast<AsdSip::BlasStrmvPlan&>(BlasPlanCache::getPlan(handle));
         ASDSIP_ECHECK(plan.IsInitialized(), "Strmv plan init Error!.", ErrorType::ACL_ERROR_INTERNAL_ERROR);
 
+        // plan 一致性校验（issue #422，对齐 smatinv_batched 的 plan.GetN() 校验口径）：
+        // 掩码张量按 MakePlan 时的 uplo 生成、workspace 按该 n 分配，调用侧 uplo/n 与
+        // plan 不一致时三角选取消隐错乱或越界写 workspace，须显式拦截
+        ASDSIP_ECHECK(plan.GetUplo() == uplo && plan.GetN() == n,
+                      "blas asdBlasStrmv uplo/n mismatch with plan (plan was made with different uplo/n, "
+                      "re-make plan first).",
+                      ErrorType::ACL_ERROR_INVALID_PARAM);
+
         OpDesc opDesc;
         opDesc.opName = "StrmvOperation";
-        AsdSip::OpParam::Strmv param = {0, 0, 0, 0, 0};
-
-        if (trans == asdBlasOperation_t::ASDBLAS_OP_N) {
-            param.trans = 0;
-        } else {
-            param.trans = 1;
-        }
-
-        if (uplo == asdBlasFillMode_t::ASDBLAS_FILL_MODE_UPPER) {
-            param.uplo = 1;
-        } else {
-            param.uplo = 0;
-        }
-
-        if (diag == asdBlasDiagType_t::ASDBLAS_DIAG_UNIT) {
-            param.diag = 1;
-        } else {
-            param.diag = 0;
-        }
-        param.incx = 1;
-        param.lda = n;
         opDesc.specificParam = param;
         ASDSIP_LOG(DEBUG) << "OpDesc: " << opDesc.opName << "; OpDesc info: " << param.ToString();
 
@@ -123,7 +131,8 @@ AspbStatus asdBlasMakeStrmvPlan(asdBlasHandle handle, asdBlasFillMode_t uplo, as
         plan = new AsdSip::BlasStrmvPlan(uplo, trans, n);
         if (!BlasPlanCache::MakePlan(handle, plan)) {
             delete plan;
-            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM) << "blas handle already bound to a plan, repeated initialization is not allowed.";
+            ASDSIP_ELOG(ErrorType::ACL_ERROR_INVALID_PARAM)
+                << "blas handle already bound to a plan, repeated initialization is not allowed.";
             return ErrorType::ACL_ERROR_INVALID_PARAM;
         }
     } catch (const std::exception& e) {

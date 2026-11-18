@@ -20,20 +20,16 @@ public:
     AsdSip::AspbStatus CreateTensor() override;
     AsdSip::AspbStatus SetUploTensor();
     AsdSip::AspbStatus FreeTensor() override;
-    Mki::Tensor GetUploTensor()
-    {
-        return this->uploTensor;
-    }
-    aclTensor *GetUploAclTensor()
-    {
-        return this->uploAclTensor;
-    }
+    Mki::Tensor GetUploTensor() { return this->uploTensor; }
+    aclTensor* GetUploAclTensor() { return this->uploAclTensor; }
+    asdBlasFillMode_t GetUplo() const { return uplo; }
+    int64_t GetN() const { return n; }
     int64_t GetWorkspaceSize() override;
 
 private:
     Mki::Tensor uploTensor;
-    aclTensor *uploAclTensor = nullptr;
+    aclTensor* uploAclTensor = nullptr;
     asdBlasFillMode_t uplo;
     int64_t n;
 };
-}
+} // namespace AsdSip

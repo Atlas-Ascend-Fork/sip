@@ -91,4 +91,70 @@ TEST(TestBlasCtrmvEnumGuard, RejectInvalidDiag)
               AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
 }
 
+// plan 一致性负向用例（issue #422，对齐 smatinv_batched 的 plan.GetN() 校验口径）：
+// plan 与调用的 uplo/n 不一致应返回 ACL_ERROR_INVALID_PARAM，而非用 plan 期掩码
+// 与 plan 期 workspace 静默算错或越界写
+AspbStatus RunCtrmvWithPlanConsistency(asdBlasFillMode_t makeUplo, int64_t makeN, asdBlasFillMode_t callUplo,
+                                       int64_t callN)
+{
+    MkiRtStream stream = OpTestInit(0);
+    aclTensor* aclA = nullptr;
+    aclTensor* aclX = nullptr;
+    void* aAddr = nullptr;
+    void* xAddr = nullptr;
+    std::vector<std::complex<float>> aHost(callN * callN, {1.0f, 0.0f});
+    std::vector<std::complex<float>> xHost(callN, {1.0f, 0.0f});
+    int rc = CreateAclTensor(aHost, {callN, callN}, &aAddr, aclDataType::ACL_COMPLEX64, &aclA);
+    if (rc != 0) {
+        return AsdSip::ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
+    rc = CreateAclTensor(xHost, {callN}, &xAddr, aclDataType::ACL_COMPLEX64, &aclX);
+    if (rc != 0) {
+        aclDestroyTensor(aclA);
+        aclrtFree(aAddr);
+        return AsdSip::ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
+
+    asdBlasHandle handle;
+    AspbStatus st = asdBlasCreate(handle);
+    if (st == AsdSip::ErrorType::ACL_SUCCESS) {
+        st = asdBlasMakeCtrmvPlan(handle, makeUplo, makeN);
+    }
+    if (st == AsdSip::ErrorType::ACL_SUCCESS) {
+        st = asdBlasCtrmv(handle, callUplo, asdBlasOperation_t::ASDBLAS_OP_N, asdBlasDiagType_t::ASDBLAS_DIAG_NON_UNIT,
+                          callN, aclA, callN, aclX, 1);
+    }
+
+    asdBlasDestroy(handle);
+    aclDestroyTensor(aclA);
+    aclDestroyTensor(aclX);
+    aclrtFree(aAddr);
+    aclrtFree(xAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+    return st;
+}
+
+TEST(TestBlasCtrmvPlanGuard, RejectUploMismatch)
+{
+    EXPECT_EQ(RunCtrmvWithPlanConsistency(asdBlasFillMode_t::ASDBLAS_FILL_MODE_UPPER, N,
+                                          asdBlasFillMode_t::ASDBLAS_FILL_MODE_LOWER, N),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+}
+
+TEST(TestBlasCtrmvPlanGuard, RejectUploMismatchReverse)
+{
+    EXPECT_EQ(RunCtrmvWithPlanConsistency(asdBlasFillMode_t::ASDBLAS_FILL_MODE_LOWER, N,
+                                          asdBlasFillMode_t::ASDBLAS_FILL_MODE_UPPER, N),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+}
+
+TEST(TestBlasCtrmvPlanGuard, RejectNMismatch)
+{
+    // plan 按 n=4 建（掩码/workspace 均按 4），调用 n=8（张量按 8 建以通过 shape 校验）
+    EXPECT_EQ(RunCtrmvWithPlanConsistency(asdBlasFillMode_t::ASDBLAS_FILL_MODE_UPPER, N,
+                                          asdBlasFillMode_t::ASDBLAS_FILL_MODE_UPPER, 2 * N),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+}
+
 } // namespace

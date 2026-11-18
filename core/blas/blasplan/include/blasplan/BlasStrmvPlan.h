@@ -21,6 +21,8 @@ public:
     AsdSip::AspbStatus FreeTensor() override;
     Mki::Tensor GetMaskTensor() { return this->maskTensor; }
     aclTensor* GetMaskAclTensor() { return this->maskAclTensor; }
+    asdBlasFillMode_t GetUplo() const { return uplo; }
+    int64_t GetN() const { return n; }
     int64_t GetWorkspaceSize() override;
 
 private:
