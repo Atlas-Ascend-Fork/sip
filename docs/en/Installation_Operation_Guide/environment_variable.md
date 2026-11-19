@@ -49,11 +49,11 @@ After the acceleration library is installed, a process-level environment variabl
     </tr>
      <tr>
       <td>ASCEND_GLOBAL_LOG_LEVEL</td>
-      <td>Sets the log level of application logs and the log level of each module. Only debug logs are supported.</td>
+      <td>Sets the log threshold for SiP application logs. Values: 0=DEBUG, 1=INFO, 2=WARN, 3=ERROR, and 4 disables logging. When unset or invalid, SiP defaults to ERROR.</td>
     </tr>
      <tr>
        <td>ASCEND_MODULE_LOG_LEVEL</td>
-       <td>Sets the log level of each module for application logs. Only debug logs are supported.</td>
+       <td>Sets the SiP OP module log threshold with OP=&lt;level&gt;. It uses the same 0-4 mapping and overrides the global level for OP logs.</td>
      </tr>
 
   </tbody>

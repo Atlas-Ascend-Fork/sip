@@ -47,11 +47,11 @@
     </tr>
      <tr>
       <td>ASCEND_GLOBAL_LOG_LEVEL</td>
-      <td>设置应用类日志的日志级别及各模块日志级别，仅支持调试日志。</td>
+      <td>设置SiP应用日志的级别阈值。取值：0=DEBUG、1=INFO、2=WARN、3=ERROR、4=关闭日志；未设置或取值非法时，SiP回退为ERROR。</td>
     </tr>
      <tr>
        <td>ASCEND_MODULE_LOG_LEVEL</td>
-       <td>设置应用类日志的各模块日志级别，仅支持调试日志。</td>
+       <td>使用OP=&lt;级别&gt;设置SiP OP模块日志级别，取值映射与ASCEND_GLOBAL_LOG_LEVEL相同；该设置优先于全局级别。</td>
      </tr>
 
   </tbody>

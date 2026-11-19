@@ -67,7 +67,7 @@ Note: The default log file storage path is controlled by the environment variabl
 
 - **Log level:**
 
-The severity levels of logs, from high to low, are ERROR, WARN, INFO, and DEBUG, as shown in the following table. The log level is controlled by the environment variable `ASCEND_GLOBAL_LOG_LEVEL`, and the default value is `INFO`.
+The severity levels of logs, from high to low, are ERROR, WARN, INFO, and DEBUG, as shown in the following table. The log level is controlled by the environment variable `ASCEND_GLOBAL_LOG_LEVEL`; for SiP application logs, the default is `ERROR` when this variable is unset.
 **Table 2** Log levels
 
 <a name="zh-cn_topic_0000001563019104_table8155243135018"></a>

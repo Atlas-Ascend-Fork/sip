@@ -93,7 +93,7 @@
 
 - **日志分级**：
 
-日志的严重级别从高到低分为ERROR、WARN、INFO、DEBUG四个级别，如下表所示。日志级别由环境变量“ASCEND_GLOBAL_LOG_LEVEL”控制，默认为“INFO”。\
+日志的严重级别从高到低分为ERROR、WARN、INFO、DEBUG四个级别，如下表所示。日志级别由环境变量“ASCEND_GLOBAL_LOG_LEVEL”控制；该变量未设置时，SiP应用日志默认级别为ERROR。\
 **表 2**  日志等级
 
 <a name="zh-cn_topic_0000001563019104_table8155243135018"></a>
