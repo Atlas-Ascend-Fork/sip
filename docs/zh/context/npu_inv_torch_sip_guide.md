@@ -1,9 +1,9 @@
 # torch_sip.npu_inv 批量实数矩阵求逆 —— 接入指导
 
-面向 PyTorch 用户的 `torch_sip.npu_inv` / `torch_sip.npu_inv_backward` 使用说明。底层 BLAS 纯 C++ 接口（asdBlasSmatinvBatched）参见 [SmatinvBatched.md](SmatinvBatched.md)。
+面向 PyTorch 用户的 `torch_sip.npu_inv` / `torch_sip.npu_inv_backward` 使用说明。底层 BLAS 纯 C++ 接口（asdBlasSmatinvBatched）参见 [SmatinvBatched.md](../API_Reference/BLAS/SmatinvBatched.md)。
 
 - **环境**: Atlas A2 系列（Ascend910B3）/ CANN 9.3.0 / torch 2.x + torch_npu / AscendSiPBoost 9.1.0
-- **源码位置**: [sip_pta/](../../../../sip_pta/)（PyTorch 扩展）、[ops/blas/sgetri_batched/](../../../../ops/blas/sgetri_batched/) 与 [ops/blas/smatinv_batched/](../../../../ops/blas/smatinv_batched/)（device kernel）
+- **源码位置**: [sip_pta/](../../../sip_pta/)（PyTorch 扩展）、[ops/blas/sgetri_batched/](../../../ops/blas/sgetri_batched/) 与 [ops/blas/smatinv_batched/](../../../ops/blas/smatinv_batched/)（device kernel）
 
 ---
 
@@ -43,7 +43,7 @@ print(torch.allclose(y, a))    # True
 
 ### 路由行为（对用户透明）
 
-```
+```text
 npu_inv(a):
   complex64            → cgetri 融合 kernel（原生复数路径）
   实数 N<32            → Gauss-Jordan 消元 kernel（smatinv_batched）
@@ -102,7 +102,9 @@ y = torch_sip.npu_inv(a)
 ```
 
 差异说明：
+
 - `torch.linalg.inv` 对奇异阵在 LU 保底路径抛 `SingularMatrixError` 同语义错误；快速域对奇异阵结果未定义（与 LAPACK getri 行为一致，业务侧应保证输入非奇异）。
+
 - 非方阵/维数<2/不支持 dtype 抛 `ValueError`/`TypeError`，与 torch 一致。
 
 ## 5. 精度与性能参考

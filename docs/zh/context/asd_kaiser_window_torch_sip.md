@@ -2,7 +2,7 @@
 
 ## 功能说明
 
-在 NPU 上生成一维凯泽窗，支持周期窗与对称窗。底层 C 接口和公式参见 [asdKaiserWindow](asdKaiserWindow.md)。
+在 NPU 上生成一维凯泽窗，支持周期窗与对称窗。底层 C 接口和公式参见 [asdKaiserWindow](../API_Reference/base/asdKaiserWindow.md)。
 
 ## 接口原型
 

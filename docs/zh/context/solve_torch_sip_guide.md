@@ -1,9 +1,9 @@
 # torch_sip.solve 批量线性方程组求解 —— 接入指导
 
-面向 PyTorch 用户的 `torch_sip.solve` / `torch_sip.solve_backward` 使用说明。底层纯 C++ 接口（`AsdSip::solve`）参见 [solve.md](solve.md)。
+面向 PyTorch 用户的 `torch_sip.solve` / `torch_sip.solve_backward` 使用说明。底层纯 C++ 接口（`AsdSip::solve`）参见 [solve.md](../API_Reference/base/solve.md)。
 
 - **环境**: Atlas A2 系列（Ascend910B3）/ CANN 9.2.0 / torch 2.x + torch_npu / AscendSiPBoost 9.1.0
-- **源码位置**: [sip_pta/](../../../../sip_pta/)（PyTorch 扩展）、[ops/base/solve/](../../../../ops/base/solve/)（device kernel）、[core/base/solve.cpp](../../../../core/base/solve.cpp)（C 接口层）
+- **源码位置**: [sip_pta/](../../../sip_pta/)（PyTorch 扩展）、[ops/base/solve/](../../../ops/base/solve/)（device kernel）、[core/base/solve.cpp](../../../core/base/solve.cpp)（C 接口层）
 
 ---
 
@@ -114,6 +114,7 @@ x = torch_sip.solve(a, b)
 ```
 
 差异说明：
+
 - 仅支持 fp32；`float64`/`float16`/`bfloat16` 会报错。
 - 仅支持 3 维批量形式 `[batch, n, n]`，不支持 `torch.linalg.solve` 的广播组合与批量 `[..., n, nrhs]` 任意前导维。
 - 奇异矩阵：`torch.linalg.solve` 在 CPU 上抛 `SingularMatrixError`，本接口不检测，结果为 inf/nan，业务侧须保证输入非奇异。

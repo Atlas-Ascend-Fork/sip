@@ -2,15 +2,29 @@
 
 ## 产品支持情况
 
-| 产品 | 支持情况 |
-| --- | --- |
-| Ascend 950PR&950DT系列产品 | 支持 |
-| Atlas A3系列产品 | 支持 |
-| Atlas A2系列产品 | 支持 |
-| Atlas 200I/500 A2推理产品 | 不支持 |
-| Atlas推理系列产品 | 不支持 |
-| Atlas训练系列产品 | 不支持 |
+<!-- npu="950" id1 -->
+- <term>Ascend 950PR&950DT系列产品</term>：支持
+<!-- end id1 -->
 
+<!-- npu="A3" id2 -->
+- <term>Atlas A3系列产品</term>：支持
+<!-- end id2 -->
+
+<!-- npu="910b" id3 -->
+- <term>Atlas A2系列产品</term>：支持
+<!-- end id3 -->
+
+<!-- npu="310b" id4 -->
+- <term>Atlas 200I/500 A2推理产品</term>：不支持
+<!-- end id4 -->
+
+<!-- npu="310p" id5 -->
+- <term>Atlas推理系列产品</term>：不支持
+<!-- end id5 -->
+
+<!-- npu="910" id6 -->
+- <term>Atlas训练系列产品</term>：不支持
+<!-- end id6 -->
 ## 功能说明
 
 `asdKaiserWindow` 在 NPU 上生成一维凯泽窗，`asdKaiserWindowGetWorkspaceSize` 查询工作空间大小。设窗长度为 $N > 1$，$M=N$（周期窗）或 $M=N-1$（对称窗），输出为：
@@ -21,7 +35,7 @@ $$
 
 其中 $I_0$ 为零阶第一类修正贝塞尔函数。`beta` 取相反数时结果相同。`N=0` 返回空输出，`N=1` 返回单元素 1；当 `N>1` 且 `beta` 为 NaN 或无穷大时，输出为 NaN。
 
-PyTorch 接口及示例参见 [torch_sip.asd_kaiser_window](asd_kaiser_window_torch_sip.md)。
+PyTorch 接口及示例参见 [torch_sip.asd_kaiser_window](../../context/asd_kaiser_window_torch_sip.md)。
 
 ## 函数原型
 
