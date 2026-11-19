@@ -83,7 +83,7 @@ bool FftPlanCreate(FftPlan& plan, int64_t b1, int64_t fftN1, int64_t fftN2, int3
         return false;
     }
 
-    FftTilingData devTiling;
+    FftTilingData devTiling{};
     FillDeviceTiling(plan.tiling, devTiling);
 
     ret = aclrtMemcpy(plan.dTiling, plan.tilingSize, &devTiling, plan.tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
