@@ -39,7 +39,7 @@ rsInterpolationBySinc：实现带batch的一维复数向量插值计算，返回
   示例：\
 输入“inputTensor”为：\
  [ 1 + i , 2 + i ]\
-输入“sincTab”为：（interpNum = 2， quantNum = 2）\
+以下为逻辑系数表（interpNum = 2， quantNum = 2），仅展示解包后的数学系数，并非接口实际传入的“sincTab”张量：\
   [   [ 1 , 0 ],  [ 0.5 , 0.5 ],   [ 0 , 1 ]  ]\
 原始“pos”为：\
   [ 0.2 , 1.6 ] \
@@ -47,7 +47,7 @@ rsInterpolationBySinc：实现带batch的一维复数向量插值计算，返回
   [ 0 , 1 ] \
 转为输入“posToTabIndex”为：round((Pos -posFloor) *quantNum)\
   [ 0 , 1 ] \
-其中，tab大小为2*3。由于pos[0] = 0.2，取inputTensor[0]及后面一个元素inputTensor[1]共2个元素，与sincTab[posToTabIndex[0]]进行向量点乘，得到outputTensor[0]，依次计算后续元素。\
+其中，该逻辑系数表为3行×2列。实际传入的“sincTab”需按参数说明和调用示例中的NPU预处理布局组织，包含4 * ((quantNum + 1) * 2) * (interpNum * 2 + 8)个FLOAT32元素（本例共288个）。由于pos[0] = 0.2，取inputTensor[0]及后面一个元素inputTensor[1]共2个元素，与逻辑系数表第posToTabIndex[0]行进行向量点乘，得到outputTensor[0]，依次计算后续元素。\
   pos[0] = 0.2 → outputTensor[0] = [1 + i , 2 + i] · [ 1 , 0 ] = 1 + i \
   pos[1] = 1.6 → outputTensor[1] = [2 + i , 2 + i] · [ 0.5 , 0.5 ] = 2 + i\
 调用“rsInterpolationBySinc”算子后，输出“outputTensor”为：\
@@ -128,7 +128,7 @@ AspbStatus rsInterpolationBySinc(
     <tr>
       <td>sincTab（aclTensor *）</td>
       <td>输入</td>
-      <td><ul><li>表示插值系数矩阵。</li><li>支持的数据类型为FLOAT32。</li><li>数据格式支持ND。</li><li>shape为[ 4, ((quantNum + 1) * 2) * (interpNum * 2 + 8)]。</li></ul></td>
+      <td><ul><li>表示插值系数矩阵，元素总数为4 * ((quantNum + 1) * 2) * (interpNum * 2 + 8)。</li><li>支持的数据类型为FLOAT32。</li><li>数据格式支持ND。</li><li>shape可为[4, N]，其中N=((quantNum + 1) * 2) * (interpNum * 2 + 8)；调用示例将相同数据按[1, 4 * N]组织。</li></ul></td>
     </tr>
     <tr>
       <td>posFloor（aclTensor *）</td>

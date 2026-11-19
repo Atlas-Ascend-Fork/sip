@@ -26,7 +26,7 @@
   Example:\
 The input `inputTensor` is:\
  [ 1 + i , 2 + i ]\
-The input `sincTab` is: (interpNum = 2, quantNum = 2)\
+The logical coefficient table below is the unpacked mathematical view for (interpNum = 2, quantNum = 2); it is not the `sincTab` tensor passed to the API:\
   [   [ 1 , 0 ],  [ 0.5 , 0.5 ],   [ 0 , 1 ]  ]\
 The original `pos` is:\
   [ 0.2 , 1.6 ] \
@@ -34,7 +34,7 @@ Converted to input `posFloor` as: floor(Pos)\
   [ 0 , 1 ] \
 Converted to input `posToTabIndex` as: round((Pos -posFloor) *quantNum)\
   [ 0 , 1 ] \
-where the tab size is 2*3. Since pos[0] = 0.2, `inputTensor[0]` and the next element `inputTensor[1]` (a total of 2 elements) are taken, and a dot product is computed with `sincTab[posToTabIndex[0]]` to obtain `outputTensor[0]`. Subsequent elements are computed in sequence.\
+The logical table has three rows and two coefficients per row. The API input `sincTab` must instead use the packed layout described in the parameter table and calling example, containing `4 * ((quantNum + 1) * 2) * (interpNum * 2 + 8)` FLOAT32 values (288 values for this example). Since pos[0] = 0.2, `inputTensor[0]` and the next element `inputTensor[1]` (a total of 2 elements) are taken, and a dot product is computed with logical table row `posToTabIndex[0]` to obtain `outputTensor[0]`. Subsequent elements are computed in sequence.\
   pos[0] = 0.2 → outputTensor[0] = [1 + i , 2 + i] · [ 1 , 0 ] = 1 + i \
   pos[1] = 1.6 → outputTensor[1] = [2 + i , 2 + i] · [ 0.5 , 0.5 ] = 2 + i\
 After the `rsInterpolationBySinc` operator is called, the output `outputTensor` is:\
@@ -115,7 +115,7 @@ AspbStatus rsInterpolationBySinc(
     <tr>
       <td>sincTab (aclTensor *)</td>
       <td>Input</td>
-      <td><ul><li>Interpolation coefficient matrix.</li><li>Supported data type: <code>FLOAT32</code>.</li><li>Data format: <code>ND</code>.</li><li>shape: [4, ((quantNum + 1) * 2) * (interpNum * 2 + 8)].</li></ul></td>
+      <td><ul><li>Interpolation coefficient matrix, with a total of <code>4 * ((quantNum + 1) * 2) * (interpNum * 2 + 8)</code> elements.</li><li>Supported data type: <code>FLOAT32</code>.</li><li>Data format: <code>ND</code>.</li><li>Shape may be <code>[4, N]</code>, where <code>N = ((quantNum + 1) * 2) * (interpNum * 2 + 8)</code>; the calling example stores the same data as <code>[1, 4 * N]</code>.</li></ul></td>
     </tr>
     <tr>
       <td>posFloor (aclTensor *)</td>
