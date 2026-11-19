@@ -1,3 +1,14 @@
+/**
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This file is a part of the CANN Open Software.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
+
 #ifndef K_MAX_SHAPE_DIM
 #define K_MAX_SHAPE_DIM 0
 #endif
@@ -24,8 +35,8 @@ static bool BuildAndCopyCoeffs(uint8_t* dCoeffs, int32_t N1, int32_t direction, 
 {
     int32_t w0Dim = 2 * N1;
     int64_t w0Floats = static_cast<int64_t>(w0Dim) * w0Dim;
-    int64_t tFloats = 3 * (2 * N1) * N1;                       // T12/T13/T23
-    int64_t tExpFloats = static_cast<int64_t>(4096) * 2;        // T2 展开表
+    int64_t tFloats = 3 * (2 * N1) * N1;                 // T12/T13/T23
+    int64_t tExpFloats = static_cast<int64_t>(4096) * 2; // T2 展开表
     int64_t tRadix2Floats = static_cast<int64_t>(RADIX2_TW_FLOATS) * 2;
     int64_t tPhaseAFloats = static_cast<int64_t>(PHASE_A_OFFSET_FLOATS);
     int64_t t12ExpFloats = static_cast<int64_t>(P3_T12_EXP_FLOATS);
@@ -50,23 +61,32 @@ static bool BuildAndCopyCoeffs(uint8_t* dCoeffs, int32_t N1, int32_t direction, 
     size_t offset = 0;
     auto cp = [&](const void* src, size_t bytes, const char* what) -> bool {
         aclError r = aclrtMemcpy(dCoeffs + offset, bytes, src, bytes, ACL_MEMCPY_HOST_TO_DEVICE);
-        if (r != ACL_ERROR_NONE) { std::cerr << "copy " << what << " failed" << std::endl; return false; }
+        if (r != ACL_ERROR_NONE) {
+            std::cerr << "copy " << what << " failed" << std::endl;
+            return false;
+        }
         offset += bytes;
         return true;
     };
 
-    if (!cp(hostW0.data(), w0Floats * sizeof(float), "W0")) return false;
-    if (!cp(hostT.data(), tFloats * sizeof(float), "T")) return false;
-    if (!cp(hostTExp.data(), tExpFloats * sizeof(float), "T2Exp")) return false;
-    if (!cp(hostRadix2TW.data(), tRadix2Floats * sizeof(float), "Radix2TW")) return false;
-    if (!cp(hostPhaseA.data(), tPhaseAFloats * sizeof(uint32_t), "PhaseA")) return false;
-    if (!cp(hostT12Exp.data(), t12ExpFloats * sizeof(float), "T12Exp")) return false;
-    if (!cp(hostP3Lane.data(), tP3LaneFloats * sizeof(uint32_t), "P3Lane")) return false;
+    if (!cp(hostW0.data(), w0Floats * sizeof(float), "W0"))
+        return false;
+    if (!cp(hostT.data(), tFloats * sizeof(float), "T"))
+        return false;
+    if (!cp(hostTExp.data(), tExpFloats * sizeof(float), "T2Exp"))
+        return false;
+    if (!cp(hostRadix2TW.data(), tRadix2Floats * sizeof(float), "Radix2TW"))
+        return false;
+    if (!cp(hostPhaseA.data(), tPhaseAFloats * sizeof(uint32_t), "PhaseA"))
+        return false;
+    if (!cp(hostT12Exp.data(), t12ExpFloats * sizeof(float), "T12Exp"))
+        return false;
+    if (!cp(hostP3Lane.data(), tP3LaneFloats * sizeof(uint32_t), "P3Lane"))
+        return false;
     return true;
 }
 
-bool FftR2C2DPlanCreate(FftR2C2DPlan& plan, int64_t fftN, int32_t batch,
-                        int32_t deviceId, int32_t cubeCoreNum)
+bool FftR2C2DPlanCreate(FftR2C2DPlan& plan, int64_t fftN, int32_t batch, int32_t deviceId, int32_t cubeCoreNum)
 {
     if (fftN != 4096) {
         std::cerr << "Error: only fftN=4096 supported, got " << fftN << std::endl;
@@ -77,10 +97,10 @@ bool FftR2C2DPlanCreate(FftR2C2DPlan& plan, int64_t fftN, int32_t batch,
     plan.batch = batch;
     plan.deviceId = deviceId;
 
-    int32_t direction = -1;   // R2C 2D 正向
-    int64_t halfN = fftN / 2 + 1;             // 2049
-    int64_t padHalf = (halfN + 63) & ~int64_t(63);   // pad 到 4 的倍数 = 2052（行宽 32B 对齐）
-    int64_t numSignals1 = fftN / 2;           // Pass1：两实行打包 -> 2048 复信号
+    int32_t direction = -1;                        // R2C 2D 正向
+    int64_t halfN = fftN / 2 + 1;                  // 2049
+    int64_t padHalf = (halfN + 63) & ~int64_t(63); // pad 到 4 的倍数 = 2052（行宽 32B 对齐）
+    int64_t numSignals1 = fftN / 2;                // Pass1：两实行打包 -> 2048 复信号
 
     ComputeTiling(plan.tiling1, fftN, numSignals1, direction, cubeCoreNum, 0, 2);
     ComputeTiling(plan.tiling2, fftN, padHalf, direction, cubeCoreNum, 0, 2);
@@ -109,42 +129,61 @@ bool FftR2C2DPlanCreate(FftR2C2DPlan& plan, int64_t fftN, int32_t batch,
         return false;
     }
 
-    FftTilingData devTiling;
+    FftTilingData devTiling{};
     FillDeviceTiling(plan.tiling1, devTiling);
     ACL_CHECK(aclrtMemcpy(plan.dTiling1, plan.tilingSize, &devTiling, plan.tilingSize, ACL_MEMCPY_HOST_TO_DEVICE));
 
     FillDeviceTiling(plan.tiling2, devTiling);
     ACL_CHECK(aclrtMemcpy(plan.dTiling2, plan.tilingSize, &devTiling, plan.tilingSize, ACL_MEMCPY_HOST_TO_DEVICE));
 
-    std::cout << "FftR2C2DPlanCreate: fftN=" << fftN << " halfN=" << halfN
-              << " padHalf=" << padHalf
-              << " coeffsSize=" << plan.coeffsSize
-              << " workspaceSize=" << plan.workspaceSize
-              << " ySize=" << plan.ySize << " zSize=" << plan.zSize << std::endl;
+    std::cout << "FftR2C2DPlanCreate: fftN=" << fftN << " halfN=" << halfN << " padHalf=" << padHalf
+              << " coeffsSize=" << plan.coeffsSize << " workspaceSize=" << plan.workspaceSize << " ySize=" << plan.ySize
+              << " zSize=" << plan.zSize << std::endl;
     return true;
 }
 
-void FftR2C2DExec(FftR2C2DPlan& plan, uint8_t* dInput, uint8_t* dOutput,
-                  aclrtStream stream, int32_t cubeCoreNum)
+void FftR2C2DExec(FftR2C2DPlan& plan, uint8_t* dInput, uint8_t* dOutput, aclrtStream stream, int32_t cubeCoreNum)
 {
     uint32_t blockDim = static_cast<uint32_t>(cubeCoreNum);
-    FftR2C2DFusedKernelLaunch(dInput, dOutput, plan.dCoeffs, plan.dWorkspace,
-                              plan.dTiling1, plan.dTiling2,
-                              plan.dY, plan.dZ, plan.dW, plan.dW2,
-                              blockDim, stream);
+    FftR2C2DFusedKernelLaunch(dInput, dOutput, plan.dCoeffs, plan.dWorkspace, plan.dTiling1, plan.dTiling2, plan.dY,
+                              plan.dZ, plan.dW, plan.dW2, blockDim, stream);
     ACL_CHECK(aclrtSynchronizeStream(stream));
 }
 
 void FftR2C2DPlanDestroy(FftR2C2DPlan& plan)
 {
-    if (plan.dCoeffs) { aclrtFree(plan.dCoeffs); plan.dCoeffs = nullptr; }
-    if (plan.dWorkspace) { aclrtFree(plan.dWorkspace); plan.dWorkspace = nullptr; }
-    if (plan.dTiling1) { aclrtFree(plan.dTiling1); plan.dTiling1 = nullptr; }
-    if (plan.dTiling2) { aclrtFree(plan.dTiling2); plan.dTiling2 = nullptr; }
-    if (plan.dY) { aclrtFree(plan.dY); plan.dY = nullptr; }
-    if (plan.dZ) { aclrtFree(plan.dZ); plan.dZ = nullptr; }
-    if (plan.dW) { aclrtFree(plan.dW); plan.dW = nullptr; }
-    if (plan.dW2) { aclrtFree(plan.dW2); plan.dW2 = nullptr; }
+    if (plan.dCoeffs) {
+        aclrtFree(plan.dCoeffs);
+        plan.dCoeffs = nullptr;
+    }
+    if (plan.dWorkspace) {
+        aclrtFree(plan.dWorkspace);
+        plan.dWorkspace = nullptr;
+    }
+    if (plan.dTiling1) {
+        aclrtFree(plan.dTiling1);
+        plan.dTiling1 = nullptr;
+    }
+    if (plan.dTiling2) {
+        aclrtFree(plan.dTiling2);
+        plan.dTiling2 = nullptr;
+    }
+    if (plan.dY) {
+        aclrtFree(plan.dY);
+        plan.dY = nullptr;
+    }
+    if (plan.dZ) {
+        aclrtFree(plan.dZ);
+        plan.dZ = nullptr;
+    }
+    if (plan.dW) {
+        aclrtFree(plan.dW);
+        plan.dW = nullptr;
+    }
+    if (plan.dW2) {
+        aclrtFree(plan.dW2);
+        plan.dW2 = nullptr;
+    }
 }
 
 } // namespace Fft
