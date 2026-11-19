@@ -50,7 +50,7 @@ To use the `swapLast2Axes` operator, the `swapLast2AxesGetWorkspaceSize` API mus
 
 ```Cpp
 AsdSip::AspbStatus swapLast2AxesGetWorkspaceSize(
-  size_t *size)
+  size_t &size)
 ```
 
 ```Cpp
@@ -82,7 +82,7 @@ AsdSip::AspbStatus swapLast2Axes(
       </tr></thead>
     <tbody>
     <tr>
-      <td>size (size_t *)</td>
+      <td>size (size_t &)</td>
       <td>Input/Output</td>
       <td>Workspace required by the <code>swapLast2Axes</code> operator.</td>
     </tr>
