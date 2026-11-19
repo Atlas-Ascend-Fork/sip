@@ -71,8 +71,8 @@ AspbStatus asdConvolve(
     </tr>
     <tr>
       <td>output (aclTensor *)</td>
-      <td>Input/Output</td>
-      <td><ul><li>Input/output signal.</li><li>Supported data types: <code>COMPLEX32</code> and <code>COMPLEX64</code>.</li><li>The output shape remains consistent with the input shape.</li></ul></td>
+      <td>Output</td>
+      <td><ul><li>Output signal.</li><li>Supported data types: <code>COMPLEX32</code> and <code>COMPLEX64</code>.</li><li>The output shape remains consistent with the input shape.</li></ul></td>
     </tr>
     <tr>
       <td>mode (asdConvolveMode_t)</td>
