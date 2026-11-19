@@ -84,7 +84,7 @@
 
 - **asdFftGetWorkspaceSize**
 
-    Function description: Computes the workspace size required by the FFT execution stream under the current plan.\
+    Function description: Computes the required device workspace size in bytes for the current plan.\
     Function prototype: AspbStatus asdFftGetWorkspaceSize(asdFftHandle handle, size_t &workSize)\
     **Parameter description:**
     <table style="undefined;table-layout: fixed; width: 880px"><colgroup>
@@ -106,15 +106,15 @@
     </tr>
     <tr>
       <td>workSize (size_t &)</td>
-      <td>Input</td>
-      <td>Required workspace size.</td>
+      <td>Output</td>
+      <td>Receives the required workspace size in bytes.</td>
     </tr>
   </tbody>
     </table>
 
 - **asdFftSetWorkspace**
 
-    Function description: Configures the workspace required for the FFT computation process bound to the current handle.\
+    Function description: Binds the workspace used by the FFT computation to the current handle.\
     Function prototype: AspbStatus asdFftSetWorkspace(asdFftHandle handle, void *workspace)\
     **Parameter description:**
     <table style="undefined;table-layout: fixed; width: 880px"><colgroup>
@@ -137,7 +137,7 @@
     <tr>
       <td>workspace (void *)</td>
       <td>Input</td>
-      <td>Pointer to the workspace.</td>
+      <td>Caller-owned device scratch buffer. Allocate at least the size returned by <code>asdFftGetWorkspaceSize</code> and keep it alive until work queued on the bound stream completes. This buffer is temporary scratch, not an FFT output.</td>
     </tr>
   </tbody>
     </table>

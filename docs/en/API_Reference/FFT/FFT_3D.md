@@ -972,8 +972,6 @@ int main()
     auto size = GetShapeSize(outShape);
     std::vector<float> outRealData(size, 0);
     std::vector<float> outImagData(size, 0);
-    std::vector<float> workspaceData(size * 2, -1);
-
     ret = aclrtMemcpy(outRealData.data(),
         outRealData.size() * sizeof(outRealData[0]),
         outputRealDeviceAddr,
@@ -986,12 +984,6 @@ int main()
         size * sizeof(outImagData[0]),
         ACL_MEMCPY_DEVICE_TO_HOST);
 
-    ret = aclrtMemcpy(workspaceData.data(),
-        workspaceData.size() * sizeof(workspaceData[0]),
-        workspaceAddr,
-        workspaceData.size() * sizeof(workspaceData[0]),
-        ACL_MEMCPY_DEVICE_TO_HOST);
-
     // Print the first 16 values of the output tensor.
     std::cout << "real part:" << std::endl;
     for (int64_t i = 0; i < size; i++) {
@@ -1001,16 +993,6 @@ int main()
     std::cout << "\nimag part:" << std::endl;
     for (int64_t i = 0; i < size; i++) {
         std::cout << static_cast<float>(outImagData[i]) << "\t";
-    }
-
-    std::cout << "\nworkspace real part:" << std::endl;
-    for (int64_t i = 0; i < size; i++) {
-        std::cout << static_cast<float>(workspaceData[i]) << "\t";
-    }
-
-    std::cout << "\nworkspace imag part:" << std::endl;
-    for (int64_t i = 0; i < size; i++) {
-        std::cout << static_cast<float>(workspaceData[i + size]) << "\t";
     }
 
     std::cout << "\nend result" << std::endl;

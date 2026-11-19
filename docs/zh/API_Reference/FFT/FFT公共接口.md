@@ -82,7 +82,7 @@
 
 - **asdFftGetWorkspaceSize**
 
-    功能描述：计算当前plan下的FFT执行流需要的workspace的大小。\
+    功能描述：计算当前plan所需的设备端workspace字节数。\
     函数原型：AspbStatus asdFftGetWorkspaceSize(asdFftHandle handle, size_t &workSize)\
     **参数说明：**
     <table style="undefined;table-layout: fixed; width: 880px"><colgroup>
@@ -104,15 +104,15 @@
     </tr>
     <tr>
       <td>workSize（size_t &）</td>
-      <td>输入</td>
-      <td>所需的工作空间大小。</td>
+      <td>输出</td>
+      <td>用于接收所需工作空间的字节数。</td>
     </tr>
   </tbody>
     </table>
 
 - **asdFftSetWorkspace**
 
-    功能描述：配置当前handle绑定的FFT计算过程所需的workspace。\
+    功能描述：为当前handle绑定FFT计算使用的workspace。\
     函数原型：AspbStatus asdFftSetWorkspace(asdFftHandle handle, void *workspace)\
     **参数说明：**
     <table style="undefined;table-layout: fixed; width: 880px"><colgroup>
@@ -135,7 +135,7 @@
     <tr>
       <td>workspace（void *）</td>
       <td>输入</td>
-      <td>指向工作空间的指针。</td>
+      <td>由调用方分配和释放的设备端临时缓冲区。容量至少为<code>asdFftGetWorkspaceSize</code>返回的字节数，并保持有效直到绑定流上的FFT任务完成。该缓冲区仅用于临时scratch，不是FFT输出。</td>
     </tr>
   </tbody>
     </table>
