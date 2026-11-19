@@ -118,7 +118,7 @@ AspbStatus asdInterpWithCoeff(
       <td>x（aclTensor *）</td>
       <td>输入</td>
       <td><ul><li>对应公式中的'B'。</li><li>数据类型支持COMPLEX32、COMPLEX64</li><li>数据格式支持ND。</li>
-      <li>shape为[batch,nRs,totalSubcarrier]。<ul><li>batch：波束数量，取值范围是1~1024 （6G时最大取值为16(终端的流数)*64(基站接收的波束数)=1024）。</li><li>nRs：参考信号数，取值是2、4。</li><li>totalSubcarrier = nRB*12。</li><li>nRB：资源块数，取值范围是1~2730 （每RB包含12个子载波，5G时取值范围是1~273，6G时取值是5G的4倍到10倍）。</li>
+      <li>shape为[batch,nRs,totalSubcarrier]。<ul><li>batch：波束数量，取值范围是1~1024 （6G时最大取值为16(终端的流数)*64(基站接收的波束数)=1024）。</li><li>nRs：参考信号数，取值是2、4。</li><li>totalSubcarrier：取值范围为1~32760；按资源块描述的常见布局中，totalSubcarrier = nRB*12。</li><li>nRB：资源块数，取值范围是1~2730 （每RB包含12个子载波，5G时取值范围是1~273，6G时取值是5G的4倍到10倍）。</li>
       </ul></li></ul></td>
     </tr>
     <tr>
@@ -131,7 +131,7 @@ AspbStatus asdInterpWithCoeff(
       <td>y（aclTensor *）</td>
       <td>输出</td>
       <td><ul><li>对应公式中的'result'。</li><li>数据类型支持COMPLEX32、COMPLEX64</li><li>数据格式支持ND。</li>
-      <li>shape为[batch,14-nRs,totalSubcarrier]。<ul><li>batch：波束数量，取值范围是1~1024 （6G时最大取值为16(终端的流数)*64(基站接收的波束数)=1024）。</li><li>nRs：参考信号数，取值是2、4。</li><li>totalSubcarrier = nRB*12。</li><li>nRB：资源块数，取值范围是1~2730 （每RB包含12个子载波，5G时取值范围是1~273, 6G时取值是5G的4倍到10倍）。</li></ul></li></ul></td>
+      <li>shape为[batch,14-nRs,totalSubcarrier]。<ul><li>batch：波束数量，取值范围是1~1024 （6G时最大取值为16(终端的流数)*64(基站接收的波束数)=1024）。</li><li>nRs：参考信号数，取值是2、4。</li><li>totalSubcarrier：取值范围为1~32760；按资源块描述的常见布局中，totalSubcarrier = nRB*12。</li><li>nRB：资源块数，取值范围是1~2730 （每RB包含12个子载波，5G时取值范围是1~273, 6G时取值是5G的4倍到10倍）。</li></ul></li></ul></td>
     </tr>
     <tr>
       <td>stream（void *）</td>

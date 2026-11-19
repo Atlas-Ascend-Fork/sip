@@ -105,7 +105,7 @@ AspbStatus asdInterpWithCoeff(
       <td>x (aclTensor *)</td>
       <td>Input</td>
       <td><ul><li>Corresponds to "B" in the formula.</li><li>Supported data types: <code>COMPLEX32</code> and <code>COMPLEX64</code>.</li><li>Data format: <code>ND</code>.</li>
-      <li>shape: [batch, nRs, totalSubcarrier].<ul><li>batch: number of beams, value range 1 to 1024 (for 6G, the maximum value is 16 (number of streams of the terminal) * 64 (number of beams received by the base station) = 1024).</li><li>nRs: number of reference signals, value 2 or 4.</li><li>totalSubcarrier = nRB * 12.</li><li>nRB: number of resource blocks, value range 1 to 2730 (each RB contains 12 subcarriers; for 5G, the value range is 1 to 273; for 6G, the value is 4 to 10 times that of 5G).</li>
+      <li>shape: [batch, nRs, totalSubcarrier].<ul><li>batch: number of beams, value range 1 to 1024 (for 6G, the maximum value is 16 (number of streams of the terminal) * 64 (number of beams received by the base station) = 1024).</li><li>nRs: number of reference signals, value 2 or 4.</li><li>totalSubcarrier: range 1 to 32760; for common resource-block layouts, totalSubcarrier = nRB * 12.</li><li>nRB: number of resource blocks, value range 1 to 2730 (each RB contains 12 subcarriers; for 5G, the value range is 1 to 273; for 6G, the value is 4 to 10 times that of 5G).</li>
       </ul></li></ul></td>
     </tr>
     <tr>
@@ -118,7 +118,7 @@ AspbStatus asdInterpWithCoeff(
       <td>y (aclTensor *)</td>
       <td>Output</td>
       <td><ul><li>Corresponds to "result" in the formula.</li><li>Supported data types: <code>COMPLEX32</code> and <code>COMPLEX64</code>.</li><li>Data format: <code>ND</code>.</li>
-      <li>shape: [batch, 14-nRs, totalSubcarrier].<ul><li>batch: beam count, value range is 1 to 1024 (for 6G, the maximum value is 16 (number of streams of the terminal) * 64 (number of beams received by the base station) = 1024).</li><li>nRs: number of reference signals, value is 2 or 4.</li><li>totalSubcarrier = nRB*12.</li><li>nRB: number of resource blocks, value range is 1 to 2730 (each RB contains 12 subcarriers; for 5G, the value range is 1 to 273, and for 6G, the value is 4 to 10 times that of 5G).</li></ul></li></ul></td>
+      <li>shape: [batch, 14-nRs, totalSubcarrier].<ul><li>batch: beam count, value range is 1 to 1024 (for 6G, the maximum value is 16 (number of streams of the terminal) * 64 (number of beams received by the base station) = 1024).</li><li>nRs: number of reference signals, value is 2 or 4.</li><li>totalSubcarrier: range 1 to 32760; for common resource-block layouts, totalSubcarrier = nRB * 12.</li><li>nRB: number of resource blocks, value range is 1 to 2730 (each RB contains 12 subcarriers; for 5G, the value range is 1 to 273, and for 6G, the value is 4 to 10 times that of 5G).</li></ul></li></ul></td>
     </tr>
     <tr>
       <td>stream (void *)</td>
