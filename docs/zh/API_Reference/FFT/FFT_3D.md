@@ -39,7 +39,7 @@ asdFftExecC2CSeparated：执行复数到复数的FFT变换，支持实部、虚�
 
   ![公式](../figures/fft_3d_1.png)
 
-  它的三维离散傅里叶变换定义为：\
+  下式采用正指数，对应 `ASCEND_FFT_INVERSE`；`ASCEND_FFT_FORWARD` 使用负指数。两个方向均不做归一化：逆变换结果不除以 `fftSizeX * fftSizeY * fftSizeZ`，因此正向变换后再做逆向变换会得到原输入的该乘积倍（存在浮点误差）。\
   ![公式](../figures/fft_3d_2.png)
 
   其中：\

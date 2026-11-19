@@ -39,6 +39,8 @@ asdFftExecC2CSeparated：执行复数到复数的FFT变换，支持实部、虚�
 
   ![公式](../figures/fft_1d_1.png)
 
+  `ASCEND_FFT_FORWARD` 使用上式中的负指数，`ASCEND_FFT_INVERSE` 使用正指数。两个方向均不做归一化：逆变换结果不除以 `fftSize`，因此正向变换后再做逆向变换会得到原输入的 `fftSize` 倍（存在浮点误差）。
+
   将系数矩阵(N*N)和时域信号(N*1)看做两个Tensor，在NPU上直接使用矩阵乘，可完成DFT，但时间复杂度太高，因此需要快速傅里叶变换。其基本原理是利用三角函数在复数域的旋转对称性，将序列拆分成子序列，通过蝶形运算以降低计算的复杂度：\
   ![公式](../figures/fft_1d_2.png)
 

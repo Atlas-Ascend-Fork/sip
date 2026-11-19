@@ -26,7 +26,7 @@ Given a three-dimensional discrete signal:
 
   ![Formula](../figures/FFT_3D_1.png)
 
-  Its three-dimensional discrete Fourier transform is defined as:\
+  The formula below uses a positive exponent and corresponds to `ASCEND_FFT_INVERSE`; `ASCEND_FFT_FORWARD` uses a negative exponent. Neither direction applies normalization: the inverse output is not divided by `fftSizeX * fftSizeY * fftSizeZ`, so a forward/inverse round trip returns that product times the input, up to floating-point error.\
   ![Formula](../figures/FFT_3D_2.png)
 
   where:\

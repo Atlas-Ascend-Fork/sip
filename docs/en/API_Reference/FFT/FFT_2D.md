@@ -25,6 +25,8 @@ The Fourier transform is a linear integral transform used to convert signals bet
 
   ![Formula](../figures/FFT_2D_1.png)
 
+  The formula above uses a positive exponent and corresponds to `ASCEND_FFT_INVERSE`; `ASCEND_FFT_FORWARD` uses a negative exponent. Neither direction applies normalization: the inverse output is not divided by `fftSizeX * fftSizeY`, so a forward/inverse round trip returns that product times the input, up to floating-point error.
+
   By treating the coefficient matrix (N*N) and the time-domain signal (N*1) as two tensors, the DFT can be completed by directly using matrix multiplication on the NPU. However, the time complexity is too high, so a fast Fourier transform is needed. The basic principle is to use the rotational symmetry of trigonometric functions in the complex domain to split the sequence into subsequences, and then use butterfly operations to reduce the computational complexity:\
   ![Formula](../figures/FFT_ID_2.png)
 
