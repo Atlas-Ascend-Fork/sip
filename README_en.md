@@ -123,20 +123,19 @@ After installing CANN, you can install some tools to facilitate subsequent devel
 
     You can select any branch as needed.
  - SiP library compilation<br>
-    Compile the acceleration library and set the acceleration library environment variables:
+    Compile the acceleration library:
 
     ```sh
     cd "${sip_root_path:?Set the repository root path first}" || exit 1
     bash build.sh
-    source output/set_env.sh
     ```
 
     Special notes:
-    - `Ascend-cann-SIP_${version}_linux-${arch}.run` is an executable product packaged by makeself after compilation. It contains the files required for operator execution. You can run the package with the following command to install the operator information files to the specified directory.
+    - By default, `bash build.sh` creates the executable installation package `output/Ascend-cann-SIP_${version}_linux-${arch}.run`. The makeself package contains the files required for operator execution; run it with Bash to install the operator information files to the specified directory.
 
-        ```bash
-        # Run the self-extracting installer with Bash; executable permissions are not required
-        bash ./output/Ascend-cann-SIP_${version}_linux-${arch}.run --install --install-path=${install_path}
+         ```bash
+         # Run the self-extracting installer with Bash; executable permissions are not required
+         bash ./output/Ascend-cann-SIP_${version}_linux-${arch}.run --install --install-path=${install_path}
         # Set the acceleration library environment variables
         source ${install_path}/asdsip/set_env.sh
         ```
