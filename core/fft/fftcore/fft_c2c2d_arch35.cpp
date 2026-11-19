@@ -569,7 +569,7 @@ void FftC2C2DCoreArch35::Run(void* input, void* output, void* stream, workspace:
                 stageDst = dstScratch ? static_cast<void*>(scratch) : static_cast<void*>(intermediate);
             }
 
-            FftC2CArch35StageTilingData stageTiling;
+            FftC2CArch35StageTilingData stageTiling{};
             FillRadix2StageTiling(stageTiling, batch * fftN, fftM, stage, static_cast<int32_t>(fftN), isInverse,
                                   isLast);
             if (!launchRadix2Stage(kernelM, tilingMDeviceAddrs[stage], stageSrc, stageDst, twMatrixM, radixListM,
@@ -611,7 +611,7 @@ void FftC2C2DCoreArch35::Run(void* input, void* output, void* stream, workspace:
                                  output :
                                  ((stage & 1) == 0 ? static_cast<void*>(scratch) : static_cast<void*>(intermediate));
 
-            FftC2CArch35StageTilingData stageTiling;
+            FftC2CArch35StageTilingData stageTiling{};
             FillRadix2StageTiling(stageTiling, batch * fftM, fftN, stage, static_cast<int32_t>(fftM), isInverse,
                                   isLast);
             if (!launchRadix2Stage(kernelN, tilingNDeviceAddrs[stage], currentN, stageDst, twMatrixN, radixListN,
