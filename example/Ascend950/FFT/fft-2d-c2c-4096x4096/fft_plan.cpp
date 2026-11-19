@@ -1,3 +1,14 @@
+/**
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This file is a part of the CANN Open Software.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
+
 #ifndef K_MAX_SHAPE_DIM
 #define K_MAX_SHAPE_DIM 0
 #endif
@@ -22,13 +33,12 @@
 // 复用 release 1D 引擎（2×16×16×2×2×2），融合单 launch 内完成 S1→S2→S3→S4。
 namespace Fft {
 
-bool FftPlanCreate(FftPlan& plan, int64_t fftN, int64_t batch, int32_t direction,
-                   int32_t deviceId, int32_t cubeCoreNum, int32_t vecCoreNum)
+bool FftPlanCreate(FftPlan& plan, int64_t fftN, int64_t batch, int32_t direction, int32_t deviceId, int32_t cubeCoreNum,
+                   int32_t vecCoreNum)
 {
     // 定制化：仅支持 4096 点 FFT、[4096,4096] 输入
     if (fftN != FFT_N_REQUIRED || batch != 4096) {
-        std::cerr << "Error: only [4096,4096] is supported, got fftN=" << fftN
-                  << " batch=" << batch << std::endl;
+        std::cerr << "Error: only [4096,4096] is supported, got fftN=" << fftN << " batch=" << batch << std::endl;
         return false;
     }
 
@@ -56,13 +66,20 @@ bool FftPlanCreate(FftPlan& plan, int64_t fftN, int64_t batch, int32_t direction
         int64_t seenRadix[FFT_MAX_STAGE] = {0};
         int32_t seenN = 0;
         for (int32_t i = 0; i < plan.decomp.stageCount; i++) {
-            if (plan.decomp.stage[i].type != FftStageType::Gemm) { continue; }
+            if (plan.decomp.stage[i].type != FftStageType::Gemm) {
+                continue;
+            }
             int32_t r = plan.decomp.stage[i].radix;
             bool dup = false;
             for (int32_t j = 0; j < seenN; j++) {
-                if (seenRadix[j] == r) { dup = true; break; }
+                if (seenRadix[j] == r) {
+                    dup = true;
+                    break;
+                }
             }
-            if (dup) { continue; }
+            if (dup) {
+                continue;
+            }
             seenRadix[seenN++] = r;
             BuildWMatrix(hostCoeffs.data() + coeffFloats, r, direction);
             coeffFloats += (2 * r) * (2 * r);
@@ -75,22 +92,18 @@ bool FftPlanCreate(FftPlan& plan, int64_t fftN, int64_t batch, int32_t direction
                 BuildT2Expanded(hostCoeffs.data() + coeffFloats, direction);
                 coeffFloats += T2_EXPANDED_FLOATS;
             } else {
-                BuildTMatrix(hostCoeffs.data() + coeffFloats,
-                             plan.decomp.GetTGroups(i), plan.decomp.stage[i].radix,
+                BuildTMatrix(hostCoeffs.data() + coeffFloats, plan.decomp.GetTGroups(i), plan.decomp.stage[i].radix,
                              direction, plan.decomp.GetTDenominator(i));
                 coeffFloats += plan.decomp.GetTFloats(i);
             }
         }
         BuildP6Radix2TwiddleExpanded(hostCoeffs.data() + coeffFloats, direction);
         coeffFloats += 896;
-        BuildInterleaveBitrevGatherTable(
-            reinterpret_cast<uint32_t*>(hostCoeffs.data() + coeffFloats));
+        BuildInterleaveBitrevGatherTable(reinterpret_cast<uint32_t*>(hostCoeffs.data() + coeffFloats));
         coeffFloats += GATHER_TABLE_FLOATS;
-        BuildP6T2GatherTables(
-            reinterpret_cast<uint32_t*>(hostCoeffs.data() + coeffFloats));
+        BuildP6T2GatherTables(reinterpret_cast<uint32_t*>(hostCoeffs.data() + coeffFloats));
         coeffFloats += P6T2_TABLE_FLOATS;
-        BuildP4GatherTables(
-            reinterpret_cast<uint32_t*>(hostCoeffs.data() + coeffFloats));
+        BuildP4GatherTables(reinterpret_cast<uint32_t*>(hostCoeffs.data() + coeffFloats));
         coeffFloats += P4_TABLE_FLOATS;
     }
 
@@ -106,52 +119,73 @@ bool FftPlanCreate(FftPlan& plan, int64_t fftN, int64_t batch, int32_t direction
         return false;
     }
 
-    ret = aclrtMemcpy(plan.dCoeffs, plan.coeffsSize, hostCoeffs.data(),
-                      plan.coeffsSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    if (ret != ACL_ERROR_NONE) { std::cerr << "copy coeffs failed" << std::endl; return false; }
+    ret = aclrtMemcpy(plan.dCoeffs, plan.coeffsSize, hostCoeffs.data(), plan.coeffsSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    if (ret != ACL_ERROR_NONE) {
+        std::cerr << "copy coeffs failed" << std::endl;
+        return false;
+    }
 
     ret = aclrtMalloc(reinterpret_cast<void**>(&plan.dWorkspace), plan.workspaceSize, ACL_MEM_MALLOC_HUGE_FIRST);
     if (ret != ACL_ERROR_NONE) {
         std::cerr << "FftPlanCreate: aclrtMalloc workspace failed: " << ret << std::endl;
-        aclrtFree(plan.dCoeffs); plan.dCoeffs = nullptr;
+        aclrtFree(plan.dCoeffs);
+        plan.dCoeffs = nullptr;
         return false;
     }
 
     ret = aclrtMalloc(reinterpret_cast<void**>(&plan.dWsTranspose), plan.wsTransposeSize, ACL_MEM_MALLOC_HUGE_FIRST);
     if (ret != ACL_ERROR_NONE) {
         std::cerr << "FftPlanCreate: aclrtMalloc wsTranspose failed: " << ret << std::endl;
-        aclrtFree(plan.dCoeffs); aclrtFree(plan.dWorkspace);
-        plan.dCoeffs = nullptr; plan.dWorkspace = nullptr;
+        aclrtFree(plan.dCoeffs);
+        aclrtFree(plan.dWorkspace);
+        plan.dCoeffs = nullptr;
+        plan.dWorkspace = nullptr;
         return false;
     }
 
     ret = aclrtMalloc(reinterpret_cast<void**>(&plan.dTmp), plan.tmpSize, ACL_MEM_MALLOC_HUGE_FIRST);
     if (ret != ACL_ERROR_NONE) {
         std::cerr << "FftPlanCreate: aclrtMalloc tmp failed: " << ret << std::endl;
-        aclrtFree(plan.dCoeffs); aclrtFree(plan.dWorkspace); aclrtFree(plan.dWsTranspose);
-        plan.dCoeffs = nullptr; plan.dWorkspace = nullptr; plan.dWsTranspose = nullptr;
+        aclrtFree(plan.dCoeffs);
+        aclrtFree(plan.dWorkspace);
+        aclrtFree(plan.dWsTranspose);
+        plan.dCoeffs = nullptr;
+        plan.dWorkspace = nullptr;
+        plan.dWsTranspose = nullptr;
         return false;
     }
 
     ret = aclrtMalloc(reinterpret_cast<void**>(&plan.dHori), plan.horiSize, ACL_MEM_MALLOC_HUGE_FIRST);
     if (ret != ACL_ERROR_NONE) {
         std::cerr << "FftPlanCreate: aclrtMalloc hori failed: " << ret << std::endl;
-        aclrtFree(plan.dCoeffs); aclrtFree(plan.dWorkspace); aclrtFree(plan.dWsTranspose); aclrtFree(plan.dTmp);
-        plan.dCoeffs = nullptr; plan.dWorkspace = nullptr; plan.dWsTranspose = nullptr; plan.dTmp = nullptr;
+        aclrtFree(plan.dCoeffs);
+        aclrtFree(plan.dWorkspace);
+        aclrtFree(plan.dWsTranspose);
+        aclrtFree(plan.dTmp);
+        plan.dCoeffs = nullptr;
+        plan.dWorkspace = nullptr;
+        plan.dWsTranspose = nullptr;
+        plan.dTmp = nullptr;
         return false;
     }
 
     ret = aclrtMalloc(reinterpret_cast<void**>(&plan.dTiling), plan.tilingSize, ACL_MEM_MALLOC_HUGE_FIRST);
     if (ret != ACL_ERROR_NONE) {
         std::cerr << "FftPlanCreate: aclrtMalloc tiling failed: " << ret << std::endl;
-        aclrtFree(plan.dCoeffs); aclrtFree(plan.dWorkspace); aclrtFree(plan.dWsTranspose);
-        aclrtFree(plan.dTmp); aclrtFree(plan.dHori);
-        plan.dCoeffs = nullptr; plan.dWorkspace = nullptr; plan.dWsTranspose = nullptr;
-        plan.dTmp = nullptr; plan.dHori = nullptr;
+        aclrtFree(plan.dCoeffs);
+        aclrtFree(plan.dWorkspace);
+        aclrtFree(plan.dWsTranspose);
+        aclrtFree(plan.dTmp);
+        aclrtFree(plan.dHori);
+        plan.dCoeffs = nullptr;
+        plan.dWorkspace = nullptr;
+        plan.dWsTranspose = nullptr;
+        plan.dTmp = nullptr;
+        plan.dHori = nullptr;
         return false;
     }
 
-    FftTilingData devTiling;
+    FftTilingData devTiling{};
     FillDeviceTiling(plan.tiling, plan.decomp, devTiling);
 
     ret = aclrtMemcpy(plan.dTiling, plan.tilingSize, &devTiling, plan.tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
@@ -161,31 +195,45 @@ bool FftPlanCreate(FftPlan& plan, int64_t fftN, int64_t batch, int32_t direction
         return false;
     }
 
-    std::cout << "FftPlanCreate: fftN=" << fftN << " batch=" << batch
-              << " radix=" << FftRadixName()
-              << " gemmStages=" << plan.decomp.GetGemmCount()
-              << " cubeCores=" << cubeCoreNum << " vecCores=" << vecCoreNum
-              << " coeffsSize=" << plan.coeffsSize
-              << " workspaceSize=" << plan.workspaceSize
-              << " wsTransposeSize=" << plan.wsTransposeSize
-              << " tmpSize=" << plan.tmpSize
-              << " horiSize=" << plan.horiSize << std::endl;
+    std::cout << "FftPlanCreate: fftN=" << fftN << " batch=" << batch << " radix=" << FftRadixName()
+              << " gemmStages=" << plan.decomp.GetGemmCount() << " cubeCores=" << cubeCoreNum
+              << " vecCores=" << vecCoreNum << " coeffsSize=" << plan.coeffsSize
+              << " workspaceSize=" << plan.workspaceSize << " wsTransposeSize=" << plan.wsTransposeSize
+              << " tmpSize=" << plan.tmpSize << " horiSize=" << plan.horiSize << std::endl;
 
     return true;
 }
 
 void FftPlanDestroy(FftPlan& plan)
 {
-    if (plan.dCoeffs != nullptr) { aclrtFree(plan.dCoeffs); plan.dCoeffs = nullptr; }
-    if (plan.dWorkspace != nullptr) { aclrtFree(plan.dWorkspace); plan.dWorkspace = nullptr; }
-    if (plan.dWsTranspose != nullptr) { aclrtFree(plan.dWsTranspose); plan.dWsTranspose = nullptr; }
-    if (plan.dTmp != nullptr) { aclrtFree(plan.dTmp); plan.dTmp = nullptr; }
-    if (plan.dHori != nullptr) { aclrtFree(plan.dHori); plan.dHori = nullptr; }
-    if (plan.dTiling != nullptr) { aclrtFree(plan.dTiling); plan.dTiling = nullptr; }
+    if (plan.dCoeffs != nullptr) {
+        aclrtFree(plan.dCoeffs);
+        plan.dCoeffs = nullptr;
+    }
+    if (plan.dWorkspace != nullptr) {
+        aclrtFree(plan.dWorkspace);
+        plan.dWorkspace = nullptr;
+    }
+    if (plan.dWsTranspose != nullptr) {
+        aclrtFree(plan.dWsTranspose);
+        plan.dWsTranspose = nullptr;
+    }
+    if (plan.dTmp != nullptr) {
+        aclrtFree(plan.dTmp);
+        plan.dTmp = nullptr;
+    }
+    if (plan.dHori != nullptr) {
+        aclrtFree(plan.dHori);
+        plan.dHori = nullptr;
+    }
+    if (plan.dTiling != nullptr) {
+        aclrtFree(plan.dTiling);
+        plan.dTiling = nullptr;
+    }
 }
 
-void FftExec2D(FftPlan& plan, uint8_t* dInput, uint8_t* dOutput,
-               aclrtStream stream, int32_t cubeCoreNum, int32_t vecCoreNum)
+void FftExec2D(FftPlan& plan, uint8_t* dInput, uint8_t* dOutput, aclrtStream stream, int32_t cubeCoreNum,
+               int32_t vecCoreNum)
 {
     // FFT2D = 横向 FFT(axis=1) 后纵向 FFT(axis=0)：
     //   S1(K1 行FFT) X -> h;  S2(转置) h -> ws;
@@ -195,20 +243,16 @@ void FftExec2D(FftPlan& plan, uint8_t* dInput, uint8_t* dOutput,
     uint32_t blockDim = static_cast<uint32_t>(cubeCoreNum);
 
     // S1: 横向 FFT：X -> h（release 2×16×16×2×2×2 引擎）
-    FftKernelLaunch(dInput, plan.dHori, plan.dCoeffs, plan.dWorkspace, plan.dTiling,
-                    blockDim, stream, 0, 2);
+    FftKernelLaunch(dInput, plan.dHori, plan.dCoeffs, plan.dWorkspace, plan.dTiling, blockDim, stream, 0, 2);
 
     // S2: 转置：h -> ws
-    FftTransposeKernelLaunch(plan.dHori, plan.dWsTranspose, plan.dTiling,
-                             blockDim, stream, vecCoreNum);
+    FftTransposeKernelLaunch(plan.dHori, plan.dWsTranspose, plan.dTiling, blockDim, stream, vecCoreNum);
 
     // S3: 纵向 FFT：ws -> t
-    FftKernelLaunch(plan.dWsTranspose, plan.dTmp, plan.dCoeffs, plan.dWorkspace, plan.dTiling,
-                    blockDim, stream, 0, 2);
+    FftKernelLaunch(plan.dWsTranspose, plan.dTmp, plan.dCoeffs, plan.dWorkspace, plan.dTiling, blockDim, stream, 0, 2);
 
     // S4: 转置：t -> out
-    FftTransposeKernelLaunch(plan.dTmp, dOutput, plan.dTiling,
-                             blockDim, stream, vecCoreNum);
+    FftTransposeKernelLaunch(plan.dTmp, dOutput, plan.dTiling, blockDim, stream, vecCoreNum);
 
     ACL_CHECK(aclrtSynchronizeStream(stream));
 }
