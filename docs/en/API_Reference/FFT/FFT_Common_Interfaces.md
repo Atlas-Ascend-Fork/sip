@@ -21,8 +21,8 @@
   <tbody>
     <tr>
       <td>handle (asdFftHandle)</td>
-      <td>Input</td>
-      <td>Handle of the <code>asdFftCreate</code> API.</td>
+      <td>Output</td>
+      <td>Receives the newly created FFT handle.</td>
     </tr>
   </tbody>
     </table>

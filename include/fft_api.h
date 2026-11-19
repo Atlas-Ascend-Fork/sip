@@ -43,8 +43,8 @@ enum asdFft1dDimType {
     ASCEND_FFT_VERTICAL = 0x11,
 };
 
-// Creates only an opaque handle, and only allocates space basic data structures for it.
-// This function does not initialize handle.
+// Writes a newly created opaque handle to handle. This allocates its basic data
+// structures but does not initialize the FFT plan.
 AsdSip::AspbStatus asdFftCreate(asdFftHandle& handle);
 
 // Binds a stream to handle.

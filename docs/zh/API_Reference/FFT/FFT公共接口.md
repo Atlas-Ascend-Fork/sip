@@ -19,8 +19,8 @@
   <tbody>
     <tr>
       <td>handle（asdFftHandle）</td>
-      <td>输入</td>
-      <td>asdFftCreate接口的句柄。</td>
+      <td>输出</td>
+      <td>用于接收新创建的FFT句柄。</td>
     </tr>
   </tbody>
     </table>
