@@ -23,7 +23,7 @@
   - Formula for `asdBlasSasum`
 
   $$
-  result=\sum _{i=0}^n|x_{i}|
+  result=\sum _{i=0}^{n-1}|x_{i}|
   $$
 
   Example:\
@@ -34,7 +34,7 @@
   - Formula for `asdBlasScasum`
 
   $$
-  result=\sum _{i=0}^n(|real(x_{i})|+|imag(x_{i})|)
+  result=\sum _{i=0}^{n-1}(|real(x_{i})|+|imag(x_{i})|)
   $$
 
   Example:\
