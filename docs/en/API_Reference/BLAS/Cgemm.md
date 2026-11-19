@@ -235,6 +235,8 @@ AspbStatus asdBlasCgemm(
 
 ## Calling Example
 
+Matrices A, B, and C use contiguous column-major storage.
+
 The example code is as follows. This sample is intended to provide a minimal implementation for quick start, development, and debugging of the operator. Its core goal is to demonstrate the core functionality of the operator with the most concise code, rather than providing production-level security assurance. Users are advised not to directly use the example code as business code. If users use the example code in their own real business scenarios and security issues arise as a result, the users shall bear the consequences themselves.
 
 ```Cpp
@@ -302,10 +304,10 @@ int CreateAclTensor(const std::vector<T> &hostData, const std::vector<int64_t> &
     ret = aclrtMemcpy(*deviceAddr, size, hostData.data(), size, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(ret == ::ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", ret); return ret);
 
-    // Compute the strides of the contiguous tensor.
+    // Compute contiguous column-major strides.
     std::vector<int64_t> strides(shape.size(), 1);
-    for (int64_t i = shape.size() - 2; i >= 0; i--) {
-        strides[i] = shape[i + 1] * strides[i + 1];
+    for (int64_t i = 1; i < shape.size(); i++) {
+        strides[i] = shape[i - 1] * strides[i - 1];
     }
 
     // Call the aclCreateTensor API to create an aclTensor.
@@ -325,7 +327,7 @@ void printTensor(std::vector<std::complex<float>> tensorData, int64_t rows, int6
 {
     for (int64_t i = 0; i < rows; i++) {
         for (int64_t j = 0; j < cols; j++) {
-            std::cout << tensorData[i * cols + j] << " ";
+            std::cout << tensorData[i + j * rows] << " ";
         }
         std::cout << std::endl;
     }

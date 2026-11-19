@@ -253,6 +253,8 @@ AspbStatus asdBlasCgemm(
 
 ## 调用示例
 
+矩阵A、B和C采用连续列主序存储。
+
 示例代码如下，该样例旨在提供快速上手、开发和调试算子的最小化实现，其核心目标是使用最精简的代码展示算子的核心功能，而非提供生产级的安全保障。不推荐用户直接将示例代码作为业务代码，若用户将示例代码应用在自身的真实业务场景中且因使用发生了安全问题，则需用户自行承担。
 
 ```Cpp
@@ -320,10 +322,10 @@ int CreateAclTensor(const std::vector<T> &hostData, const std::vector<int64_t> &
     ret = aclrtMemcpy(*deviceAddr, size, hostData.data(), size, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(ret == ::ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", ret); return ret);
 
-    // 计算连续tensor的strides
+    // 计算连续列主序tensor的strides
     std::vector<int64_t> strides(shape.size(), 1);
-    for (int64_t i = shape.size() - 2; i >= 0; i--) {
-        strides[i] = shape[i + 1] * strides[i + 1];
+    for (int64_t i = 1; i < shape.size(); i++) {
+        strides[i] = shape[i - 1] * strides[i - 1];
     }
 
     // 调用aclCreateTensor接口创建aclTensor
@@ -343,7 +345,7 @@ void printTensor(std::vector<std::complex<float>> tensorData, int64_t rows, int6
 {
     for (int64_t i = 0; i < rows; i++) {
         for (int64_t j = 0; j < cols; j++) {
-            std::cout << tensorData[i * cols + j] << " ";
+            std::cout << tensorData[i + j * rows] << " ";
         }
         std::cout << std::endl;
     }
