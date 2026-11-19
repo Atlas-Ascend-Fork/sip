@@ -100,7 +100,7 @@ print(result)  # 复数逐元素乘法结果
 2. **生成 3rdparty 目录**：执行过一次 sip 仓根目录的 `bash build.sh` 后，`3rdparty/ascend-boost-comm`（MKI 头文件来源）会被自动创建；若仍缺失，手动执行
    `git clone https://gitcode.com/cann/ascend-boost-comm.git ../3rdparty/ascend-boost-comm`（相对 sip_pta 的 `BOOST_COMM_PATH` 默认值）。
 
-运行 whl 无需再手动 export 任何环境变量，只需三步：
+从 SiP 源码仓库根目录执行下列命令，配置运行环境并运行测试脚本：
 
 ```bash
 # 1. source asdsip 安装目录下的 set_env.sh（自动导出 ASDSIP_HOME_PATH 并把 lib 加入 LD_LIBRARY_PATH）
@@ -110,7 +110,7 @@ source <cann安装目录>/set_env.sh          # 例如 /usr/local/Ascend/ascend-
 # 3. 激活环境
 conda activate your_env
 # 运行测试脚本
-python asd_mul.py
+python sip_pta/test/base/asd_mul.py
 ```
 
 说明：asdsip 的 `set_env.sh` 内容即 `export ASDSIP_HOME_PATH=<目录>/latest/` 与
