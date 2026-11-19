@@ -32,7 +32,8 @@
 
     ```sh
 
-    cd ${SiP_root_path}
+    SiP_root_path="$(git rev-parse --show-toplevel)" || exit 1
+    cd "${SiP_root_path:?Set the repository root path first}" || exit 1
     bash build.sh
     source output/set_env.sh
     ```

@@ -98,7 +98,7 @@ source /usr/local/Ascend/cann/set_env.sh
 
     ```sh
     git clone https://gitcode.com/cann/sip.git
-    sip_root_path="$(realpath sip)" || exit 1
+    SiP_root_path="$(realpath sip)" || exit 1
     ```
 
    您可自行选择需要的分支。
@@ -106,14 +106,14 @@ source /usr/local/Ascend/cann/set_env.sh
     编译加速库：
 
     ```sh
-    cd "${sip_root_path:?Set the repository root path first}" || exit 1
+    cd "${SiP_root_path:?Set the repository root path first}" || exit 1
     bash build.sh
     ```
 
     编译前请根据目标硬件关闭不支持的芯片架构，否则编译会失败。内核编译目标的请求由构建期拉取的`mki`组件（位于`3rdparty/mki/`）读取的配置决定：`mki`默认配置会请求`ascend910b`和`ascend950`（实际构建目标还受本仓CANN版本兼容过滤影响，以编译日志中的requested/effective device targets为准）；若运行环境仅支持其中一种芯片，可通过环境变量`BUILD_CONFIG_DIR`指定一个包含`build_config.json`的目录，将不支持的架构设置为`false`。例如在仓库根目录复用主仓配置文件（构建过程会切换工作目录，故用`realpath configs`在设置时将配置目录解析为绝对路径）：
 
     ```sh
-    cd "${sip_root_path:?Set the repository root path first}" || exit 1
+    cd "${SiP_root_path:?Set the repository root path first}" || exit 1
     BUILD_CONFIG_DIR="$(realpath configs)" || exit 1
     BUILD_CONFIG_FILE="$(realpath configs/build_config.json)" || exit 1
     export BUILD_CONFIG_DIR BUILD_CONFIG_FILE
