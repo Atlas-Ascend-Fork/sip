@@ -182,7 +182,7 @@ AspbStatus asdBlasHCgemvBatched(
     <tr>
       <td>batchCount (int64_t)</td>
       <td>Input</td>
-      <td>Number of batches. Value range: [2, 314496].</td>
+      <td>Number of batches. Value range: [1, 314496].</td>
     </tr>
     </tbody>
     </table>
