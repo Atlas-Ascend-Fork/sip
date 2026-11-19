@@ -122,7 +122,9 @@ AspbStatus asdBlasSswap(asdBlasHandle handle, const int64_t n, aclTensor* x, con
     CHECK_STATUS_WITH_ACL_RETURN(aclGetDataType(y, &dataType), "asdBlasSswap: aclGetDataType");
     ASDSIP_ECHECK(dataType == aclDataType::ACL_FLOAT, "blas asdBlasSswap get wrong y tensor dtype.",
                   ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
-    ASDSIP_ECHECK(n > 0 && n <= UINT32_MAX, "blas asdBlasSswap get n <= 0 or n > 2^32.",
+    // n 上界收紧（issue #447）：实数计数入口对齐 sdot/isamax 的 INT32_MAX 口径
+    // （uint32 承载不回绕且元素偏移不越 int32 正域）
+    ASDSIP_ECHECK(n > 0 && n <= INT32_MAX, "blas asdBlasSswap get n <= 0 or n > INT32_MAX.",
                   ErrorType::ACL_ERROR_INVALID_PARAM);
     return asdBlasSwapImpl(handle, {n, x, incx, y, incy}, 0);
 }
@@ -139,7 +141,11 @@ AspbStatus asdBlasCswap(asdBlasHandle handle, const int64_t n, aclTensor* x, con
     CHECK_STATUS_WITH_ACL_RETURN(aclGetDataType(y, &dataType), "asdBlasCswap: aclGetDataType");
     ASDSIP_ECHECK(dataType == aclDataType::ACL_COMPLEX64, "blas asdBlasCswap get wrong y tensor dtype.",
                   ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
-    ASDSIP_ECHECK(n > 0 && n <= UINT32_MAX, "blas asdBlasSswap get n <= 0 or n > 2^32.",
+    // n 上界收紧（issue #444）：复数按 complexNum*n=2n 传参，n > INT32_MAX/2 时 2n 越过
+    // uint32 承载（CommonTilingData n 字段为 uint32_t，n=2^32 时 2n=2^33 回绕为 0）与
+    // int32 元素偏移正域，静默算错，须显式拒绝（对齐 #424 的 2n 载荷上限口径）；
+    // 报错文案同步修正为实际函数名（issue #448，原误写作实数入口名）
+    ASDSIP_ECHECK(n > 0 && n <= INT32_MAX / 2, "blas asdBlasCswap get n <= 0 or n > INT32_MAX / 2.",
                   ErrorType::ACL_ERROR_INVALID_PARAM);
     return asdBlasSwapImpl(handle, {complexNum * n, x, incx, y, incy}, 1);
 }

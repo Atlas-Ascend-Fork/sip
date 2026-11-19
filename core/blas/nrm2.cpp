@@ -107,7 +107,9 @@ AspbStatus asdBlasSnrm2(asdBlasHandle handle, const int64_t n, aclTensor* x, con
     CHECK_STATUS_WITH_ACL_RETURN(aclGetDataType(result, &dataType), "asdBlasSnrm2: aclGetDataType");
     ASDSIP_ECHECK(dataType == aclDataType::ACL_FLOAT, "blas asdBlasSnrm2 get wrong result tensor dtype.",
                   ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
-    ASDSIP_ECHECK(n > 0 && n <= UINT32_MAX, "blas asdBlasSnrm2 get n <= 0 or n > 2^32.",
+    // n 上界收紧（issue #447）：实数计数入口对齐 sdot/isamax 的 INT32_MAX 口径
+    // （uint32 承载不回绕且元素偏移不越 int32 正域）
+    ASDSIP_ECHECK(n > 0 && n <= INT32_MAX, "blas asdBlasSnrm2 get n <= 0 or n > INT32_MAX.",
                   ErrorType::ACL_ERROR_INVALID_PARAM);
     return asdBlasNrm2Impl(handle, n, x, incx, result, 0);
 }

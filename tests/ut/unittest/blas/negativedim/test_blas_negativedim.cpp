@@ -13,6 +13,9 @@
 // csrot n 上界负向用例（issue #344）：n > INT32_MAX/2 应被拒绝而非静默截断；
 // 向量 BLAS 族 n 上界正/负向用例（issue #424）：复数 2n 载荷入口 INT32_MAX/2 边界放行、
 // 实数计数入口 INT32_MAX 边界放行，越界均拒绝。
+// 实数入口 Sasum/Snrm2/Scopy/Sswap 上限统一与 sdot/isamax 对齐（issue #447）；
+// 复数 2n 载荷入口 Ccopy/Cswap 上限收紧至 INT32_MAX/2（issue #444）；
+// Sasum/Cswap 报错文案与实际函数名一一对应（issue #448）。
 
 #include <gtest/gtest.h>
 #include <complex>
@@ -693,6 +696,165 @@ TEST(TestBlasVectorNBound, Icamax)
     asdBlasDestroy(handle);
     DestroyAclTensorWithAddr(x, xAddr);
     DestroyAclTensorWithAddr(result, resultAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+}
+
+// 实数计数入口上限统一收紧至 INT32_MAX（issue #447）：边界值放行（后续 shape 校验
+// 的 OP_INPUT_NOT_MATCH 为放行证据），越界显式拒绝
+TEST(TestBlasVectorNBound, Sasum)
+{
+    MkiRtStream stream = OpTestInit(0);
+    aclTensor* x = nullptr;
+    aclTensor* result = nullptr;
+    void* xAddr = nullptr;
+    void* resultAddr = nullptr;
+    std::vector<float> xHost(4, 1.0f);
+    std::vector<float> resultHost(1, 0.0f);
+    ASSERT_EQ(CreateAclTensor(xHost, {4}, &xAddr, aclDataType::ACL_FLOAT, &x), 0);
+    ASSERT_EQ(CreateAclTensor(resultHost, {1}, &resultAddr, aclDataType::ACL_FLOAT, &result), 0);
+
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeAsumPlan(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasSasum(handle, INT32_MAX, x, 1, result), AsdSip::ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
+    EXPECT_EQ(asdBlasSasum(handle, static_cast<int64_t>(INT32_MAX) + 1, x, 1, result),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+
+    asdBlasDestroy(handle);
+    DestroyAclTensorWithAddr(x, xAddr);
+    DestroyAclTensorWithAddr(result, resultAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+}
+
+TEST(TestBlasVectorNBound, Snrm2)
+{
+    MkiRtStream stream = OpTestInit(0);
+    aclTensor* x = nullptr;
+    aclTensor* result = nullptr;
+    void* xAddr = nullptr;
+    void* resultAddr = nullptr;
+    std::vector<float> xHost(4, 1.0f);
+    std::vector<float> resultHost(1, 0.0f);
+    ASSERT_EQ(CreateAclTensor(xHost, {4}, &xAddr, aclDataType::ACL_FLOAT, &x), 0);
+    ASSERT_EQ(CreateAclTensor(resultHost, {1}, &resultAddr, aclDataType::ACL_FLOAT, &result), 0);
+
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeNrm2Plan(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasSnrm2(handle, INT32_MAX, x, 1, result), AsdSip::ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
+    EXPECT_EQ(asdBlasSnrm2(handle, static_cast<int64_t>(INT32_MAX) + 1, x, 1, result),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+
+    asdBlasDestroy(handle);
+    DestroyAclTensorWithAddr(x, xAddr);
+    DestroyAclTensorWithAddr(result, resultAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+}
+
+// copy impl 的张量数量校验错误码为 OP_OUTPUT_NOT_MATCH（既有口径），作放行证据
+TEST(TestBlasVectorNBound, Scopy)
+{
+    MkiRtStream stream = OpTestInit(0);
+    aclTensor* x = nullptr;
+    aclTensor* y = nullptr;
+    void* xAddr = nullptr;
+    void* yAddr = nullptr;
+    std::vector<float> xHost(4, 1.0f);
+    std::vector<float> yHost(4, 0.0f);
+    ASSERT_EQ(CreateAclTensor(xHost, {4}, &xAddr, aclDataType::ACL_FLOAT, &x), 0);
+    ASSERT_EQ(CreateAclTensor(yHost, {4}, &yAddr, aclDataType::ACL_FLOAT, &y), 0);
+
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeCopyPlan(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasScopy(handle, INT32_MAX, x, 1, y, 1), AsdSip::ErrorType::ACL_ERROR_OP_OUTPUT_NOT_MATCH);
+    EXPECT_EQ(asdBlasScopy(handle, static_cast<int64_t>(INT32_MAX) + 1, x, 1, y, 1),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+
+    asdBlasDestroy(handle);
+    DestroyAclTensorWithAddr(x, xAddr);
+    DestroyAclTensorWithAddr(y, yAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+}
+
+TEST(TestBlasVectorNBound, Sswap)
+{
+    MkiRtStream stream = OpTestInit(0);
+    aclTensor* x = nullptr;
+    aclTensor* y = nullptr;
+    void* xAddr = nullptr;
+    void* yAddr = nullptr;
+    std::vector<float> xHost(4, 1.0f);
+    std::vector<float> yHost(4, 0.0f);
+    ASSERT_EQ(CreateAclTensor(xHost, {4}, &xAddr, aclDataType::ACL_FLOAT, &x), 0);
+    ASSERT_EQ(CreateAclTensor(yHost, {4}, &yAddr, aclDataType::ACL_FLOAT, &y), 0);
+
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeSwapPlan(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasSswap(handle, INT32_MAX, x, 1, y, 1), AsdSip::ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
+    EXPECT_EQ(asdBlasSswap(handle, static_cast<int64_t>(INT32_MAX) + 1, x, 1, y, 1),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+
+    asdBlasDestroy(handle);
+    DestroyAclTensorWithAddr(x, xAddr);
+    DestroyAclTensorWithAddr(y, yAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+}
+
+// 复数 2n 载荷入口上限收紧至 INT32_MAX/2（issue #444）：2n 不越 uint32 承载与
+// int32 元素偏移正域，边界值放行（后续 shape 校验错误码为放行证据），越界显式拒绝
+TEST(TestBlasVectorNBound, Ccopy)
+{
+    MkiRtStream stream = OpTestInit(0);
+    aclTensor* x = nullptr;
+    aclTensor* y = nullptr;
+    void* xAddr = nullptr;
+    void* yAddr = nullptr;
+    std::vector<std::complex<float>> xHost(4, {1.0f, 0.0f});
+    std::vector<std::complex<float>> yHost(4, {0.0f, 0.0f});
+    ASSERT_EQ(CreateAclTensor(xHost, {4}, &xAddr, aclDataType::ACL_COMPLEX64, &x), 0);
+    ASSERT_EQ(CreateAclTensor(yHost, {4}, &yAddr, aclDataType::ACL_COMPLEX64, &y), 0);
+
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeCopyPlan(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasCcopy(handle, INT32_MAX / 2, x, 1, y, 1), AsdSip::ErrorType::ACL_ERROR_OP_OUTPUT_NOT_MATCH);
+    EXPECT_EQ(asdBlasCcopy(handle, INT32_MAX / 2 + 1, x, 1, y, 1), AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+
+    asdBlasDestroy(handle);
+    DestroyAclTensorWithAddr(x, xAddr);
+    DestroyAclTensorWithAddr(y, yAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+}
+
+TEST(TestBlasVectorNBound, Cswap)
+{
+    MkiRtStream stream = OpTestInit(0);
+    aclTensor* x = nullptr;
+    aclTensor* y = nullptr;
+    void* xAddr = nullptr;
+    void* yAddr = nullptr;
+    std::vector<std::complex<float>> xHost(4, {1.0f, 0.0f});
+    std::vector<std::complex<float>> yHost(4, {0.0f, 0.0f});
+    ASSERT_EQ(CreateAclTensor(xHost, {4}, &xAddr, aclDataType::ACL_COMPLEX64, &x), 0);
+    ASSERT_EQ(CreateAclTensor(yHost, {4}, &yAddr, aclDataType::ACL_COMPLEX64, &y), 0);
+
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeSwapPlan(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasCswap(handle, INT32_MAX / 2, x, 1, y, 1), AsdSip::ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
+    EXPECT_EQ(asdBlasCswap(handle, INT32_MAX / 2 + 1, x, 1, y, 1), AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+
+    asdBlasDestroy(handle);
+    DestroyAclTensorWithAddr(x, xAddr);
+    DestroyAclTensorWithAddr(y, yAddr);
     TensorContext context;
     OpTestEnd(0, context, stream);
 }
