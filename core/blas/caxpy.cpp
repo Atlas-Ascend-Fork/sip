@@ -31,7 +31,10 @@ AspbStatus CaxpDtypeCheck(struct CaxpTensorParam parm)
 
 AspbStatus CaxpShapeCheck(struct CaxpTensorParam parm, const int64_t n)
 {
-    ASDSIP_ECHECK(n > 0 && n <= UINT32_MAX, "blas asdBlasCaxpy get n <= 0 or n > 2^32",
+    // n 上界收紧（issue #451）：复数 2n 载荷入口，caxpy tiling 在 uint32 域计算
+    // tilingDataPtr->n = n * COMPLEX_NUM（n=2^32 时 2n=2^33 回绕为 0），n > INT32_MAX/2 时
+    // 静默算错，须显式拒绝（2n 载荷口径对齐 rot #344/#424 与 64cadc0 已修 Ccopy/Cswap）
+    ASDSIP_ECHECK(n > 0 && n <= INT32_MAX / 2, "blas asdBlasCaxpy get n <= 0 or n > INT32_MAX / 2",
                   ErrorType::ACL_ERROR_INVALID_PARAM);
     SIP_OP_CHECK_NUM_NOT_MATCH(parm.x, n, ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
     SIP_OP_CHECK_NUM_NOT_MATCH(parm.y, n, ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);

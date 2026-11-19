@@ -104,7 +104,9 @@ AspbStatus asdBlasSscal(asdBlasHandle handle, const int64_t n, const float& alph
 
     ASDSIP_ECHECK(dataType == aclDataType::ACL_FLOAT, "blas asdBlasSscal get wrong x tensor dtype.",
                   ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
-    ASDSIP_ECHECK(n > 0 && n <= UINT32_MAX, "blas asdBlasSscal get n <= 0 or n > 2^32.",
+    // n 上界收紧（issue #451）：实数计数入口对齐 sdot/isamax 的 INT32_MAX 口径
+    // （uint32 承载不回绕且元素偏移不越 int32 正域）
+    ASDSIP_ECHECK(n > 0 && n <= INT32_MAX, "blas asdBlasSscal get n <= 0 or n > INT32_MAX.",
                   ErrorType::ACL_ERROR_INVALID_PARAM);
     float alphaReal = alpha;
     float alphaImag = 0.0;
@@ -120,7 +122,10 @@ AspbStatus asdBlasCsscal(asdBlasHandle handle, const int64_t n, const float& alp
     CHECK_STATUS_WITH_ACL_RETURN(aclGetDataType(x, &dataType), "asdBlasCsscal: aclGetDataType");
     ASDSIP_ECHECK(dataType == aclDataType::ACL_COMPLEX64, "blas asdBlasCsscal get wrong x tensor dtype.",
                   ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
-    ASDSIP_ECHECK(n > 0 && n <= UINT32_MAX, "blas asdBlasCsscal get n <= 0 or n > 2^32.",
+    // n 上界收紧（issue #451）：复数按 ELEMENTS_EACH_COMPLEX64*n=2n 传参，n > INT32_MAX/2 时
+    // 2n 越过 uint32 承载（CommonTilingData n 字段为 uint32_t，n=2^32 时 2n=2^33 回绕为 0）与
+    // int32 元素偏移正域，静默算错，须显式拒绝（2n 载荷口径对齐 rot #344/#424 与 64cadc0 已修 Ccopy/Cswap）
+    ASDSIP_ECHECK(n > 0 && n <= INT32_MAX / 2, "blas asdBlasCsscal get n <= 0 or n > INT32_MAX / 2.",
                   ErrorType::ACL_ERROR_INVALID_PARAM);
     float alphaReal = alpha;
     float alphaImag = 0.0;
@@ -137,7 +142,10 @@ AspbStatus asdBlasCscal(asdBlasHandle handle, const int64_t n, const std::comple
     CHECK_STATUS_WITH_ACL_RETURN(aclGetDataType(x, &dataType), "asdBlasCscal: aclGetDataType");
     ASDSIP_ECHECK(dataType == aclDataType::ACL_COMPLEX64, "blas asdBlasCscal get wrong x tensor dtype.",
                   ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
-    ASDSIP_ECHECK(n > 0 && n <= UINT32_MAX, "blas asdBlasCscal get n <= 0 or n > 2^32.",
+    // n 上界收紧（issue #451）：cscal kernel 以 int32_t 读取 tiling n（vector_len）并按
+    // data_offset*2 寻址（2n 载荷），n > INT32_MAX/2 时越 int32 正域静默算错，须显式拒绝
+    // （2n 载荷口径对齐 rot #344/#424 与 64cadc0 已修 Ccopy/Cswap）
+    ASDSIP_ECHECK(n > 0 && n <= INT32_MAX / 2, "blas asdBlasCscal get n <= 0 or n > INT32_MAX / 2.",
                   ErrorType::ACL_ERROR_INVALID_PARAM);
     float alphaReal = alpha.real();
     float alphaImag = alpha.imag();
