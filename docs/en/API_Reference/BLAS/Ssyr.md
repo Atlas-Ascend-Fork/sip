@@ -321,6 +321,9 @@ int main(int argc, char **argv)
 
     asdBlasSynchronize(handle);
     asdBlasDestroy(handle);
+    if (buffer != nullptr) {
+        aclrtFree(buffer);
+    }
 
     ret = aclrtMemcpy(tensorInAData.data(),
         n * n * sizeof(float),

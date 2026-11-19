@@ -378,6 +378,9 @@ int main(int argc, char **argv)
 
     asdBlasSynchronize(handle);
     asdBlasDestroy(handle);
+    if (buffer != nullptr) {
+        aclrtFree(buffer);
+    }
 
     ret = aclrtMemcpy(tensorCData.data(),
         tensorCSize * sizeof(float),

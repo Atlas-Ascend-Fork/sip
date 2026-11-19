@@ -4,7 +4,7 @@
 
 ## Operator Usage Instructions
 
-To use BLAS operators, first create a handle, then call the plan interface of the corresponding operator to initialize and bind the operator configuration associated with the handle. Next, call the BLAS common interface `asdBlasGetWorkspaceSize` to obtain the workspace size required for computation and the executor that contains the operator computation flow. Then call `asdBlasSetWorkspace` to set the required workspace for the corresponding plan. Finally, call the BLAS operator interface to execute the computation. After the computation is complete, the plan must be destroyed to avoid memory leaks.
+To use BLAS operators, first create a handle, then call the plan interface of the corresponding operator to initialize and bind the operator configuration associated with the handle. Next, call the BLAS common interface `asdBlasGetWorkspaceSize` to obtain the workspace size required for computation and the executor that contains the operator computation flow. Then call `asdBlasSetWorkspace` to set the required workspace for the corresponding plan. Finally, call the BLAS operator interface to execute the computation. After the submitted work completes, call `asdBlasDestroy` to destroy the handle and its plan. The workspace and stream passed to the BLAS APIs remain caller-owned: synchronize the handle before releasing the workspace with the runtime, and destroy the stream separately.
 
 ## Common Interface Description
 
@@ -35,7 +35,7 @@ To use BLAS operators, first create a handle, then call the plan interface of th
 
 - **asdBlasSetStream**
 
-    **Function description**: Binds a stream created using the runtime to a specific plan instance.\
+    **Function description**: Binds a caller-owned stream created using the runtime to a specific plan instance. The caller must keep the stream valid until submitted work completes and destroy it separately.\
     **Function prototype**: AspbStatus asdBlasSetStream(asdBlasHandle handle, void *stream)\
     Parameter description:
     <table style="undefined;table-layout: fixed; width: 880px"><colgroup>
@@ -65,7 +65,7 @@ To use BLAS operators, first create a handle, then call the plan interface of th
 
 - **asdBlasDestroy**
 
-    **Function description**: Destroys the created plan and releases the resources allocated for the corresponding plan.\
+    **Function description**: Destroys the handle and its associated plan, and releases resources owned by the plan. The handle is invalid after this call. Caller-provided workspace and stream are not freed.\
     **Function prototype**: AspbStatus asdBlasDestroy(asdBlasHandle handle)\
     **Parameter description:**
     <table style="undefined;table-layout: fixed; width: 880px"><colgroup>
@@ -90,7 +90,7 @@ To use BLAS operators, first create a handle, then call the plan interface of th
 
 - **asdBlasSetWorkspace**
 
-    **Function description**: Sets the required workspace for the corresponding plan.\
+    **Function description**: Binds caller-provided workspace to the corresponding plan. The caller retains ownership and must keep the workspace valid until submitted work completes, then release it with the runtime.\
     **Function prototype**: AspbStatus asdBlasSetWorkspace(asdBlasHandle handle, void *workSpace)\
     **Parameter description:**
     <table style="undefined;table-layout: fixed; width: 880px"><colgroup>
@@ -113,7 +113,7 @@ To use BLAS operators, first create a handle, then call the plan interface of th
     <tr>
       <td>workSpace (void *)</td>
       <td>Input</td>
-      <td>Pointer to the storage of the required workspace.</td>
+      <td>Pointer to caller-owned storage for the required workspace. The library does not free this memory.</td>
     </tr>
   </tbody>
     </table>

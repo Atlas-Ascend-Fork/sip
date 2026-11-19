@@ -319,6 +319,9 @@ int main(int argc, char **argv)
 
     asdBlasSynchronize(handle);
     asdBlasDestroy(handle);
+    if (buffer != nullptr) {
+        aclrtFree(buffer);
+    }
 
     ret = aclrtMemcpy(tensorOurtYData.data(),
         ySize * sizeof(float),
@@ -498,6 +501,9 @@ int main(int argc, char **argv)
 
     asdBlasSynchronize(handle);
     asdBlasDestroy(handle);
+    if (buffer != nullptr) {
+        aclrtFree(buffer);
+    }
 
     ret = aclrtMemcpy(tensorOutYData.data(),
         ySize * sizeof(std::complex<float>),

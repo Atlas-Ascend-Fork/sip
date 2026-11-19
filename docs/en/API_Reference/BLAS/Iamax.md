@@ -299,6 +299,9 @@ int main(int argc, char **argv)
 
     asdBlasSynchronize(handle);
     asdBlasDestroy(handle);
+    if (buffer != nullptr) {
+        aclrtFree(buffer);
+    }
 
     ret = aclrtMemcpy(tensorOutYData.data(),
         ySize * sizeof(int32_t),
@@ -470,6 +473,9 @@ int main(int argc, char **argv)
 
     asdBlasSynchronize(handle);
     asdBlasDestroy(handle);
+    if (buffer != nullptr) {
+        aclrtFree(buffer);
+    }
 
     ret = aclrtMemcpy(tensorOutYData.data(),
         ySize * sizeof(int32_t),

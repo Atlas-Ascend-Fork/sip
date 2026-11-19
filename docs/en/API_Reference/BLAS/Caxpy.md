@@ -299,6 +299,9 @@ int main(int argc, char **argv)
 
     asdBlasSynchronize(handle);
     asdBlasDestroy(handle);
+    if (buffer != nullptr) {
+        aclrtFree(buffer);
+    }
 
     ret = aclrtMemcpy(tensorResultData.data(),
         resultSize * sizeof(std::complex<float>),

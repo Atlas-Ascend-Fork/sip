@@ -361,6 +361,9 @@ int main(int argc, char **argv)
 
     asdBlasSynchronize(handle);
     asdBlasDestroy(handle);
+    if (buffer != nullptr) {
+        aclrtFree(buffer);
+    }
 
     ret = aclrtMemcpy(tensorInAinvData.data(),
         tensorASize * sizeof(std::complex<op::fp16_t>),

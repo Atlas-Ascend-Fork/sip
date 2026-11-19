@@ -338,6 +338,9 @@ int main(int argc, char** argv)
 
     asdBlasSynchronize(handle);
     asdBlasDestroy(handle);
+    if (buffer != nullptr) {
+        aclrtFree(buffer);
+    }
 
     ret = aclrtMemcpy(tensorInAData.data(), aSize * sizeof(std::complex<float>), inputADeviceAddr,
                       aSize * sizeof(std::complex<float>), ACL_MEMCPY_DEVICE_TO_HOST);

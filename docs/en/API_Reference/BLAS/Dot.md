@@ -365,8 +365,11 @@ int main(int argc, char **argv)
     ASD_STATUS_CHECK(asdBlasSdot(handle, n, inputX, incx, inputY, incy, result));
     asdBlasSynchronize(handle);
 
-    // Destroy the operator handle after the operator is scheduled.
+    // Destroy the operator handle after the operation completes.
     asdBlasDestroy(handle);
+    if (buffer != nullptr) {
+        aclrtFree(buffer);
+    }
 
     // Copy the data on the Device side of the output tensor to the Host side memory.
     ret = aclrtMemcpy(resultData.data(),
@@ -565,6 +568,9 @@ int main(int argc, char** argv)
 
     asdBlasSynchronize(handle);
     asdBlasDestroy(handle);
+    if (buffer != nullptr) {
+        aclrtFree(buffer);
+    }
 
     ret = aclrtMemcpy(resultData.data(), resultSize * sizeof(std::complex<float>), resultDeviceAddr,
                       resultSize * sizeof(std::complex<float>), ACL_MEMCPY_DEVICE_TO_HOST);
@@ -755,6 +761,9 @@ int main(int argc, char** argv)
 
     asdBlasSynchronize(handle);
     asdBlasDestroy(handle);
+    if (buffer != nullptr) {
+        aclrtFree(buffer);
+    }
 
     ret = aclrtMemcpy(resultData.data(), resultSize * sizeof(std::complex<float>), resultDeviceAddr,
                       resultSize * sizeof(std::complex<float>), ACL_MEMCPY_DEVICE_TO_HOST);

@@ -380,8 +380,11 @@ int main(int argc, char **argv)
     ASD_STATUS_CHECK(asdBlasSdot(handle, n, inputX, incx, inputY, incy, result));
     asdBlasSynchronize(handle);
 
-    // 调度算子后销毁算子句柄
+    // 算子执行完成后销毁算子句柄
     asdBlasDestroy(handle);
+    if (buffer != nullptr) {
+        aclrtFree(buffer);
+    }
 
     // 将输出tensor的Device侧数据复制到Host侧内存上
     ret = aclrtMemcpy(resultData.data(),
@@ -572,6 +575,9 @@ int main(int argc, char** argv)
 
     asdBlasSynchronize(handle);
     asdBlasDestroy(handle);
+    if (buffer != nullptr) {
+        aclrtFree(buffer);
+    }
 
     ret = aclrtMemcpy(resultData.data(), resultSize * sizeof(std::complex<float>), resultDeviceAddr,
                       resultSize * sizeof(std::complex<float>), ACL_MEMCPY_DEVICE_TO_HOST);
@@ -754,6 +760,9 @@ int main(int argc, char** argv)
 
     asdBlasSynchronize(handle);
     asdBlasDestroy(handle);
+    if (buffer != nullptr) {
+        aclrtFree(buffer);
+    }
 
     ret = aclrtMemcpy(resultData.data(), resultSize * sizeof(std::complex<float>), resultDeviceAddr,
                       resultSize * sizeof(std::complex<float>), ACL_MEMCPY_DEVICE_TO_HOST);
