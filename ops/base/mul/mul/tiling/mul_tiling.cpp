@@ -37,7 +37,7 @@ static void SetTilingData(CMulTilingData& tilingDataPtr, CMulTilingData tilingDa
 // Calculate tiling data value
 static CMulTilingData CalTilingData(int64_t totalEleNum, int64_t vecCoreNum, int64_t complexPerBlock)
 {
-    CMulTilingData tilingData;
+    CMulTilingData tilingData{};
     tilingData.n = totalEleNum;
     tilingData.useCoreNum = 0;
     if (vecCoreNum == 0) {
