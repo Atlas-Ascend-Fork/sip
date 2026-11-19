@@ -138,7 +138,7 @@ void DFTCore::RunViaOpsFft(void* input, void* output, void* stream, workspace::W
         opsCachedBlocks = AsdSip::OpsFftAllCoreNum(coreNum);
     }
 
-    OpsFftDftTilingData tiling;
+    OpsFftDftTilingData tiling{};
     std::memcpy(&tiling, opsTilingHost.data(), sizeof(tiling));
     // 值传递 tiling 须经裸栈垫片调用(见 OpsFftCallDft 注释), 不能直接按 C 值参调 dft
     OpsFftCallDft(opsCachedBlocks, nullptr, stream, input, opsRotationMatrix, output, scratch, &tiling);
