@@ -30,7 +30,7 @@ enum class asdBlasFillMode_t { ASDBLAS_FILL_MODE_LOWER = 0, ASDBLAS_FILL_MODE_UP
 enum class asdBlasDiagType_t { ASDBLAS_DIAG_NON_UNIT = 0, ASDBLAS_DIAG_UNIT };
 
 // Creates only an opaque handle, and only allocates space basic data structures for it.
-// This function does not initialize handle.
+// This function does not initialize an operator plan for the handle.
 AspbStatus asdBlasCreate(asdBlasHandle& handle);
 
 // Binds a stream to handle.
