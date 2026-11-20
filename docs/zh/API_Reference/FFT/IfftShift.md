@@ -37,6 +37,7 @@
   $$
 
   其中：
+
   - $input[s]$ 为第 $s$ 个输入二维复数切片（$row \times col$ 复数矩阵），切片在输入中的起始元素偏移为 $s \cdot dist$；
   - $output[s]$ 为第 $s$ 个输出二维复数切片，输出为连续的 $batch \times row \times col$ 布局；
   - $dist \le 0$ 表示输入切片连续（$dist = row \cdot col$）；
@@ -124,11 +125,11 @@ AspbStatus asdIfftShift(
 
 - **返回值**：
 
-  返回状态码，具体参见[SiP返回码](../../context/SiP返回码.md)。
+  返回状态码，具体参见[SiP返回码](../../context/sip_return_codes.md)。
 
 ## 约束说明
 
-- 当前版本仅支持 2D 切片（row × col）的 ifftshift，其他维度支持待后续版本补齐。
+- 当前版本仅支持 2D 切片（row × col）的 ifftshift，其他维度待后续版本补齐。
 - 输入、输出 tensor 数据类型仅支持 complex64。
 - row、col、batch 需为正数；dist &gt; 0 时需满足 dist &ge; row * col。
 - 不支持输入 tensor 与输出 tensor 为同一个 tensor。

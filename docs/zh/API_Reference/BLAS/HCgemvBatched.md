@@ -114,7 +114,7 @@ AspbStatus asdBlasHCgemvBatched(
 
 - **返回值**：
 
-  返回状态码，具体参见[SiP返回码](../../context/SiP返回码.md)。
+  返回状态码，具体参见[SiP返回码](../../context/sip_return_codes.md)。
 
 ## asdBlasHCgemvBatched
 
@@ -165,7 +165,7 @@ AspbStatus asdBlasHCgemvBatched(
     <tr>
       <td>lda（int64_t）</td>
       <td>输入</td>
-      <td>A左右相邻元素间的内存地址偏移量（当前约束为m）。</td>
+      <td>A左右相邻元素间的存储地址偏移量（当前约束为m）。</td>
     </tr>
     <tr>
       <td>x（aclTensor *）</td>
@@ -202,7 +202,7 @@ AspbStatus asdBlasHCgemvBatched(
 
 - **返回值**：
 
-  返回状态码，具体参见[SiP返回码](../../context/SiP返回码.md)。
+  返回状态码，具体参见[SiP返回码](../../context/sip_return_codes.md)。
 
 ## 约束说明
 

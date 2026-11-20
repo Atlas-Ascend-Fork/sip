@@ -142,7 +142,7 @@ AspbStatus asdFftExecIstft(
     </table>
 - **返回值**：
 
-  返回状态码，具体参见[SiP返回码](../../context/SiP返回码.md)。
+  返回状态码，具体参见[SiP返回码](../../context/sip_return_codes.md)。
 
 ## asdFftExecIstft
 
@@ -184,13 +184,13 @@ AspbStatus asdFftExecIstft(
     </table>
 - **返回值**：
 
-  返回状态码，具体参见[SiP返回码](../../context/SiP返回码.md)。
+  返回状态码，具体参见[SiP返回码](../../context/sip_return_codes.md)。
 
 ## 约束说明
 
 - istft均不支持本地更新，即不允许输入tensor和输出tensor是同一个tensor。
 
-- 为了使istft能够正确地重构信号，n_fft、hopLengthOpt、winLengthOpt、windowOpt、center和normalized这些参数必须与之前进行stft变换时使用的参数保持一致。
+- 为了使istft能够正确地重构信号，nFft、hopLengthOpt、winLengthOpt、windowOpt、center和normalized这些参数必须与之前进行stft变换时使用的参数保持一致。
 
 - 输入的元素不支持inf、-inf和nan，如果输入中包含这些值, 那么结果为未定义。
 

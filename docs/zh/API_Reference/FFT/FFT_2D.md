@@ -126,7 +126,7 @@ AspbStatus asdFftExecR2C(
     </table>
 - **返回值**：
 
-  返回状态码，具体参见[SiP返回码](../../context/SiP返回码.md)。
+  返回状态码，具体参见[SiP返回码](../../context/sip_return_codes.md)。
 
 ## asdFftExecC2C
 
@@ -166,7 +166,7 @@ AspbStatus asdFftExecR2C(
 
 - **返回值**：
 
-  返回状态码，具体参见[SiP返回码](../../context/SiP返回码.md)。
+  返回状态码，具体参见[SiP返回码](../../context/sip_return_codes.md)。
 
 ## asdFftExecC2R
 
@@ -206,7 +206,7 @@ AspbStatus asdFftExecR2C(
 
 - **返回值**：
 
-  返回状态码，具体参见[SiP返回码](../../context/SiP返回码.md)。
+  返回状态码，具体参见[SiP返回码](../../context/sip_return_codes.md)。
 
 ## asdFftExecR2C
 
@@ -246,7 +246,7 @@ AspbStatus asdFftExecR2C(
 
 - **返回值**：
 
-  返回状态码，具体参见[SiP返回码](../../context/SiP返回码.md)。
+  返回状态码，具体参见[SiP返回码](../../context/sip_return_codes.md)。
 
 ## 约束说明
 

@@ -102,7 +102,7 @@ AspbStatus rsInterpolationBySinc(
     </table>
 - **返回值**：
 
-  返回状态码，具体参见[SiP返回码](../../context/SiP返回码.md)。
+  返回状态码，具体参见[SiP返回码](../../context/sip_return_codes.md)。
 
 ## rsInterpolationBySinc
 
@@ -138,7 +138,7 @@ AspbStatus rsInterpolationBySinc(
     <tr>
       <td>posToTabIndex（aclTensor *）</td>
       <td>输入</td>
-      <td><ul><li>插值点坐标通过round((Pos -posFloor) *quantNum)计算出对应插值系数矩阵的行号。</li><li>支持的数据类型为INT16_T。</li><li>数据格式支持ND。</li><li>shape为[batch, length]。</li></ul></td>
+      <td><ul><li>插值点坐标通过round((Pos -posFloor) *quantNum)计算出对应插值系数矩阵的行号。</li><li>支持的数据类型为INT16。</li><li>数据格式支持ND。</li><li>shape为[batch, length]。</li></ul></td>
     </tr>
     <tr>
       <td>outputTensor（aclTensor *）</td>
@@ -174,7 +174,7 @@ AspbStatus rsInterpolationBySinc(
     </table>
 - **返回值**：
 
-  返回状态码，具体参见[SiP返回码](../../context/SiP返回码.md)。
+  返回状态码，具体参见[SiP返回码](../../context/sip_return_codes.md)。
 
 ## 约束说明
 
@@ -185,7 +185,7 @@ rsInterpolationBySinc：
 - interpNum只支持偶数，通常使用 [8 ，12 ，16] ，当前版本最大支持16。
 - quantNum为2的幂，最大32。
 - inputTensor、posFloor、posToTabIndex第0维是相同的batch数，outputTensor长度和posFloor、posToTabIndex一致。
-- sincTab：为了将复数点乘转化为实数点乘以及更亲和NPU，需要进行预处理，需要扩充成[ ((quantNum+1) *2) * (interpNum*2+8) * 4] ，具体算法参考“调用示例”中的预处理内容。
+- sincTab：为了将复数点乘转化为实数点乘以及更亲和NPU，需要进行预处理，扩充成[ ((quantNum+1) *2) * (interpNum*2+8) * 4] ，具体算法参考“调用示例”中的预处理内容。
 
 ## 调用示例
 

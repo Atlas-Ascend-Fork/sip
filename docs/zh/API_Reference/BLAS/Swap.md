@@ -116,7 +116,7 @@ AspbStatus asdBlasCswap(
 
 - **返回值**：
 
-  返回状态码，具体参见[SiP返回码](../../context/SiP返回码.md)。
+  返回状态码，具体参见[SiP返回码](../../context/sip_return_codes.md)。
 
 ## asdBlasSswap & asdBlasCswap
 
@@ -168,7 +168,7 @@ AspbStatus asdBlasCswap(
     </table>
 - **返回值**：
 
-  返回状态码，具体参见[SiP返回码](../../context/SiP返回码.md)。
+  返回状态码，具体参见[SiP返回码](../../context/sip_return_codes.md)。
 
 ## 约束说明
 

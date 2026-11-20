@@ -112,7 +112,7 @@ AspbStatus asdBlasCtrmv(
     </table>
 - **返回值**：
 
-  返回状态码，具体参见[SiP返回码](../../context/SiP返回码.md)。
+  返回状态码，具体参见[SiP返回码](../../context/sip_return_codes.md)。
 
 ## asdBlasCtrmv
 
@@ -143,7 +143,7 @@ AspbStatus asdBlasCtrmv(
     <tr>
       <td>trans（asdBlasOperation_t）</td>
       <td>输入</td>
-      <td>指定矩阵A是否需要转置。<ul><li>ASDBLAS_OP_N :不转置</li><li>ASDBLAS_OP_T :转置</li><li>ASDBLAS_OP_C:上共轭转置</li></ul></td>
+      <td>指定矩阵A是否需要转置。<ul><li>ASDBLAS_OP_N :不转置</li><li>ASDBLAS_OP_T :转置</li><li>ASDBLAS_OP_C:共轭转置</li></ul></td>
     </tr>
     <tr>
       <td>diag（asdBlasDiagType_t）</td>
@@ -181,7 +181,7 @@ AspbStatus asdBlasCtrmv(
     </table>
 - **返回值**：
 
-  返回状态码，具体参见[SiP返回码](../../context/SiP返回码.md)。
+  返回状态码，具体参见[SiP返回码](../../context/sip_return_codes.md)。
 
 ## 约束说明
 

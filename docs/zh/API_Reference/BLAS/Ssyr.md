@@ -38,6 +38,7 @@ asdBlasSsyr：用于计算单精度向量的外积并将结果加到一个矩阵
   $$
 
   示例：
+
   - 输入“x”为：\
   [   [ 1 ], \
     [ 2 ] ]
@@ -97,7 +98,7 @@ AspbStatus asdBlasSsyr(
 
 - **返回值**：
 
-  返回状态码，具体参见[SiP返回码](../../context/SiP返回码.md)。
+  返回状态码，具体参见[SiP返回码](../../context/sip_return_codes.md)。
 
 ## asdBlasSsyr
 
@@ -162,7 +163,7 @@ AspbStatus asdBlasSsyr(
     </table>
 - **返回值**：
 
-  返回状态码，具体参见[SiP返回码](../../context/SiP返回码.md)。
+  返回状态码，具体参见[SiP返回码](../../context/sip_return_codes.md)。
 
 ## 约束说明
 

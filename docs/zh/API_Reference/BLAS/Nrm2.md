@@ -114,7 +114,7 @@ AspbStatus asdBlasScnrm2(
 
 - **返回值**：
 
-  返回状态码，具体参见[SiP返回码](../../context/SiP返回码.md)。
+  返回状态码，具体参见[SiP返回码](../../context/sip_return_codes.md)。
 
 ## asdBlasSnrm2 & asdBlasScnrm2
 
@@ -162,7 +162,7 @@ AspbStatus asdBlasScnrm2(
 
 - **返回值**：
 
-  返回状态码，具体参见[SiP返回码](../../context/SiP返回码.md)。
+  返回状态码，具体参见[SiP返回码](../../context/sip_return_codes.md)。
 
 ## 约束说明
 

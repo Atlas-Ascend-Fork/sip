@@ -58,9 +58,9 @@
 
   </table>
 
-- **2D C2C 实验路径开关（仅 Ascend950 生效）：**
+- **2D C2C 实验路径开关（仅 Ascend 950 生效）：**
 
-  以下开关控制 2D C2C FFT（`asdFftMakePlan2D` + `asdFftExecC2C`）在 Ascend950 上的
+  以下开关控制 2D C2C FFT（`asdFftMakePlan2D` + `asdFftExecC2C`）在 Ascend 950 上的
   实验性计算路径，**默认全部关闭**，关闭时走默认混合基流水。实验路径仅供性能实验
   与问题定位使用，开启后的性能与数值行为可能与默认路径存在差异。
 
