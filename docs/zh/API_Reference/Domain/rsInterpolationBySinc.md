@@ -182,9 +182,9 @@ rsInterpolationBySinc：
 
 - 输入的元素个数理论支持[1，3.93e+09]。
 - 算子实际计算时，不支持ND高维度运算（不支持维度≥3的运算）。
-- interpLength必须为16的正整数倍；当前实现按16个插值坐标分块，非16倍数的尾部坐标不会被计算。
-- interpNum只支持偶数，通常使用 [8 ，12 ，16] ，当前版本最大支持16。
-- quantNum为2的幂，最大32。
+- interpNum当前版本仅支持16。内核sincTab打包布局与interpNum=16绑定，其他取值返回错误。
+- quantNum当前版本仅支持32。内核sincTab打包布局与quantNum=32绑定，其他取值返回错误。
+- interpLength必须为正的16的倍数（内核按固定块长16分块计算），其他取值返回错误。
 - inputTensor、posFloor、posToTabIndex第0维是相同的batch数，outputTensor长度和posFloor、posToTabIndex一致。
 - sincTab：为了将复数点乘转化为实数点乘以及更亲和NPU，需要进行预处理，扩充成[ ((quantNum+1) *2) * (interpNum*2+8) * 4] ，具体算法参考“调用示例”中的预处理内容。
 

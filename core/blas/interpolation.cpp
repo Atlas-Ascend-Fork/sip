@@ -29,17 +29,22 @@ using namespace Mki;
 // usedCubeCoreNum ：20
 // WORKSPACE_SIZE : (ALPHA * COMPUTE_PER_NUM * 2) * (COMPUTE_PER_NUM * 2) + 16 + (ALPHA * COMPUTE_PER_NUM + 8) * 2;
 // WORKSPACE_SIZE * usedCubeCoreNum * sizeof(float) * 2;
-constexpr uint32_t INTERPOLATION_WORKSPACE_SIZE = 680960;  // 4256 * 20 * 4 * 2
+constexpr uint32_t INTERPOLATION_WORKSPACE_SIZE = 680960; // 4256 * 20 * 4 * 2
 static constexpr uint32_t DIM_2 = 2;
+// 内核固定块长（tiling COMPUTE_PER_NUM，issue #457）
+constexpr int32_t INTERP_BLOCK_NUM = 16;
+// 内核 sincTab 打包布局绑定的参数组合（issue #458）
+constexpr int32_t SUPPORTED_TAB_INTERP_NUM = 16;
+constexpr int32_t SUPPORTED_TAB_QUANT_NUM = 32;
 
 namespace AsdSip {
 
 struct InterpolationTensorParam {
-    const aclTensor *inputTensor;
-    const aclTensor *sincTab;
-    const aclTensor *posFloor;
-    const aclTensor *posToTabIndex;
-    aclTensor *outputTensor;
+    const aclTensor* inputTensor;
+    const aclTensor* sincTab;
+    const aclTensor* posFloor;
+    const aclTensor* posToTabIndex;
+    aclTensor* outputTensor;
 };
 
 AspbStatus InterpolationDtypeCheck(InterpolationTensorParam param)
@@ -66,9 +71,24 @@ AspbStatus InterpolationShapeCheck(InterpolationTensorParam param)
     return ErrorType::ACL_SUCCESS;
 }
 
-AspbStatus rsInterpolationBySinc(const aclTensor *inputTensor, const aclTensor *sincTab, const aclTensor *posFloor,
-    const aclTensor *posToTabIndex, aclTensor *outputTensor, int interpNum, int quantNum, int interpLength,
-    void *stream, void *workSpace)
+// tab 布局与 interpLength 约束校验（issue #457/#458）：内核 sincTab 打包布局按
+// interpNum=16/quantNum=32 固定排布（TAB_OFFSET 与系数行步长为内核编译期常量），
+// 其余参数组合会按固定布局越界读取/错位取行；内核按固定块长 INTERP_BLOCK_NUM 整除
+// 分块，非 16 倍数的 interpLength 尾块不进计算循环，输出残留 workspace 旧值
+AspbStatus InterpolationParamCheck(int interpNum, int quantNum, int interpLength)
+{
+    ASDSIP_ECHECK(interpNum == SUPPORTED_TAB_INTERP_NUM && quantNum == SUPPORTED_TAB_QUANT_NUM,
+                  "rsInterpolationBySinc only supports interpNum=16 and quantNum=32 in current version.",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
+    ASDSIP_ECHECK(interpLength > 0 && interpLength % INTERP_BLOCK_NUM == 0,
+                  "rsInterpolationBySinc get interpLength <= 0 or not a multiple of 16.",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
+    return ErrorType::ACL_SUCCESS;
+}
+
+AspbStatus rsInterpolationBySinc(const aclTensor* inputTensor, const aclTensor* sincTab, const aclTensor* posFloor,
+                                 const aclTensor* posToTabIndex, aclTensor* outputTensor, int interpNum, int quantNum,
+                                 int interpLength, void* stream, void* workSpace)
 {
     struct InterpolationTensorParam parm = {inputTensor, sincTab, posFloor, posToTabIndex, outputTensor};
     auto ret = InterpolationDtypeCheck(parm);
@@ -81,12 +101,17 @@ AspbStatus rsInterpolationBySinc(const aclTensor *inputTensor, const aclTensor *
         return ret;
     }
 
-    int64_t *storageDims = nullptr;
+    ret = InterpolationParamCheck(interpNum, quantNum, interpLength);
+    if (ret != ErrorType::ACL_SUCCESS) {
+        return ret;
+    }
+
+    int64_t* storageDims = nullptr;
     uint64_t storageDimsNum = 0;
 
-    CHECK_STATUS_WITH_ACL_RETURN(
-        aclGetStorageShape(inputTensor, &storageDims, &storageDimsNum), "rsInterpolationBySinc: aclGetStorageShape");
-    
+    CHECK_STATUS_WITH_ACL_RETURN(aclGetStorageShape(inputTensor, &storageDims, &storageDimsNum),
+                                 "rsInterpolationBySinc: aclGetStorageShape");
+
     if (storageDimsNum != DIM_2) {
         delete[] storageDims;
         storageDims = nullptr;
@@ -110,24 +135,21 @@ AspbStatus rsInterpolationBySinc(const aclTensor *inputTensor, const aclTensor *
         storageDims = nullptr;
     }
 
-    SVector<aclTensor *> inTensors{const_cast<aclTensor *>(inputTensor),
-        const_cast<aclTensor *>(sincTab),
-        const_cast<aclTensor *>(posFloor),
-        const_cast<aclTensor *>(posToTabIndex)};
+    SVector<aclTensor*> inTensors{const_cast<aclTensor*>(inputTensor), const_cast<aclTensor*>(sincTab),
+                                  const_cast<aclTensor*>(posFloor), const_cast<aclTensor*>(posToTabIndex)};
 
-    SVector<aclTensor *> outTensors{outputTensor};
+    SVector<aclTensor*> outTensors{outputTensor};
 
-    Mki::Status status = RunAsdOpsV2(stream, opDesc, inTensors, outTensors, (uint8_t *)workSpace);
+    Mki::Status status = RunAsdOpsV2(stream, opDesc, inTensors, outTensors, (uint8_t*)workSpace);
     ASDSIP_ECHECK(status.Ok(), status.Message(), ErrorType::ACL_ERROR_INTERNAL_ERROR);
-
 
     ASDSIP_LOG(INFO) << "Execute interpolation success.";
     return ErrorType::ACL_SUCCESS;
 }
 
-AspbStatus rsInterpolationBySincGetWorkspaceSize(size_t &workspaceSize)
+AspbStatus rsInterpolationBySincGetWorkspaceSize(size_t& workspaceSize)
 {
     workspaceSize = INTERPOLATION_WORKSPACE_SIZE;
     return ErrorType::ACL_SUCCESS;
 }
-}  // namespace AsdSip
+} // namespace AsdSip

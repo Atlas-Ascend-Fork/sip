@@ -179,8 +179,8 @@ add_library(test_src_ctrmv OBJECT ${TEST_SRC_CTRMV})
 # aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/blas/cgemv TEST_SRC_CGEMV)
 # add_library(test_src_cgemv OBJECT ${TEST_SRC_CGEMV})
 
-# aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/blas/interpolation TEST_SRC_INTERPOLATION)
-# add_library(test_src_interpolation OBJECT ${TEST_SRC_INTERPOLATION})
+aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/blas/interpolation TEST_SRC_INTERPOLATION)
+add_library(test_src_interpolation OBJECT ${TEST_SRC_INTERPOLATION})
 
 # aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/blas/cgerc TEST_SRC_CGERC)
 # add_library(test_src_cgerc OBJECT ${TEST_SRC_CGERC})
@@ -279,12 +279,11 @@ add_executable(ops_unittest
     # $<TARGET_OBJECTS:test_src_cgemv_batched>
     # $<TARGET_OBJECTS:test_src_1d>
     # $<TARGET_OBJECTS:test_src_2d>
-    # $<TARGET_OBJECTS:test_src_interpolation>
+    $<TARGET_OBJECTS:test_src_interpolation>
     # $<TARGET_OBJECTS:test_src_cgemm_batched>
     # $<TARGET_OBJECTS:test_src_hcgemm_batched>
     # $<TARGET_OBJECTS:test_src_convolve>
 )
-
 
 target_include_directories(ops_unittest PRIVATE ${CMAKE_CURRENT_LIST_DIR}
                                                 $ENV{CODE_ROOT}/3rdparty/googletest/include)

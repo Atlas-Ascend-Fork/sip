@@ -46,14 +46,14 @@ void checkSincInterpolationParams(const at::Tensor& inputTensor, const at::Tenso
     // 4. 算子规格约束
     static constexpr int64_t MAX_INTERP_NUM = 16;
     static constexpr int64_t MAX_QUANT_NUM = 32;
-    static constexpr int64_t EVEN_DIVISOR = 2;
 
-    // 下界校验补充（issue #258）：原仅校验上界，0 与负偶数（-2 % 2 == 0）及
-    // quantNum=0（0 & -1 == 0 恒成立）均可穿透
-    TORCH_CHECK(interpNum >= 2 && interpNum <= MAX_INTERP_NUM && interpNum % EVEN_DIVISOR == 0,
-                "interpNum must be an even number in [2, 16], got ", interpNum);
-    TORCH_CHECK(quantNum >= 1 && quantNum <= MAX_QUANT_NUM && (quantNum & (quantNum - 1)) == 0,
-                "quantNum must be a power of 2 in [1, 32], got ", quantNum);
+    // 固定布局口径（issue #458）：内核 sincTab 打包布局按 interpNum=16/quantNum=32
+    // 固定排布，C 入口已收紧校验，PTA 同步收紧以在进入 C 接口前给出明确报错
+    // （原「[2,16] 偶数 / [1,32] 2 的幂」区间口径随固定布局收紧一并移除）
+    TORCH_CHECK(interpNum == MAX_INTERP_NUM, "interpNum must be 16 in current version (kernel fixed tab layout), got ",
+                interpNum);
+    TORCH_CHECK(quantNum == MAX_QUANT_NUM, "quantNum must be 32 in current version (kernel fixed tab layout), got ",
+                quantNum);
 
     // 5. sincTab 容量校验
     const int64_t expectedTabSize = 4 * ((quantNum + 1) * 2) * (interpNum * 2 + 8);

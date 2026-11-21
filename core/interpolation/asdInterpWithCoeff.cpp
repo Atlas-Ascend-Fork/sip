@@ -92,6 +92,23 @@ void cleanAcl(int64_t* storageDims, int64_t* coeffDims)
 AspbStatus asdInterpWithCoeff(const aclTensor* x, const aclTensor* coefficient, aclTensor* output, void* stream,
                               void* workSpace)
 {
+    // dtype 校验（issue #459，对齐 convolve.cpp 口径）：内核 tilingKey 仅由 x 的 dtype
+    // 推导、matmul 建型统一按 x 的 dtype 处理，coefficient/output 与 x 不一致时按错误
+    // 元素宽度解读/写入缓冲，静默算错；三张量必须一致且为 COMPLEX64/COMPLEX32。
+    // 置于 getInputShape/getCoeffShape 之前：校验失败提前返回不泄漏已分配的 dims
+    // 数组（issue #248 同类退出点，本函数各失败出口均已配平 cleanAcl）
+    aclDataType xDtype = aclDataType::ACL_DT_UNDEFINED;
+    aclDataType coeffDtype = aclDataType::ACL_DT_UNDEFINED;
+    aclDataType outDtype = aclDataType::ACL_DT_UNDEFINED;
+    CHECK_STATUS_WITH_ACL_RETURN(aclGetDataType(x, &xDtype), "asdInterpWithCoeff: aclGetDataType x");
+    CHECK_STATUS_WITH_ACL_RETURN(aclGetDataType(coefficient, &coeffDtype),
+                                 "asdInterpWithCoeff: aclGetDataType coefficient");
+    CHECK_STATUS_WITH_ACL_RETURN(aclGetDataType(output, &outDtype), "asdInterpWithCoeff: aclGetDataType output");
+    ASDSIP_ECHECK((xDtype == aclDataType::ACL_COMPLEX64 || xDtype == aclDataType::ACL_COMPLEX32) &&
+                      xDtype == coeffDtype && xDtype == outDtype,
+                  "asdInterpWithCoeff get x/coefficient/output dtype mismatch or unsupported dtype.",
+                  ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
+
     int64_t* storageDims = getInputShape(x);
     ASDSIP_ECHECK(storageDims != nullptr, "InterpWithCoeff failed.", ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
     int64_t* coeffDims = getCoeffShape(coefficient);

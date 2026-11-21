@@ -1,4 +1,3 @@
-
 /**
  * Copyright (c) 2025 Huawei Technologies Co., Ltd.
  * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
@@ -47,13 +46,12 @@ void LogTiling(InterpByCoeffTilingData tilingDataPtr)
     ASDSIP_LOG(INFO) << "  dataType : " << tilingDataPtr.dataType;
 }
 
-
-bool InterpByCoeffTCubeTiling(uint8_t *tilingData, int32_t tilingKey)
+bool InterpByCoeffTCubeTiling(uint8_t* tilingData, int32_t tilingKey)
 {
     matmul_tiling::MatmulApiTiling tilingApi;
     optiling::TCubeTiling tCubeTiling;
 
-    InterpByCoeffTilingData *tilingDataPtr = reinterpret_cast<AsdSip::InterpByCoeffTilingData *>(tilingData);
+    InterpByCoeffTilingData* tilingDataPtr = reinterpret_cast<AsdSip::InterpByCoeffTilingData*>(tilingData);
     int32_t matSizeM = tilingDataPtr->interpLength;
     int32_t matSizeN = tilingDataPtr->totalSubcarrier * 2;
     int32_t matSizeK = tilingDataPtr->rsNum * 2;
@@ -84,12 +82,12 @@ bool InterpByCoeffTCubeTiling(uint8_t *tilingData, int32_t tilingKey)
     return true;
 }
 
-AsdSip::AspbStatus InterpByCoeffTiling(const LaunchParam &launchParam, KernelInfo &kernelInfo)
+AsdSip::AspbStatus InterpByCoeffTiling(const LaunchParam& launchParam, KernelInfo& kernelInfo)
 {
-    uint8_t *tilingData = kernelInfo.GetTilingHostAddr();
-    InterpByCoeffTilingData *tilingDataPtr = reinterpret_cast<AsdSip::InterpByCoeffTilingData *>(tilingData);
+    uint8_t* tilingData = kernelInfo.GetTilingHostAddr();
+    InterpByCoeffTilingData* tilingDataPtr = reinterpret_cast<AsdSip::InterpByCoeffTilingData*>(tilingData);
     ASDSIP_CHECK(tilingData != nullptr, "tilingDataPtr should not be empty",
-              return AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+                 return AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
 
     int32_t cubeCoreNum = static_cast<int32_t>(Mki::PlatformInfo::Instance().GetCoreNum(CoreType::CORE_TYPE_CUBE));
     if (cubeCoreNum == 0) {
@@ -98,12 +96,11 @@ AsdSip::AspbStatus InterpByCoeffTiling(const LaunchParam &launchParam, KernelInf
 
     TensorDType inDtype = launchParam.GetInTensor(0).desc.dtype;
     AsdSip::OpParam::InterpByCoeff param = AnyCast<OpParam::InterpByCoeff>(launchParam.GetParam());
-    int32_t tilingKey = 1;  // Complex32
+    int32_t tilingKey = 1; // Complex32
     int32_t repeatNum = REPEAT_32;
     int32_t maxBaseN = static_cast<int32_t>(L0_SIZE / BASE_MATMUL_SIZE / sizeof(float)) / (param.rsNum * 2) *
-                       BASE_MATMUL_SIZE;  // Complex32
-    ASDSIP_CHECK(maxBaseN != 0, "maxBaseN is 0!",
-              return AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+                       BASE_MATMUL_SIZE; // Complex32
+    ASDSIP_CHECK(maxBaseN != 0, "maxBaseN is 0!", return AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
 
     if (inDtype == TensorDType::TENSOR_DTYPE_COMPLEX64) {
         tilingKey = 0;
@@ -147,6 +144,10 @@ AsdSip::AspbStatus InterpByCoeffTiling(const LaunchParam &launchParam, KernelInf
         usedCubeCoreNum = blocksPerBatch * tailBatch;
     }
 
+    // 值初始化整结构（issue #460，对齐已合入值初始化 CleanCode 口径）：reserved 保留
+    // 字段随整结构下发设备，未初始化会携带宿主缓冲不确定值上行，赋值前整体清零
+    *tilingDataPtr = {};
+
     tilingDataPtr->batch = param.batch;
     tilingDataPtr->rsNum = param.rsNum;
     tilingDataPtr->totalSubcarrier = param.totalSubcarrier;
@@ -163,7 +164,7 @@ AsdSip::AspbStatus InterpByCoeffTiling(const LaunchParam &launchParam, KernelInf
     LogTiling(*tilingDataPtr);
     auto res = InterpByCoeffTCubeTiling(tilingData, tilingKey);
     ASDSIP_CHECK(res, "Failed to execute func InterpByCoeffTCubeTiling!",
-              return AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+                 return AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
 
     uint64_t workspaceSize = static_cast<uint64_t>(L0_SIZE) * static_cast<uint64_t>(usedCubeCoreNum) * 2;
     kernelInfo.SetBlockDim(usedCubeCoreNum);
@@ -172,4 +173,4 @@ AsdSip::AspbStatus InterpByCoeffTiling(const LaunchParam &launchParam, KernelInf
 
     return AsdSip::ErrorType::ACL_SUCCESS;
 }
-}
+} // namespace AsdSip

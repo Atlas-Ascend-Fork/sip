@@ -169,9 +169,9 @@ rsInterpolationBySinc:
 
 - The number of input elements theoretically ranges from 1 to 3.93e+09.
 - During actual computation, the operator does not support high-dimensional ND operations (dimensions ≥ 3).
-- `interpLength` must be a positive multiple of 16. The current implementation processes interpolation coordinates in blocks of 16 and does not compute trailing coordinates in a shorter final block.
-- `interpNum` only supports even numbers, typically [8, 12, 16]. The maximum supported value in the current version is 16.
-- `quantNum` is a power of 2, with a maximum value of 32.
+- `interpNum` only supports 16 in the current version. The kernel uses a fixed tab packing layout bound to interpNum=16; other values are rejected with an error.
+- `quantNum` only supports 32 in the current version. The kernel uses a fixed tab packing layout bound to quantNum=32; other values are rejected with an error.
+- `interpLength` must be a positive multiple of 16 (the kernel computes in fixed blocks of 16); other values are rejected with an error.
 - `inputTensor`, `posFloor`, and `posToTabIndex` have the same number of batches in dimension 0. The length of `outputTensor` is consistent with that of `posFloor` and `posToTabIndex`.
 - `sincTab`: To convert complex dot products into real dot products and make the operation more NPU-friendly, preprocessing is required. The table must be expanded to [ ((quantNum+1) × 2) × (interpNum × 2 + 8) × 4]. For the specific algorithm, refer to the preprocessing content in "Calling Example".
 

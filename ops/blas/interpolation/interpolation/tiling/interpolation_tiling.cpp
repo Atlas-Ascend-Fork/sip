@@ -1,4 +1,3 @@
-
 /**
  * Copyright (c) 2025 Huawei Technologies Co., Ltd.
  * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
@@ -29,13 +28,13 @@ constexpr uint32_t BASE_MATMUL_SIZE = 16;
 static constexpr size_t BASIC_BLOCK = 32;
 constexpr uint64_t UB_DIVIDE_NUM = 8;
 static constexpr size_t COMPUTE_PER_SIZE = 256;
-static constexpr size_t COMPUTE_PER_NUM = 16;  // 2个vector计算，pos是float : 2 * 32 / sizeof(float)
+static constexpr size_t COMPUTE_PER_NUM = 16; // 2个vector计算，pos是float : 2 * 32 / sizeof(float)
 static constexpr uint32_t ALPHA = 4;
-static constexpr uint32_t WORKSPACE_SIZE =
-    (ALPHA * COMPUTE_PER_NUM * 2) * (COMPUTE_PER_NUM * 2) + 16 + (ALPHA * COMPUTE_PER_NUM + 8) * 2; // workspace计算
+static constexpr uint32_t WORKSPACE_SIZE = (ALPHA * COMPUTE_PER_NUM * 2) * (COMPUTE_PER_NUM * 2) + 16 +
+                                           (ALPHA * COMPUTE_PER_NUM + 8) * 2; // workspace计算
 constexpr int32_t DEFAULT_CUBE_NUM = 20;
 
-void InterpolationTCubeTiling(uint8_t *tilingData)
+void InterpolationTCubeTiling(uint8_t* tilingData)
 {
     matmul_tiling::MatmulApiTiling tilingApi;
     optiling::TCubeTiling tCubeTiling;
@@ -61,14 +60,14 @@ void InterpolationTCubeTiling(uint8_t *tilingData)
     tCubeTiling.SaveToBuffer(tilingData + sizeof(InterpolationTilingData), tilingSize);
 }
 
-AsdSip::AspbStatus InterpolationTiling(const LaunchParam &launchParam, KernelInfo &kernelInfo)
+AsdSip::AspbStatus InterpolationTiling(const LaunchParam& launchParam, KernelInfo& kernelInfo)
 {
-    uint8_t *tilingData = kernelInfo.GetTilingHostAddr();
+    uint8_t* tilingData = kernelInfo.GetTilingHostAddr();
 
-    InterpolationTilingData *tilingDataPtr = reinterpret_cast<AsdSip::InterpolationTilingData *>(tilingData);
+    InterpolationTilingData* tilingDataPtr = reinterpret_cast<AsdSip::InterpolationTilingData*>(tilingData);
 
     ASDSIP_CHECK(tilingData != nullptr, "tilingDataPtr should not be empty",
-              return AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+                 return AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
 
     int32_t cubeCoreNum = static_cast<int32_t>(Mki::PlatformInfo::Instance().GetCoreNum(CoreType::CORE_TYPE_CUBE));
     if (cubeCoreNum == 0) {
@@ -77,6 +76,17 @@ AsdSip::AspbStatus InterpolationTiling(const LaunchParam &launchParam, KernelInf
     cubeCoreNum = cubeCoreNum > DEFAULT_CUBE_NUM ? DEFAULT_CUBE_NUM : cubeCoreNum;
 
     AsdSip::OpParam::Interpolation param = AnyCast<OpParam::Interpolation>(launchParam.GetParam());
+
+    // tab 布局约束（issue #458，与入口同口径）：内核 sincTab 打包布局按 16/32 固定排布
+    ASDSIP_CHECK(param.tabInterpNum == 16 && param.tabQuantNum == 32,
+                 "InterpolationTiling only supports tabInterpNum=16 and tabQuantNum=32 in current version.",
+                 return AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+
+    // interpLength 约束（issue #457，与入口同口径）：内核按 COMPUTE_PER_NUM 整除分块，
+    // 非 16 倍数尾块不进计算循环，输出残留旧值
+    ASDSIP_CHECK(param.interpLength > 0 && param.interpLength % COMPUTE_PER_NUM == 0,
+                 "InterpolationTiling get interpLength <= 0 or not a multiple of 16.",
+                 return AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
 
     int32_t linesPerCore = 0;
     int32_t tailLines = 0;
@@ -94,6 +104,10 @@ AsdSip::AspbStatus InterpolationTiling(const LaunchParam &launchParam, KernelInf
     if (linesPerCore == 0 && blocksPerLine * tailLines < cubeCoreNum) {
         usedCubeCoreNum = blocksPerLine * tailLines;
     }
+
+    // 值初始化整结构（issue #460，对齐已合入值初始化 CleanCode 口径）：reserved 保留
+    // 字段随整结构下发设备，未初始化会携带宿主缓冲不确定值上行，赋值前整体清零
+    *tilingDataPtr = {};
 
     tilingDataPtr->tabInterpNum = param.tabInterpNum;
     tilingDataPtr->tabQuantNum = param.tabQuantNum;
@@ -127,4 +141,4 @@ AsdSip::AspbStatus InterpolationTiling(const LaunchParam &launchParam, KernelInf
 
     return AsdSip::ErrorType::ACL_SUCCESS;
 }
-}
+} // namespace AsdSip
