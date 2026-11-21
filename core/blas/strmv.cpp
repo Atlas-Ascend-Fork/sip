@@ -31,7 +31,9 @@ AspbStatus StrmvDtypeCheck(struct StrmvTensorParam parm)
 
 AspbStatus StrmvShapeCheck(struct StrmvTensorParam parm, const int64_t n)
 {
-    ASDSIP_ECHECK(n > 0 && n <= UINT32_MAX, "blas asdBlasStrmv get n <= 0 or n > 2^32.",
+    // n 上限收紧（issue #462）：实数计数入口对齐 sdot/isamax 的 INT32_MAX 口径，
+    // 防 uint32 载荷参数导致元素偏移越界 int32 正域
+    ASDSIP_ECHECK(n > 0 && n <= INT32_MAX, "blas asdBlasStrmv get n <= 0 or n > INT32_MAX.",
                   ErrorType::ACL_ERROR_INVALID_PARAM);
     // 维度数校验：0 维张量（dims 为空）会使 tiling 层 dims.at(0) 抛 std::out_of_range（issue #139）
     SIP_OP_CHECK_INVALID_SHAPE(parm.A, ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);

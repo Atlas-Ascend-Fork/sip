@@ -33,8 +33,10 @@ AspbStatus CgercDtypeCheck(struct CgercTensorParam parm)
 
 AspbStatus CgercShapeCheck(struct CgercTensorParam parm, const int64_t m, const int64_t n)
 {
-    ASDSIP_ECHECK(m > 0 && n > 0 && m <= UINT32_MAX && n <= UINT32_MAX,
-                  "blas Cgerc get m <= 0 || n <= 0 or m or n > 2^32.", ErrorType::ACL_ERROR_INVALID_PARAM);
+    // m/n 上限收紧（issue #462）：复数 2n 载荷入口（x/y 为 m/n 个 COMPLEX64，2m/2n 个
+    // 实数载荷），对齐 Ccopy/Cswap/Caxpy 的 INT32_MAX/2 口径，防 2m/2n 越过 int32 正域
+    ASDSIP_ECHECK(m > 0 && n > 0 && m <= INT32_MAX / 2 && n <= INT32_MAX / 2,
+                  "blas Cgerc get m <= 0 || n <= 0 or m or n > INT32_MAX / 2.", ErrorType::ACL_ERROR_INVALID_PARAM);
     SIP_OP_CHECK_NUM_NOT_MATCH(parm.A, m * n, ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
     SIP_OP_CHECK_NUM_NOT_MATCH(parm.x, m, ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
     SIP_OP_CHECK_NUM_NOT_MATCH(parm.y, n, ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
@@ -54,8 +56,10 @@ AspbStatus asdBlasCgerc(asdBlasHandle handle, const int64_t m, const int64_t n, 
     };
     ASDSIP_CHECK(CgercDtypeCheck(parm) == ErrorType::ACL_SUCCESS, "blas asdBlasCgerc dtype check failed.",
                  return ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
-    ASDSIP_CHECK(CgercShapeCheck(parm, m, n) == ErrorType::ACL_SUCCESS, "blas asdBlasCgerc shape check failed.",
-                 return ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
+    // shape 校验失败透传内层实际错误码（issue #462，对齐 !372 caxpy 透传口径）：
+    // m/n 上界越界返回 INVALID_PARAM，与 NUM_NOT_MATCH 路径的 OP_INPUT_NOT_MATCH 可区分
+    auto ret = CgercShapeCheck(parm, m, n);
+    ASDSIP_CHECK(ret == ErrorType::ACL_SUCCESS, "blas asdBlasCgerc shape check failed.", return ret);
 
     // 非正步长显式拒绝（issue #243）：负值经 static_cast<uint32_t> 回绕为超大
     // 步长传入内核产生非法寻址；非 1 正步长内核同样不支持，一并对齐 cgemv 的

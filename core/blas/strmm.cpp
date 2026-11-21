@@ -32,9 +32,11 @@ AspbStatus StrmmDtypeCheck(struct StrmmTensorParam parm)
 
 AspbStatus StrmmShapeCheck(struct StrmmTensorParam parm, const int64_t m, const int64_t n, asdBlasSideMode_t side)
 {
-    ASDSIP_ECHECK(n > 0 && n <= UINT32_MAX, "blas asdBlasStrmm get n <= 0 or n > 2^32.",
+    // m/n 上限收紧（issue #462）：实数计数入口对齐 sdot/isamax 的 INT32_MAX 口径，
+    // 防 uint32 载荷参数导致元素偏移越界 int32 正域
+    ASDSIP_ECHECK(n > 0 && n <= INT32_MAX, "blas asdBlasStrmm get n <= 0 or n > INT32_MAX.",
                   ErrorType::ACL_ERROR_INVALID_PARAM);
-    ASDSIP_ECHECK(m > 0 && m <= UINT32_MAX, "blas asdBlasStrmm get m <= 0 or m > 2^32.",
+    ASDSIP_ECHECK(m > 0 && m <= INT32_MAX, "blas asdBlasStrmm get m <= 0 or m > INT32_MAX.",
                   ErrorType::ACL_ERROR_INVALID_PARAM);
     int64_t aNum = (side == asdBlasSideMode_t::ASDBLAS_SIDE_LEFT) ? (m * m) : (n * n);
     SIP_OP_CHECK_NUM_NOT_MATCH(parm.A, aNum, ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);

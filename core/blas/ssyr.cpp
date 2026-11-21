@@ -52,7 +52,9 @@ AspbStatus asdBlasSsyr(asdBlasHandle handle, asdBlasFillMode_t uplo, const int64
 
     // 上界校验（issue #345）：:73 static_cast<uint32_t>(n)/(incx)，超 2^32-1 时
     // 回绕为错误维度/步长下传内核
-    ASDSIP_ECHECK(n <= UINT32_MAX, "blas asdBlasSsyr get n > 2^32-1.", ErrorType::ACL_ERROR_INVALID_PARAM);
+    // n 上限收紧（issue #462）：实数计数入口对齐 sdot/isamax 的 INT32_MAX 口径；
+    // incx 为步长非计数，维持 #243 步长专项口径不变
+    ASDSIP_ECHECK(n <= INT32_MAX, "blas asdBlasSsyr get n > INT32_MAX.", ErrorType::ACL_ERROR_INVALID_PARAM);
     ASDSIP_ECHECK(incx <= UINT32_MAX, "blas asdBlasSsyr get incx > 2^32-1.", ErrorType::ACL_ERROR_INVALID_PARAM);
 
     // 非法枚举显式拒绝（issue #345，对齐 cgemm 的 trans 校验口径）：原三目映射把

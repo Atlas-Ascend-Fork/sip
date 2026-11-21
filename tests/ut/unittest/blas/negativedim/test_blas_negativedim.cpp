@@ -17,7 +17,10 @@
 // 复数 2n 载荷入口 Ccopy/Cswap 上限收紧至 INT32_MAX/2（issue #444）；
 // Sasum/Cswap 报错文案与实际函数名一一对应（issue #448）；
 // Cal/Caxpy 族 4 入口上限同步收紧：Sscal 实数计数、Csscal/Cscal/Caxpy 复数 2n 载荷（issue #451）；
-// Cswap 边界断言恢复（!367 误删）+ Caxpy 越界期望值改透传口径 INVALID_PARAM 防校验回退（issue #455）。
+// Cswap 边界断言恢复（!367 误删）+ Caxpy 越界期望值改透传口径 INVALID_PARAM 防校验回退（issue #455）；
+// 三角/矩阵族入口上限对齐家族口径：strmv/strmm/ssyr 实数计数 INT32_MAX、ctrmv/cgerc/
+// colwise_mul/complex_mat_dot 复数 2n 载荷 INT32_MAX/2（issue #462）；
+// cgemv 补 lda >= m 下界校验，0 < lda < m 显式拒绝（issue #461）。
 
 #include <gtest/gtest.h>
 #include <complex>
@@ -55,6 +58,20 @@ void DestroyAclTensorWithAddr(aclTensor* tensor, void* addr)
     if (addr != nullptr) {
         aclrtFree(addr);
     }
+}
+
+// 形状描述子张量：仅声明 storage shape、不分配匹配容量的设备缓冲，用于 ssyr 的
+// n 上界边界组——其 x/A shape 校验先于 n 上界校验，需 dims == n 才能触达上界点位
+int CreateShapeOnlyAclTensor(aclDataType dtype, const std::vector<int64_t>& dims, aclTensor** tensor, void** addr)
+{
+    auto ret = aclrtMalloc(addr, sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);
+    if (ret != ::ACL_SUCCESS) {
+        LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", ret);
+        return ret;
+    }
+    *tensor = aclCreateTensor(dims.data(), dims.size(), dtype, nullptr, 0, aclFormat::ACL_FORMAT_ND, dims.data(),
+                              dims.size(), *addr);
+    return *tensor != nullptr ? 0 : -1;
 }
 
 } // namespace
@@ -949,6 +966,359 @@ TEST(TestBlasVectorNBound, Caxpy)
     asdBlasDestroy(handle);
     DestroyAclTensorWithAddr(x, xAddr);
     DestroyAclTensorWithAddr(y, yAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+}
+
+// cgemv lda 校验（issue #461）：列主序 A[m,n] 各列起始偏移按 j*lda 步进，
+// lda != m 时与 A 元素数 = m*n 契约不可同时满足（lda < m 列重叠静默算错、
+// lda > m 第 j 列起始偏移越过 m*n 元素存储越界读），仅放行 lda == m 紧凑布局，
+// 两侧偏差均显式拒绝；放行证据为后续 x 元素数校验错误码
+TEST(TestBlasCgemvLdaBound, Cgemv)
+{
+    MkiRtStream stream = OpTestInit(0);
+    aclTensor* a = nullptr;
+    aclTensor* x = nullptr;
+    aclTensor* xShort = nullptr;
+    aclTensor* y = nullptr;
+    void* aAddr = nullptr;
+    void* xAddr = nullptr;
+    void* xShortAddr = nullptr;
+    void* yAddr = nullptr;
+    std::vector<std::complex<float>> aHost(16, {1.0f, 0.0f});
+    std::vector<std::complex<float>> xHost(4, {1.0f, 0.0f});
+    std::vector<std::complex<float>> xShortHost(3, {1.0f, 0.0f});
+    std::vector<std::complex<float>> yHost(4, {0.0f, 0.0f});
+    ASSERT_EQ(CreateAclTensor(aHost, {4, 4}, &aAddr, aclDataType::ACL_COMPLEX64, &a), 0);
+    ASSERT_EQ(CreateAclTensor(xHost, {4}, &xAddr, aclDataType::ACL_COMPLEX64, &x), 0);
+    ASSERT_EQ(CreateAclTensor(xShortHost, {3}, &xShortAddr, aclDataType::ACL_COMPLEX64, &xShort), 0);
+    ASSERT_EQ(CreateAclTensor(yHost, {4}, &yAddr, aclDataType::ACL_COMPLEX64, &y), 0);
+
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeCgemvPlan(handle, asdBlasOperation_t::ASDBLAS_OP_N, 4, 4, y, 1),
+              AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(
+        asdBlasCgemv(handle, asdBlasOperation_t::ASDBLAS_OP_N, 4, 4, {1.0f, 0.0f}, a, 3, x, 1, {0.0f, 0.0f}, y, 1),
+        AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    EXPECT_EQ(
+        asdBlasCgemv(handle, asdBlasOperation_t::ASDBLAS_OP_N, 4, 4, {1.0f, 0.0f}, a, 5, x, 1, {0.0f, 0.0f}, y, 1),
+        AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    EXPECT_EQ(
+        asdBlasCgemv(handle, asdBlasOperation_t::ASDBLAS_OP_N, 4, 4, {1.0f, 0.0f}, a, 4, xShort, 1, {0.0f, 0.0f}, y, 1),
+        AsdSip::ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
+
+    asdBlasDestroy(handle);
+    DestroyAclTensorWithAddr(a, aAddr);
+    DestroyAclTensorWithAddr(x, xAddr);
+    DestroyAclTensorWithAddr(xShort, xShortAddr);
+    DestroyAclTensorWithAddr(y, yAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+}
+
+// Cgemv 复数 2n 载荷入口上限对齐家族口径（issue #462）：m/n 上限 INT32_MAX/2，
+// 入口与 MakeCgemvPlan 双点位同口径，边界值放行（后续 A 元素数校验错误码为放行
+// 证据），越界显式拒绝
+TEST(TestBlasVectorNBound, Cgemv)
+{
+    MkiRtStream stream = OpTestInit(0);
+    aclTensor* a = nullptr;
+    aclTensor* x = nullptr;
+    aclTensor* y = nullptr;
+    void* aAddr = nullptr;
+    void* xAddr = nullptr;
+    void* yAddr = nullptr;
+    std::vector<std::complex<float>> aHost(16, {1.0f, 0.0f});
+    std::vector<std::complex<float>> xHost(4, {1.0f, 0.0f});
+    std::vector<std::complex<float>> yHost(4, {0.0f, 0.0f});
+    ASSERT_EQ(CreateAclTensor(aHost, {4, 4}, &aAddr, aclDataType::ACL_COMPLEX64, &a), 0);
+    ASSERT_EQ(CreateAclTensor(xHost, {4}, &xAddr, aclDataType::ACL_COMPLEX64, &x), 0);
+    ASSERT_EQ(CreateAclTensor(yHost, {4}, &yAddr, aclDataType::ACL_COMPLEX64, &y), 0);
+
+    // 入口越界拒绝：n > INT32_MAX/2
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeCgemvPlan(handle, asdBlasOperation_t::ASDBLAS_OP_N, 4, 4, y, 1),
+              AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasCgemv(handle, asdBlasOperation_t::ASDBLAS_OP_N, 4, INT32_MAX / 2 + 1, {1.0f, 0.0f}, a, 4, x, 1,
+                           {0.0f, 0.0f}, y, 1),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    asdBlasDestroy(handle);
+
+    // 边界值放行：plan 位点（MakeCgemvPlan）与入口 shape 校验均放行，
+    // 触达后续 A 元素数校验（OP_INPUT_NOT_MATCH 为放行证据）
+    asdBlasHandle handleBoundary;
+    ASSERT_EQ(asdBlasCreate(handleBoundary), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeCgemvPlan(handleBoundary, asdBlasOperation_t::ASDBLAS_OP_N, 4, INT32_MAX / 2, y, 1),
+              AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasCgemv(handleBoundary, asdBlasOperation_t::ASDBLAS_OP_N, 4, INT32_MAX / 2, {1.0f, 0.0f}, a, 4, x, 1,
+                           {0.0f, 0.0f}, y, 1),
+              AsdSip::ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
+    asdBlasDestroy(handleBoundary);
+
+    // plan 位点越界拒绝：MakeCgemvPlan n > INT32_MAX/2
+    asdBlasHandle handleOver;
+    ASSERT_EQ(asdBlasCreate(handleOver), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasMakeCgemvPlan(handleOver, asdBlasOperation_t::ASDBLAS_OP_N, 4, INT32_MAX / 2 + 1, y, 1),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    asdBlasDestroy(handleOver);
+
+    DestroyAclTensorWithAddr(a, aAddr);
+    DestroyAclTensorWithAddr(x, xAddr);
+    DestroyAclTensorWithAddr(y, yAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+}
+
+// 三角/矩阵族入口上限对齐家族口径（issue #462，实数计数 INT32_MAX / 复数 2n 载荷
+// INT32_MAX/2）：边界值放行（后续元素数校验错误码为放行证据），越界显式拒绝
+TEST(TestBlasVectorNBound, Strmv)
+{
+    MkiRtStream stream = OpTestInit(0);
+    aclTensor* a = nullptr;
+    aclTensor* x = nullptr;
+    void* aAddr = nullptr;
+    void* xAddr = nullptr;
+    std::vector<float> aHost(16, 1.0f);
+    std::vector<float> xHost(4, 1.0f);
+    ASSERT_EQ(CreateAclTensor(aHost, {4, 4}, &aAddr, aclDataType::ACL_FLOAT, &a), 0);
+    ASSERT_EQ(CreateAclTensor(xHost, {4}, &xAddr, aclDataType::ACL_FLOAT, &x), 0);
+
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeStrmvPlan(handle, asdBlasFillMode_t::ASDBLAS_FILL_MODE_LOWER, asdBlasOperation_t::ASDBLAS_OP_N,
+                                   INT32_MAX),
+              AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasStrmv(handle, asdBlasFillMode_t::ASDBLAS_FILL_MODE_LOWER, asdBlasOperation_t::ASDBLAS_OP_N,
+                           asdBlasDiagType_t::ASDBLAS_DIAG_NON_UNIT, INT32_MAX, a, INT32_MAX, x, 1),
+              AsdSip::ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
+    EXPECT_EQ(
+        asdBlasStrmv(handle, asdBlasFillMode_t::ASDBLAS_FILL_MODE_LOWER, asdBlasOperation_t::ASDBLAS_OP_N,
+                     asdBlasDiagType_t::ASDBLAS_DIAG_NON_UNIT, static_cast<int64_t>(INT32_MAX) + 1, a, INT32_MAX, x, 1),
+        AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+
+    asdBlasDestroy(handle);
+    DestroyAclTensorWithAddr(a, aAddr);
+    DestroyAclTensorWithAddr(x, xAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+}
+
+// Ctrmv 复数 2n 载荷入口收紧至 INT32_MAX/2（issue #462）：入口与 MakeCtrmvPlan 双点位同口径
+TEST(TestBlasVectorNBound, Ctrmv)
+{
+    MkiRtStream stream = OpTestInit(0);
+    aclTensor* a = nullptr;
+    aclTensor* x = nullptr;
+    void* aAddr = nullptr;
+    void* xAddr = nullptr;
+    std::vector<std::complex<float>> aHost(4, {1.0f, 0.0f});
+    std::vector<std::complex<float>> xHost(2, {1.0f, 0.0f});
+    ASSERT_EQ(CreateAclTensor(aHost, {2, 2}, &aAddr, aclDataType::ACL_COMPLEX64, &a), 0);
+    ASSERT_EQ(CreateAclTensor(xHost, {2}, &xAddr, aclDataType::ACL_COMPLEX64, &x), 0);
+
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeCtrmvPlan(handle, asdBlasFillMode_t::ASDBLAS_FILL_MODE_UPPER, 4),
+              AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasCtrmv(handle, asdBlasFillMode_t::ASDBLAS_FILL_MODE_UPPER, asdBlasOperation_t::ASDBLAS_OP_N,
+                           asdBlasDiagType_t::ASDBLAS_DIAG_NON_UNIT, INT32_MAX / 2 + 1, a, 4, x, 1),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    asdBlasDestroy(handle);
+
+    // 边界值放行：plan 位点（MakeCtrmvPlan）与入口 shape 校验均放行，
+    // 触达后续 A 元素数校验（OP_INPUT_NOT_MATCH 为放行证据）
+    asdBlasHandle handleBoundary;
+    ASSERT_EQ(asdBlasCreate(handleBoundary), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeCtrmvPlan(handleBoundary, asdBlasFillMode_t::ASDBLAS_FILL_MODE_UPPER, INT32_MAX / 2),
+              AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasCtrmv(handleBoundary, asdBlasFillMode_t::ASDBLAS_FILL_MODE_UPPER, asdBlasOperation_t::ASDBLAS_OP_N,
+                           asdBlasDiagType_t::ASDBLAS_DIAG_NON_UNIT, INT32_MAX / 2, a, INT32_MAX / 2, x, 1),
+              AsdSip::ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
+    asdBlasDestroy(handleBoundary);
+
+    // plan 位点越界拒绝：MakeCtrmvPlan n > INT32_MAX/2
+    asdBlasHandle handleOver;
+    ASSERT_EQ(asdBlasCreate(handleOver), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasMakeCtrmvPlan(handleOver, asdBlasFillMode_t::ASDBLAS_FILL_MODE_UPPER, INT32_MAX / 2 + 1),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    asdBlasDestroy(handleOver);
+
+    DestroyAclTensorWithAddr(a, aAddr);
+    DestroyAclTensorWithAddr(x, xAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+}
+
+TEST(TestBlasVectorNBound, Strmm)
+{
+    MkiRtStream stream = OpTestInit(0);
+    aclTensor* a = nullptr;
+    aclTensor* b = nullptr;
+    aclTensor* c = nullptr;
+    void* aAddr = nullptr;
+    void* bAddr = nullptr;
+    void* cAddr = nullptr;
+    std::vector<float> aHost(16, 1.0f);
+    std::vector<float> bHost(16, 1.0f);
+    std::vector<float> cHost(16, 0.0f);
+    ASSERT_EQ(CreateAclTensor(aHost, {4, 4}, &aAddr, aclDataType::ACL_FLOAT, &a), 0);
+    ASSERT_EQ(CreateAclTensor(bHost, {4, 4}, &bAddr, aclDataType::ACL_FLOAT, &b), 0);
+    ASSERT_EQ(CreateAclTensor(cHost, {4, 4}, &cAddr, aclDataType::ACL_FLOAT, &c), 0);
+
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeStrmmPlan(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasStrmm(handle, asdBlasSideMode_t::ASDBLAS_SIDE_LEFT, asdBlasFillMode_t::ASDBLAS_FILL_MODE_LOWER,
+                           asdBlasOperation_t::ASDBLAS_OP_N, asdBlasDiagType_t::ASDBLAS_DIAG_NON_UNIT, 4, INT32_MAX,
+                           1.0f, a, 4, b, 4, c, 4),
+              AsdSip::ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
+    EXPECT_EQ(asdBlasStrmm(handle, asdBlasSideMode_t::ASDBLAS_SIDE_LEFT, asdBlasFillMode_t::ASDBLAS_FILL_MODE_LOWER,
+                           asdBlasOperation_t::ASDBLAS_OP_N, asdBlasDiagType_t::ASDBLAS_DIAG_NON_UNIT, 4,
+                           static_cast<int64_t>(INT32_MAX) + 1, 1.0f, a, 4, b, 4, c, 4),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+
+    asdBlasDestroy(handle);
+    DestroyAclTensorWithAddr(a, aAddr);
+    DestroyAclTensorWithAddr(b, bAddr);
+    DestroyAclTensorWithAddr(c, cAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+}
+
+// Ssyr 实数计数入口收紧至 INT32_MAX（issue #462）：其 n 上界校验位于 x/A shape 与
+// dtype 校验之后，越界组以 dims == n 的形状描述子张量穿过前置校验触达上界点位；
+// 边界组放行证据为触达上界之后的 uplo 枚举校验（其上界后所有守卫均返回 INVALID_PARAM，
+// 错误码层面与越界同码，plog 报错点位可区分）
+TEST(TestBlasVectorNBound, Ssyr)
+{
+    MkiRtStream stream = OpTestInit(0);
+    const int64_t nOver = static_cast<int64_t>(INT32_MAX) + 1;
+    aclTensor* xOver = nullptr;
+    aclTensor* aOver = nullptr;
+    aclTensor* xBoundary = nullptr;
+    aclTensor* aBoundary = nullptr;
+    void* xOverAddr = nullptr;
+    void* aOverAddr = nullptr;
+    void* xBoundaryAddr = nullptr;
+    void* aBoundaryAddr = nullptr;
+    ASSERT_EQ(CreateShapeOnlyAclTensor(aclDataType::ACL_FLOAT, {nOver}, &xOver, &xOverAddr), 0);
+    ASSERT_EQ(CreateShapeOnlyAclTensor(aclDataType::ACL_FLOAT, {nOver, nOver}, &aOver, &aOverAddr), 0);
+    ASSERT_EQ(CreateShapeOnlyAclTensor(aclDataType::ACL_FLOAT, {INT32_MAX}, &xBoundary, &xBoundaryAddr), 0);
+    ASSERT_EQ(CreateShapeOnlyAclTensor(aclDataType::ACL_FLOAT, {INT32_MAX, INT32_MAX}, &aBoundary, &aBoundaryAddr), 0);
+
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeSsyrPlan(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasSsyr(handle, asdBlasFillMode_t::ASDBLAS_FILL_MODE_UPPER, nOver, 1.0f, xOver, 1, aOver, 1),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    EXPECT_EQ(asdBlasSsyr(handle, static_cast<asdBlasFillMode_t>(42), INT32_MAX, 1.0f, xBoundary, 1, aBoundary, 1),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+
+    asdBlasDestroy(handle);
+    DestroyAclTensorWithAddr(xOver, xOverAddr);
+    DestroyAclTensorWithAddr(aOver, aOverAddr);
+    DestroyAclTensorWithAddr(xBoundary, xBoundaryAddr);
+    DestroyAclTensorWithAddr(aBoundary, aBoundaryAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+}
+
+// Cgerc 复数 2n 载荷入口收紧至 INT32_MAX/2（issue #462），shape 校验失败透传内层
+// 错误码后越界返回 INVALID_PARAM，与元素数校验的 OP_INPUT_NOT_MATCH 可区分
+TEST(TestBlasVectorNBound, Cgerc)
+{
+    MkiRtStream stream = OpTestInit(0);
+    aclTensor* x = nullptr;
+    aclTensor* y = nullptr;
+    aclTensor* a = nullptr;
+    void* xAddr = nullptr;
+    void* yAddr = nullptr;
+    void* aAddr = nullptr;
+    std::vector<std::complex<float>> xHost(4, {1.0f, 0.0f});
+    std::vector<std::complex<float>> yHost(4, {1.0f, 0.0f});
+    std::vector<std::complex<float>> aHost(16, {0.0f, 0.0f});
+    ASSERT_EQ(CreateAclTensor(xHost, {4}, &xAddr, aclDataType::ACL_COMPLEX64, &x), 0);
+    ASSERT_EQ(CreateAclTensor(yHost, {4}, &yAddr, aclDataType::ACL_COMPLEX64, &y), 0);
+    ASSERT_EQ(CreateAclTensor(aHost, {4, 4}, &aAddr, aclDataType::ACL_COMPLEX64, &a), 0);
+
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeCgercPlan(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasCgerc(handle, INT32_MAX / 2, 2, {1.0f, 0.0f}, x, 1, y, 1, a, 4),
+              AsdSip::ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
+    EXPECT_EQ(asdBlasCgerc(handle, INT32_MAX / 2 + 1, 2, {1.0f, 0.0f}, x, 1, y, 1, a, 4),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+
+    asdBlasDestroy(handle);
+    DestroyAclTensorWithAddr(x, xAddr);
+    DestroyAclTensorWithAddr(y, yAddr);
+    DestroyAclTensorWithAddr(a, aAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+}
+
+TEST(TestBlasVectorNBound, ColwiseMul)
+{
+    MkiRtStream stream = OpTestInit(0);
+    aclTensor* mat = nullptr;
+    aclTensor* vec = nullptr;
+    aclTensor* result = nullptr;
+    void* matAddr = nullptr;
+    void* vecAddr = nullptr;
+    void* resultAddr = nullptr;
+    std::vector<std::complex<float>> matHost(16, {1.0f, 0.0f});
+    std::vector<std::complex<float>> vecHost(4, {1.0f, 0.0f});
+    std::vector<std::complex<float>> resultHost(16, {0.0f, 0.0f});
+    ASSERT_EQ(CreateAclTensor(matHost, {4, 4}, &matAddr, aclDataType::ACL_COMPLEX64, &mat), 0);
+    ASSERT_EQ(CreateAclTensor(vecHost, {4}, &vecAddr, aclDataType::ACL_COMPLEX64, &vec), 0);
+    ASSERT_EQ(CreateAclTensor(resultHost, {4, 4}, &resultAddr, aclDataType::ACL_COMPLEX64, &result), 0);
+
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeColwiseMulPlan(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasColwiseMul(handle, INT32_MAX / 2, 2, mat, vec, result),
+              AsdSip::ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
+    EXPECT_EQ(asdBlasColwiseMul(handle, INT32_MAX / 2 + 1, 2, mat, vec, result),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+
+    asdBlasDestroy(handle);
+    DestroyAclTensorWithAddr(mat, matAddr);
+    DestroyAclTensorWithAddr(vec, vecAddr);
+    DestroyAclTensorWithAddr(result, resultAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+}
+
+TEST(TestBlasVectorNBound, ComplexMatDot)
+{
+    MkiRtStream stream = OpTestInit(0);
+    aclTensor* matx = nullptr;
+    aclTensor* maty = nullptr;
+    aclTensor* result = nullptr;
+    void* matxAddr = nullptr;
+    void* matyAddr = nullptr;
+    void* resultAddr = nullptr;
+    std::vector<std::complex<float>> matxHost(16, {1.0f, 0.0f});
+    std::vector<std::complex<float>> matyHost(16, {1.0f, 0.0f});
+    std::vector<std::complex<float>> resultHost(16, {0.0f, 0.0f});
+    ASSERT_EQ(CreateAclTensor(matxHost, {4, 4}, &matxAddr, aclDataType::ACL_COMPLEX64, &matx), 0);
+    ASSERT_EQ(CreateAclTensor(matyHost, {4, 4}, &matyAddr, aclDataType::ACL_COMPLEX64, &maty), 0);
+    ASSERT_EQ(CreateAclTensor(resultHost, {4, 4}, &resultAddr, aclDataType::ACL_COMPLEX64, &result), 0);
+
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeComplexMatDotPlan(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasComplexMatDot(handle, INT32_MAX / 2, 2, matx, maty, result),
+              AsdSip::ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
+    EXPECT_EQ(asdBlasComplexMatDot(handle, INT32_MAX / 2 + 1, 2, matx, maty, result),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+
+    asdBlasDestroy(handle);
+    DestroyAclTensorWithAddr(matx, matxAddr);
+    DestroyAclTensorWithAddr(maty, matyAddr);
+    DestroyAclTensorWithAddr(result, resultAddr);
     TensorContext context;
     OpTestEnd(0, context, stream);
 }

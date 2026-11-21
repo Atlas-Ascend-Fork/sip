@@ -32,7 +32,9 @@ AspbStatus CtrmvDtypeCheck(struct CtrmvTensorParam parm)
 
 AspbStatus CtrmvShapeCheck(CtrmvTensorParam param, const int64_t n, const int64_t incx, const int64_t lda)
 {
-    ASDSIP_ECHECK(n > 0 && n <= UINT32_MAX, "blas asdBlasCtrmv get n <= 0 or n > 2^32.",
+    // n 上限收紧（issue #462）：复数 2n 载荷入口（x 为 n 个 COMPLEX64，2n 个实数载荷），
+    // 对齐 Ccopy/Cswap/Caxpy 的 INT32_MAX/2 口径，防 n > INT32_MAX/2 时 2n 越过 int32 正域
+    ASDSIP_ECHECK(n > 0 && n <= INT32_MAX / 2, "blas asdBlasCtrmv get n <= 0 or n > INT32_MAX / 2.",
                   ErrorType::ACL_ERROR_INVALID_PARAM);
     ASDSIP_ECHECK(incx > 0, "blas asdBlasCtrmv get incx < 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
     ASDSIP_ECHECK(lda > 0, "blas asdBlasCtrmv get lda <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
@@ -138,7 +140,8 @@ AspbStatus asdBlasMakeCtrmvPlan(asdBlasHandle handle, asdBlasFillMode_t uplo, in
                   "blas handle already bound to a plan, repeated initialization is not allowed.",
                   ErrorType::ACL_ERROR_INVALID_PARAM);
 
-    ASDSIP_ECHECK(n > 0 && n <= UINT32_MAX, "blas asdBlasCtrmv get n <= 0 or n > 2^32.",
+    // n 上限收紧（issue #462）：与 CtrmvShapeCheck 同口径（复数 2n 载荷，INT32_MAX/2）
+    ASDSIP_ECHECK(n > 0 && n <= INT32_MAX / 2, "blas asdBlasCtrmv get n <= 0 or n > INT32_MAX / 2.",
                   ErrorType::ACL_ERROR_INVALID_PARAM);
     AsdSip::BlasCtrmvPlan* plan = nullptr;
     try {

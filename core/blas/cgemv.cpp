@@ -27,9 +27,21 @@ struct CgemvTensorParam {
     const aclTensor* y;
 };
 
-AspbStatus asdBlasCgemvParamCheck(int64_t lda, int64_t incx, int64_t incy)
+AspbStatus asdBlasCgemvParamCheck(int64_t m, int64_t n, int64_t lda, int64_t incx, int64_t incy)
 {
-    ASDSIP_ECHECK(lda > 0, "blas asdBlasCgemv get lda <= 0.", ErrorType::ACL_ERROR_INTERNAL_ERROR);
+    // m/n 上限对齐复数 2n 载荷家族口径（issue #462）：cgemv 三张量均为 COMPLEX64，
+    // m、n 计复数元素数，上限取 INT32_MAX / 2 保证标量载荷 2m/2n 不越过 INT32_MAX；
+    // 置于 paramCheck 使越界与家族入口一致返回 INVALID_PARAM（ShapeCheck 失败会被
+    // 外层包装统一映射为 OP_INPUT_NOT_MATCH，无法区分上限越界与元素数不匹配）
+    ASDSIP_ECHECK(m > 0 && n > 0 && m <= INT32_MAX / 2 && n <= INT32_MAX / 2,
+                  "blas asdBlasCgemv get m <= 0 || n <= 0 or m or n > INT32_MAX / 2.",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
+    // lda 校验（issue #461）：列主序 A[m,n] 各列起始偏移按 j*lda 步进，lda != m 时
+    // 与 CgemvShapeCheck 的 A 元素数 = m*n 契约不可同时满足：0 < lda < m 列区间重叠且
+    // 寻址不覆盖全部 m*n 元素，静默算错；lda > m 时第 j 列起始偏移 j*lda 越过 m*n 元素
+    // 存储，设备侧越界读。两种偏差均显式拒绝，仅放行 lda == m 紧凑布局
+    ASDSIP_ECHECK(lda > 0 && lda == m, "blas asdBlasCgemv get lda <= 0 or lda != m.",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
     ASDSIP_ECHECK(incx == 1, "blas asdBlasCgemv get incx != 1.", ErrorType::ACL_ERROR_INTERNAL_ERROR);
     ASDSIP_ECHECK(incy == 1, "blas asdBlasCgemv get incy != 1.", ErrorType::ACL_ERROR_INTERNAL_ERROR);
     return ErrorType::ACL_SUCCESS;
@@ -46,8 +58,7 @@ AspbStatus CgemvDtypeCheck(struct CgemvTensorParam parm)
 
 AspbStatus CgemvShapeCheck(struct CgemvTensorParam parm, const int64_t m, const int64_t n)
 {
-    ASDSIP_ECHECK(m > 0 && n > 0 && m <= UINT32_MAX && n <= UINT32_MAX,
-                  "blas asdBlasCgemv get m <= 0 || n <= 0 or m or n > 2^32.", ErrorType::ACL_ERROR_INVALID_PARAM);
+    // m/n 上限与正负校验在 paramCheck 完成（INVALID_PARAM 口径），此处仅校验元素数
     SIP_OP_CHECK_NUM_NOT_MATCH(parm.A, m * n, ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
     SIP_OP_CHECK_NUM_NOT_MATCH(parm.x, n, ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
     SIP_OP_CHECK_NUM_NOT_MATCH(parm.y, m, ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
@@ -65,7 +76,7 @@ AspbStatus asdBlasCgemv(asdBlasHandle handle, asdBlasOperation_t trans, const in
     struct CgemvTensorParam parm {
         A, x, y
     };
-    ASDSIP_CHECK(asdBlasCgemvParamCheck(lda, incx, incy) == ErrorType::ACL_SUCCESS,
+    ASDSIP_CHECK(asdBlasCgemvParamCheck(m, n, lda, incx, incy) == ErrorType::ACL_SUCCESS,
                  "blas asdBlasCgemv param check failed.", return ErrorType::ACL_ERROR_INVALID_PARAM);
     ASDSIP_CHECK(CgemvDtypeCheck(parm) == ErrorType::ACL_SUCCESS, "blas asdBlasCgemv dtype check failed.",
                  return ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
@@ -135,8 +146,9 @@ AspbStatus asdBlasMakeCgemvPlan(asdBlasHandle handle, asdBlasOperation_t trans, 
     ASDSIP_ECHECK(!BlasPlanCache::doesPlanExist(handle),
                   "blas handle already bound to a plan, repeated initialization is not allowed.",
                   ErrorType::ACL_ERROR_INVALID_PARAM);
-    ASDSIP_ECHECK(m > 0 && n > 0 && m <= UINT32_MAX && n <= UINT32_MAX,
-                  "blas asdBlasMakeCgemvPlan get m <= 0 || n <= 0 or m > 2^32 or n > 2^32.",
+    // m/n 上限对齐复数 2n 载荷家族口径（issue #462），与入口 CgemvShapeCheck 双点位同口径
+    ASDSIP_ECHECK(m > 0 && n > 0 && m <= INT32_MAX / 2 && n <= INT32_MAX / 2,
+                  "blas asdBlasMakeCgemvPlan get m <= 0 || n <= 0 or m > INT32_MAX / 2 or n > INT32_MAX / 2.",
                   ErrorType::ACL_ERROR_INVALID_PARAM);
     ASDSIP_ECHECK(y != nullptr, "blas Cgemv y is nullptr.", ErrorType::ACL_ERROR_INTERNAL_ERROR);
     ASDSIP_ECHECK(incy == 1, "blas Cgemv get incy != 1.", ErrorType::ACL_ERROR_INTERNAL_ERROR);

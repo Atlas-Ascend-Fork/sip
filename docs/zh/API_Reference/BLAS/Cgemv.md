@@ -181,7 +181,7 @@ AspbStatus asdBlasCgemv(
     <tr>
       <td>lda（ int64_t）</td>
       <td>输入</td>
-      <td>矩阵A左右相邻元素间的内存地址偏移量（当前约束为m）。</td>
+      <td>矩阵A左右相邻元素间的内存地址偏移量（需满足 lda == m，即紧凑列主序布局）。</td>
     </tr>
     <tr>
       <td>x（aclTensor *）</td>
@@ -217,6 +217,7 @@ AspbStatus asdBlasCgemv(
 
 - 输入的元素个数m，n当前覆盖支持[1, 8193]。
 - 算子输入矩阵A为列主序，输入shape为[m, n]、[m]、[n]，输出shape为[m]。
+- lda需满足 lda == m（紧凑布局），其他取值返回错误。
 - 算子实际计算时，不支持ND高维度运算（不支持维度≥3的运算）。
 
 ## 调用示例

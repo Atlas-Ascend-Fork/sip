@@ -158,7 +158,7 @@ AspbStatus asdBlasCgemv(
     <tr>
       <td>lda (int64_t)</td>
       <td>Input</td>
-      <td>Memory address offset between adjacent elements in the left-right direction of matrix A (constrained to m in the current version).</td>
+      <td>Memory address offset between adjacent elements in the left-right direction of matrix A (must satisfy <code>lda == m</code>, i.e. the compact column-major layout).</td>
     </tr>
     <tr>
       <td>A (aclTensor *)</td>
@@ -204,6 +204,7 @@ AspbStatus asdBlasCgemv(
 
 - The number of input elements m and n is currently supported in the range [1, 8193].
 - The operator input matrix A is in column-major order. The input shapes are [m, n], [m], and [n], and the output shape is [m].
+- `lda` must satisfy `lda == m` (compact layout); any other value causes the call to return an error.
 - During actual computation, the operator does not support high-dimensional ND operations (dimensions ≥ 3).
 
 ## Calling Example
