@@ -21,11 +21,12 @@ using namespace Mki;
 using namespace AsdSip;
 
 namespace AsdSip {
-static AspbStatus GetStorageElementCount(const aclTensor *tensor, int64_t &elementCount)
+static AspbStatus GetStorageElementCount(const aclTensor* tensor, int64_t& elementCount)
 {
-    int64_t *storageDims = nullptr;
+    int64_t* storageDims = nullptr;
     uint64_t storageDimsNum = 0;
-    CHECK_STATUS_WITH_ACL_RETURN(aclGetStorageShape(tensor, &storageDims, &storageDimsNum), "asdMul: aclGetStorageShape");
+    CHECK_STATUS_WITH_ACL_RETURN(aclGetStorageShape(tensor, &storageDims, &storageDimsNum),
+                                 "asdMul: aclGetStorageShape");
     int64_t count = 1;
     for (uint64_t i = 0; i < storageDimsNum; i++) {
         if (storageDims[i] <= 0) {
@@ -39,7 +40,7 @@ static AspbStatus GetStorageElementCount(const aclTensor *tensor, int64_t &eleme
     return ErrorType::ACL_SUCCESS;
 }
 
-AspbStatus asdMul(int n, const aclTensor *x, const aclTensor *y, aclTensor *z, void *stream, void *workspace)
+AspbStatus asdMul(int n, const aclTensor* x, const aclTensor* y, aclTensor* z, void* stream, void* workspace)
 {
     int64_t sizeX = 0;
     CHECK_STATUS_WITH_ACL_RETURN(GetStorageElementCount(x, sizeX), "asdMul: aclGetStorageShape");
@@ -51,46 +52,42 @@ AspbStatus asdMul(int n, const aclTensor *x, const aclTensor *y, aclTensor *z, v
     op::DataType dataTypeX = op::DataType::DT_UNDEFINED;
     dataTypeX = x->GetDataType();
     ASDSIP_ECHECK(dataTypeX == op::DataType::DT_COMPLEX64 || dataTypeX == op::DataType::DT_COMPLEX32,
-        "base asdMul get wrong x tensor dtype.",
-        ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
+                  "base asdMul get wrong x tensor dtype.", ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
 
     op::DataType dataTypeY = op::DataType::DT_UNDEFINED;
     dataTypeY = y->GetDataType();
     ASDSIP_ECHECK(dataTypeY == op::DataType::DT_COMPLEX64 || dataTypeY == op::DataType::DT_COMPLEX32,
-        "base asdMul get wrong y tensor dtype.",
-        ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
+                  "base asdMul get wrong y tensor dtype.", ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
 
     op::DataType dataTypeZ = op::DataType::DT_UNDEFINED;
     dataTypeZ = z->GetDataType();
     ASDSIP_ECHECK(dataTypeZ == op::DataType::DT_COMPLEX64 || dataTypeZ == op::DataType::DT_COMPLEX32,
-        "base asdMul get wrong z tensor dtype.",
-        ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
+                  "base asdMul get wrong z tensor dtype.", ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
 
     ASDSIP_ECHECK(dataTypeX == dataTypeY && dataTypeY == dataTypeZ,
-        "Input x, y, z tensors must have the same data type",
-        ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
+                  "Input x, y, z tensors must have the same data type", ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
 
     ASDSIP_ECHECK(n > 0, "base asdMul get n <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
     ASDSIP_ECHECK(n == sizeX && n == sizeY && n == sizeZ,
-        "Invalid tensor dimensions: parameter 'n' must be equal to sizeX, sizeY, and sizeZ.",
-        ErrorType::ACL_ERROR_INVALID_PARAM);
+                  "Invalid tensor dimensions: parameter 'n' must be equal to sizeX, sizeY, and sizeZ.",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
 
     OpDesc opDesc;
     opDesc.opName = "MulOperation";
     AsdSip::OpParam::CMul param;
     param.n = n;
-    param.cMulType = (dataTypeX == op::DataType::DT_COMPLEX64) ? OpParam::CMul::CMulType::MUL_C64
-                     : OpParam::CMul::CMulType::MUL_C32;
+    param.cMulType = (dataTypeX == op::DataType::DT_COMPLEX64) ? OpParam::CMul::CMulType::MUL_C64 :
+                                                                 OpParam::CMul::CMulType::MUL_C32;
     opDesc.specificParam = param;
     ASDSIP_LOG(DEBUG) << "OpDesc: " << opDesc.opName << "; OpDesc info: " << param.ToString();
 
-    SVector<aclTensor *> inTensors{const_cast<aclTensor *>(x), const_cast<aclTensor *>(y)};
-    SVector<aclTensor *> outTensors{z};
+    SVector<aclTensor*> inTensors{const_cast<aclTensor*>(x), const_cast<aclTensor*>(y)};
+    SVector<aclTensor*> outTensors{z};
 
-    Status status = RunAsdOpsV2(stream, opDesc, inTensors, outTensors, (uint8_t *)workspace);
+    Status status = RunAsdOpsV2(stream, opDesc, inTensors, outTensors, (uint8_t*)workspace);
     ASDSIP_ECHECK(status.Ok(), status.Message(), ErrorType::ACL_ERROR_INTERNAL_ERROR);
 
-    ASDSIP_LOG(INFO) << "Execute asdBaseMul success.";
+    ASDSIP_LOG(INFO) << "Execute asdMul success.";
     return ErrorType::ACL_SUCCESS;
 }
-}  // namespace AsdSip
+} // namespace AsdSip
