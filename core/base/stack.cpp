@@ -66,7 +66,7 @@ AspbStatus MakeComplex(const Tensor& realTensor, const Tensor& imagTensor, Tenso
     aclDestroyAclOpExecutor(executor);
     aclDestroyTensorList(tensorList);
     aclDestroyTensor(outAclTensor);
-    ASDSIP_LOG(INFO) << "Execute Concat success.";
+    ASDSIP_LOG(INFO) << "Execute MakeComplex success.";
     return ErrorType::ACL_SUCCESS;
 }
 } // namespace AsdSip
