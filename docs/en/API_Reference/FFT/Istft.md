@@ -184,7 +184,7 @@ AspbStatus asdFftExecIstft(
 - asdFftIstftMakePlan
     - `nFft` must be less than 1500, and its prime factors must not contain any prime factor greater than 199.
     - Due to current implementation limitations, when `nFft` is greater than or equal to 32768 and is a power of 2, the input data will be modified. Back up the input data in advance.
-    - hopLengthOpt <= 1500.
+    - hopLengthOpt < 1500.
     - The input elements do not support `inf`, `-inf`, or `NaN`. If the input contains such values, the result is undefined.
 - asdFftExecIstft
   The values in the `windowOpt` tensor must not be close to zero; otherwise, the result is undefined.
