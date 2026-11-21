@@ -72,13 +72,13 @@
 
     | TensorName |  DataType  | DataFormat |      Shape      |
     | :--------: | :--------: | :--------: | :-------------: |
-    |   signal   | complex32  |     nd     |       [n]       |
+    |   signal   | complex32  |     nd     | [BatchCount, n] |
 
     **输出**
 
     | TensorName |  DataType  | DataFormat |      Shape      |
     | :--------: | :--------: | :--------: | :-------------: |
-    |   output   | complex32  |     nd     |       [n]       |
+    |   output   | complex32  |     nd     | [BatchCount, n] |
 
     ---
 
@@ -90,10 +90,10 @@
 
     | TensorName |  DataType  | DataFormat |      Shape      |
     | :--------: | :--------: | :--------: | :-------------: |
-    |   signal   | complex64  |     nd     |       [n]       |
+    |   signal   | complex64  |     nd     | [BatchCount, n] |
 
     **输出**
 
     | TensorName |  DataType  | DataFormat |      Shape      |
     | :--------: | :--------: | :--------: | :-------------: |
-    |   output   | complex64  |     nd     |       [n]       |
+    |   output   | complex64  |     nd     | [BatchCount, n] |
