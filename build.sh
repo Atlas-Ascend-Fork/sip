@@ -52,18 +52,27 @@ function fn_build_ops_fft_from_src()
     local src_dir=${OPS_FFT_SRC_DIR:-${THIRD_PARTY_DIR}/ops-fft-src}
     local pkg=${THIRD_PARTY_DIR}/ops-fft
 
+    local url_proto=https://
+    local url_host=gitcode.com
+    local src_url=${OPS_FFT_SRC_URL:-${url_proto}${url_host}/cann/ops-fft.git}
+    local src_ref=${OPS_FFT_SRC_REF:-master}
+    # 来源白名单: 仅允许官方 gitcode/cann 命名空间, 拒绝任意仓库;
+    # 顺带消除 src_url 以'-'开头被 git 当作选项解析的参数注入面
+    case "${src_url}" in
+        https://gitcode.com/cann/*) ;;
+        *) echo "[ERROR] ops-fft: refused non-official src_url=${src_url}"; return 1 ;;
+    esac
+    # 注意: url/ref 的 local 声明从原 if 块内移出, 复用已有目录的路径也需要这两个变量
     if [ ! -f ${src_dir}/build.sh ]; then
         if [ ${src_dir} != ${THIRD_PARTY_DIR}/ops-fft-src ]; then
             echo "[ERROR] ops-fft: OPS_FFT_SRC_DIR=${OPS_FFT_SRC_DIR} 无 build.sh"
             return 1
         fi
-        local url_proto=https://
-        local url_host=gitcode.com
-        local src_url=${OPS_FFT_SRC_URL:-${url_proto}${url_host}/cann/ops-fft.git}
-        local src_ref=${OPS_FFT_SRC_REF:-master}
         echo "ops-fft: clone source repo (${src_url} @ ${src_ref}) -> ${src_dir}"
         git clone -b ${src_ref} ${src_url} ${src_dir} || return 1
     fi
+    # 留痕回显: 显示实际使用的来源/分支/提交(仅记录不拦截; 非 git 目录显示 unknown)
+    echo "ops-fft: source url=${src_url} ref=${src_ref} branch=$(git -C ${src_dir} rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown) head=$(git -C ${src_dir} rev-parse --short HEAD 2>/dev/null || echo unknown) commit=$(git -C ${src_dir} log -1 --format=%s HEAD 2>/dev/null || echo unknown)"
 
     # 兼容补丁: 部分 CANN 的 bisheng 不含 tikcfw 内部头文件路径, 上游修复前由本仓携带, 已含修复时跳过
     local patch=${CODE_ROOT}/scripts/patches/ops-fft-tikcfw-include.patch

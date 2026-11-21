@@ -136,24 +136,24 @@ function delete_empty_recursion() {
 
 function uninstall_process() {
     #检查对应版本目录下的文件是否需要删除，是则进行删除
-    if [ ! -d $1 ];then
+    if [ ! -d "$1" ];then
         print "ERROR" "Ascend-cann-asdsip dir of $VERSION is not exist, uninstall failed!"
         return 0
     fi
-    print "INFO" "Ascend-cann-asdsip uninstall $(basename $1) start!"
-    asdsip_dir=$(cd $1/..;pwd)
-    delete_latest $1
-    delete_installed_files $1
-    if [ -d $1 ];then
-        delete_empty_recursion $1
+    print "INFO" "Ascend-cann-asdsip uninstall $(basename "$1") start!"
+    asdsip_dir=$(cd "$1/.." && pwd)
+    delete_latest "$1"
+    delete_installed_files "$1"
+    if [ -d "$1" ];then
+        delete_empty_recursion "$1"
     fi
-    if [ -z "$(ls $asdsip_dir)" ];then
-        rm -rf $asdsip_dir
+    if [ -z "$(ls "$asdsip_dir")" ];then
+        rm -rf "$asdsip_dir"
     fi
-    print "INFO" "Ascend-cann-asdsip uninstall $(basename $1) success!"
+    print "INFO" "Ascend-cann-asdsip uninstall $(basename "$1") success!"
 }
 
 
 install_path=$(cd "${CUR_DIR}/../../${VERSION}";pwd)
-uninstall_process ${install_path}
+uninstall_process "${install_path}"
 chmod 440 "${log_file}"
