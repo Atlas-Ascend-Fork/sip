@@ -157,7 +157,8 @@ AspbStatus asdFftExecC2CSeparated(
       <td>inData (aclTensor *)</td>
       <td>Input</td>
       <td><ul><li>Corresponds to "x" in the formula.</li><li>Supported data type: <code>COMPLEX64</code>.</li><li>Data format: <code>ND</code>.</li>
-      <li>The input shape is (batchSize, fftSizeX, fftSizeY, fftSizeZ).</li></ul></td>
+      <li>The input shape is (batchSize, fftSizeX, fftSizeY, fftSizeZ).</li>
+      <li>The API requires the input and output tensors to use separate, non-overlapping storage. Do not pass the same storage or partially overlapping views; exact aliasing is not a portable contract across FFT paths.</li><li>The input data may be modified during execution; copy it first if the original values are needed.</li></ul></td>
     </tr>
     <tr>
       <td>outData (aclTensor *)</td>

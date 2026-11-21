@@ -150,7 +150,8 @@ AspbStatus asdFftExecC2CSeparated(
       <td>input (aclTensor *)</td>
       <td>Input</td>
       <td><ul><li>Corresponds to "x" in the formula.</li><li>Supported data type: <code>COMPLEX64</code>.</li><li>Data format: <code>ND</code>.</li>
-      <li>For horizontal FFT, the input shape is (batchSize, fftSize).</li><li>For vertical FFT, the input shape is (fftSize, batchSize).</li></ul></td>
+      <li>For horizontal FFT, the input shape is (batchSize, fftSize).</li><li>For vertical FFT, the input shape is (fftSize, batchSize).</li>
+      <li>The API requires the input and output tensors to use separate, non-overlapping storage. Do not pass the same storage or partially overlapping views; exact aliasing is not a portable contract across FFT paths.</li><li>The input data may be modified during execution; copy it first if the original values are needed.</li></ul></td>
     </tr>
     <tr>
       <td>output (aclTensor *)</td>

@@ -163,7 +163,8 @@ AspbStatus asdFftExecC2CSeparated(
       <td>input（aclTensor *）</td>
       <td>输入</td>
       <td><ul><li>对应公式中的'x'。</li><li>数据类型支持COMPLEX64。</li><li>数据格式支持ND。</li>
-      <li>对横向FFT，输入的shape为（ batchSize，fftSize）。</li><li>对纵向FFT，输入的shape为（ fftSize，batchSize）。</li></ul></td>
+      <li>对横向FFT，输入的shape为（ batchSize，fftSize）。</li><li>对纵向FFT，输入的shape为（ fftSize，batchSize）。</li>
+      <li>API合同要求输入和输出张量使用相互独立且不重叠的存储空间，不要让两者指向同一存储空间或部分重叠的视图；不同FFT路径对精确重叠的处理不属于可移植的接口保证。</li><li>执行过程中可能会修改输入数据；如果需要保留原始输入，请提前复制。</li></ul></td>
     </tr>
     <tr>
       <td>output（aclTensor *）</td>

@@ -140,7 +140,8 @@ AspbStatus asdFftExecR2C(
       <td>input (const aclTensor *)</td>
       <td>Input</td>
       <td><ul><li>Corresponds to "x" in the formula.</li><li>Supported data types: <code>COMPLEX64</code>.</li><li>Data format: <code>ND</code>.</li>
-      <li>The input shape is (batchSize, fftSizeX, fftSizeY).</li></ul></td>
+      <li>The input shape is (batchSize, fftSizeX, fftSizeY).</li>
+      <li>The API requires the input and output tensors to use separate, non-overlapping storage. Do not pass the same storage or partially overlapping views; exact aliasing is not a portable contract across FFT paths.</li><li>The input data may be modified during execution; copy it first if the original values are needed.</li></ul></td>
     </tr>
     <tr>
       <td>output (const aclTensor *)</td>
