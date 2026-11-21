@@ -53,8 +53,10 @@ AspbStatus asdBlasCaxpy(asdBlasHandle handle, const int64_t n, const std::comple
     };
     ASDSIP_CHECK(CaxpDtypeCheck(parm) == ErrorType::ACL_SUCCESS, "blas asdBlasCaxpy dtype check failed.",
                  return ErrorType::ACL_ERROR_UNSUPPORTED_DATA_TYPE);
-    ASDSIP_CHECK(CaxpShapeCheck(parm, n) == ErrorType::ACL_SUCCESS, "blas asdBlasCaxpy shape check failed.",
-                 return ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
+    // 透传内层实际错误码（issue #455）：n 上界校验失败透传 ACL_ERROR_INVALID_PARAM（#451 口径，可被 UT 区分防回退），
+    // NUM_NOT_MATCH 路径仍为 OP_INPUT_NOT_MATCH，存量对外行为零改动
+    AspbStatus shapeRet = CaxpShapeCheck(parm, n);
+    ASDSIP_CHECK(shapeRet == ErrorType::ACL_SUCCESS, "blas asdBlasCaxpy shape check failed.", return shapeRet);
 
     // 非正步长显式拒绝（issue #260，统一口径）：原静默改写为 1 返回成功，实际计算另一组连续元素，结果静默错误
     ASDSIP_ECHECK(incx > 0, "blas asdBlasCaxpy get incx <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);

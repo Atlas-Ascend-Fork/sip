@@ -16,7 +16,8 @@
 // 实数入口 Sasum/Snrm2/Scopy/Sswap 上限统一与 sdot/isamax 对齐（issue #447）；
 // 复数 2n 载荷入口 Ccopy/Cswap 上限收紧至 INT32_MAX/2（issue #444）；
 // Sasum/Cswap 报错文案与实际函数名一一对应（issue #448）；
-// Cal/Caxpy 族 4 入口上限同步收紧：Sscal 实数计数、Csscal/Cscal/Caxpy 复数 2n 载荷（issue #451）。
+// Cal/Caxpy 族 4 入口上限同步收紧：Sscal 实数计数、Csscal/Cscal/Caxpy 复数 2n 载荷（issue #451）；
+// Cswap 边界断言恢复（!367 误删）+ Caxpy 越界期望值改透传口径 INVALID_PARAM 防校验回退（issue #455）。
 
 #include <gtest/gtest.h>
 #include <complex>
@@ -850,6 +851,8 @@ TEST(TestBlasVectorNBound, Cswap)
     asdBlasHandle handle;
     ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
     ASSERT_EQ(asdBlasMakeSwapPlan(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasCswap(handle, INT32_MAX / 2, x, 1, y, 1), AsdSip::ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
+    EXPECT_EQ(asdBlasCswap(handle, INT32_MAX / 2 + 1, x, 1, y, 1), AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
     asdBlasDestroy(handle);
     DestroyAclTensorWithAddr(x, xAddr);
     DestroyAclTensorWithAddr(y, yAddr);
@@ -938,10 +941,10 @@ TEST(TestBlasVectorNBound, Caxpy)
     ASSERT_EQ(asdBlasMakeCaxpyPlan(handle), AsdSip::ErrorType::ACL_SUCCESS);
     EXPECT_EQ(asdBlasCaxpy(handle, INT32_MAX / 2, {1.0f, 0.0f}, x, 1, y, 1),
               AsdSip::ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
-    // 越界拒绝：asdBlasCaxpy 外层 ASDSIP_CHECK 包装将 CaxpShapeCheck 失败（含 n 上界校验）
-    // 统一转换为 OP_INPUT_NOT_MATCH（既有口径），与边界放行证据同码、按 plog 触达位置区分
+    // 越界拒绝（issue #455）：外层包装透传内层实际错误码，n 上界校验失败为 INVALID_PARAM，
+    // 与边界放行（触达 NUM_NOT_MATCH 为 OP_INPUT_NOT_MATCH）可区分，防校验回退
     EXPECT_EQ(asdBlasCaxpy(handle, INT32_MAX / 2 + 1, {1.0f, 0.0f}, x, 1, y, 1),
-              AsdSip::ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
 
     asdBlasDestroy(handle);
     DestroyAclTensorWithAddr(x, xAddr);
