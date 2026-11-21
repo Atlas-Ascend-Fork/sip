@@ -169,6 +169,7 @@ rsInterpolationBySinc:
 
 - The number of input elements theoretically ranges from 1 to 3.93e+09.
 - During actual computation, the operator does not support high-dimensional ND operations (dimensions ≥ 3).
+- `interpLength` must be a positive multiple of 16. The current implementation processes interpolation coordinates in blocks of 16 and does not compute trailing coordinates in a shorter final block.
 - `interpNum` only supports even numbers, typically [8, 12, 16]. The maximum supported value in the current version is 16.
 - `quantNum` is a power of 2, with a maximum value of 32.
 - `inputTensor`, `posFloor`, and `posToTabIndex` have the same number of batches in dimension 0. The length of `outputTensor` is consistent with that of `posFloor` and `posToTabIndex`.

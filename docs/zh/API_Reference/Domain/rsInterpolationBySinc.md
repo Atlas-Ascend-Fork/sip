@@ -182,6 +182,7 @@ rsInterpolationBySinc：
 
 - 输入的元素个数理论支持[1，3.93e+09]。
 - 算子实际计算时，不支持ND高维度运算（不支持维度≥3的运算）。
+- interpLength必须为16的正整数倍；当前实现按16个插值坐标分块，非16倍数的尾部坐标不会被计算。
 - interpNum只支持偶数，通常使用 [8 ，12 ，16] ，当前版本最大支持16。
 - quantNum为2的幂，最大32。
 - inputTensor、posFloor、posToTabIndex第0维是相同的batch数，outputTensor长度和posFloor、posToTabIndex一致。
