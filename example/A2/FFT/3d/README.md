@@ -69,6 +69,8 @@
 
 提供示例代码分别对应不同场景，编译运行时需要根据具体场景对应更改build脚本：
 
+说明：以下输入/输出表仅列出 Tensor；FFT 类型是主机端 `asdFftType` 枚举参数，由 `asdFftMakePlan3D` 设置，不是 Tensor 输入。
+
 - **example_acl_fft_c2c_3d.cpp**
 
     【注】：默认编译脚本可编译运行该示例。
@@ -77,7 +79,6 @@
 
     | TensorName |   DataType  | DataFormat |          Shape          |       Value     |
     | :--------: | :---------: | :--------: | :---------------------: | :-------------: |
-    |  fftType   |  asdFftType |     nd     |           [1]           |  ASCEND_FFT_C2C |
     |   input    |  complex64  |     nd     |  [batch, Nfft1, Nfft2, Nfft3]  |       -         |
 
     **输出**
@@ -96,7 +97,6 @@
 
     | TensorName |   DataType  | DataFormat |              Shape              |       Value     |
     | :--------: | :---------: | :--------: | :-----------------------------: | :-------------: |
-    |  fftType   |  asdFftType |     nd     |                [1]              |  ASCEND_FFT_C2R |
     |   input    |  complex64  |     nd     |  [batch, Nfft1, Nfft2 , Nfft3 / 2 + 1]  |       -         |
 
     **输出**
@@ -115,7 +115,6 @@
 
     | TensorName |   DataType   | DataFormat |           Shape           |       Value     |
     | :--------: | :----------: | :--------: | :-----------------------: | :-------------: |
-    |   fftType  |   asdFftType |     nd     |             [1]           |  ASCEND_FFT_R2C |
     |    input   |    float32    |     nd     |   [batch, Nfft1, Nfft2, Nfft3]   |         -       |
 
     **输出**
@@ -132,7 +131,6 @@
 
     | TensorName |   DataType   | DataFormat |           Shape           |       Value     |
     | :--------: | :----------: | :--------: | :-----------------------: | :-------------: |
-    |   fftType  |   asdFftType |     nd     |             [1]           |  ASCEND_FFT_C2C_SEP |
     |    input   |    float32    |     nd     |   [batch, Nfft1, Nfft2, Nfft3]   |         -       |
 
     **输出**
