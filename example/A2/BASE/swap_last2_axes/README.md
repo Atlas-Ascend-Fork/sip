@@ -56,4 +56,4 @@
 
 ## 产品支持情况
 
-适用于Atlas A2/A3 训练系列产品、Atlas 800I A2 推理产品、Atlas A3 推理系列产品。
+适用于Atlas A2训练系列产品、Atlas 800I A2推理产品。

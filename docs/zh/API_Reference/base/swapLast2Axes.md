@@ -7,7 +7,7 @@
 <!-- end id1 -->
 
 <!-- npu="A3" id2 -->
-- <term>Atlas A3系列产品</term>：支持
+- <term>Atlas A3系列产品</term>：不支持
 <!-- end id2 -->
 
 <!-- npu="910b" id3 -->

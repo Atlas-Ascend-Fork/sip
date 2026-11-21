@@ -9,7 +9,7 @@
 |  <term>Atlas 200I/500 A2 inference products</term>    |     ×    |
 |  <term>Atlas inference products</term>    |     ×    |
 |  <term>Atlas training products</term>    |     ×    |
-|  <term>Atlas A3 training products/Atlas A3 inference products</term>   |     √    |
+|  <term>Atlas A3 training products/Atlas A3 inference products</term>   |     ×    |
 |  <term>Atlas A2 training products/Atlas A2 inference products</term>     |     √    |
 |  <term>Ascend 950PR/Ascend 950DT</term>   |     ×    |
 
