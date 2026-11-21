@@ -63,7 +63,7 @@ AspbStatus asdKaiserWindow(aclTensor* outTensor, int64_t windowLength,
 | stream | 输入 | NPU 执行流；长度非零时须为有效流。 |
 | workspace | 输入 | 当前不需要工作空间，可传入 `nullptr`。 |
 
-返回状态码；错误码说明参见 [SiP返回码](../../context/SiP返回码.md)。
+返回状态码；错误码说明参见 [SiP返回码](../../context/sip_return_codes.md)。
 
 ## 约束说明
 
