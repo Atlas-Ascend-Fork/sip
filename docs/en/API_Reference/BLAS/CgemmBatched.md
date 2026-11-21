@@ -32,13 +32,13 @@ The input `inTensorA[i]` is:\
 The input `inTensorC[i]` is:\
 [   [ 3+i, 3+2i ],
     [ 3+3i, 3+4i ]  ]\
-The input `transa` is: N, and the input `transb` is: T.\
-The input `m` is: 2, the input `n` is: 2, the input `k` is: 2, the input `alpha` is: 1+i, and `beta` is: 2+2i.\
+The inputs `transa` and `transb` are both ASDBLAS_OP_N.\
+The input `m` is: 2, the input `n` is: 2, the input `k` is: 2, the input `alpha` is 1+0i, and `beta` is 0+0i.\
 The input `lda` is: 2, the input `ldb` is: 2, and the input `ldc` is: 2.\
 The input `batchCount` is: 2.\
 After the `asdBlasCgemmBatched` operator is called, the output `C` is:\
-[   [ -1+9i, -7+13i ],
-    [ -7+17i, -21+21i ]  ]
+[   [ -3+10i, -6+12i ],
+    [ -11+18i, -18+20i ]  ]
 
 ## Function Prototype
 

@@ -37,8 +37,8 @@ The input `m` is: 2, the input `n` is: 2, the input `k` is: 2, the input `alpha`
 The input `lda` is: 2, the input `ldb` is: 2, and the input `ldc` is: 2.\
 The input `batchCount` is: 2.\
 After the `asdBlasHCgemmBatched` operator is called, the output `C` is:\
-[   [ -7+15i, -18+16i ],
-    [ -24+22i, -44+14i ]  ]
+[   [ -3+10i, -6+12i ],
+    [ -11+18i, -18+20i ]  ]
 
 ## Function Prototype
 
