@@ -27,6 +27,9 @@ if [ ! -d "$ASDSIP_HOME_PATH" ]; then
 fi
 export LD_LIBRARY_PATH=$ASDSIP_HOME_PATH/lib:$LD_LIBRARY_PATH
 
+set -e
+trap 'rm -f example' EXIT
+
 g++  example_complex_mat_dot.cpp \
     -I${ASCEND_HOME_PATH}/include/aclnn \
     -I${ASCEND_HOME_PATH}/include \
@@ -40,4 +43,3 @@ g++  example_complex_mat_dot.cpp \
 
 echo "Execute the example of ComplexMatDotOperation, calculate the multiplication of complex matrices element by element:"
 ./example
-rm example

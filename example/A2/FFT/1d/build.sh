@@ -27,6 +27,9 @@ if [ ! -d "$ASDSIP_HOME_PATH" ]; then
 fi
 export LD_LIBRARY_PATH=$ASDSIP_HOME_PATH/lib:$LD_LIBRARY_PATH
 
+set -e
+trap 'rm -f example' EXIT
+
 g++  example_acl_fft_c2c_1d.cpp \
     -I${ASCEND_HOME_PATH}/include/aclnn \
     -I${ASCEND_HOME_PATH}/include \
@@ -40,4 +43,3 @@ g++  example_acl_fft_c2c_1d.cpp \
 
 echo "Execute the example of FFT1DOpreation, performing 1D Fast Fourier Transform:"
 ./example
-rm example

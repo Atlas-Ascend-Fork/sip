@@ -27,6 +27,9 @@ if [ ! -d "$ASDSIP_HOME_PATH" ]; then
 fi
 export LD_LIBRARY_PATH=$ASDSIP_HOME_PATH/lib:$LD_LIBRARY_PATH
 
+set -e
+trap 'rm -f example' EXIT
+
 g++  example_ssyr2.cpp \
     -I${ASCEND_HOME_PATH}/include/aclnn \
     -I${ASCEND_HOME_PATH}/include \
@@ -40,4 +43,3 @@ g++  example_ssyr2.cpp \
 
 echo "Execute the example of Ssyr2Operation, performing symmetric rank-2 update:"
 ./example
-rm example

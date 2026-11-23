@@ -27,6 +27,9 @@ if [ ! -d "$ASDSIP_HOME_PATH" ]; then
 fi
 export LD_LIBRARY_PATH=$ASDSIP_HOME_PATH/lib:$LD_LIBRARY_PATH
 
+set -e
+trap 'rm -f example' EXIT
+
 g++  example_hcgemv_batched.cpp \
     -I${ASCEND_HOME_PATH}/include/aclnn \
     -I${ASCEND_HOME_PATH}/include \
@@ -40,4 +43,3 @@ g++  example_hcgemv_batched.cpp \
 
 echo "Execute the example of HcgemvBatchedOperation, performing batched complex matrix-vector multiplication with Hermitian matrices:"
 ./example
-rm example
