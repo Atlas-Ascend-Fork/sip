@@ -51,5 +51,5 @@ The following library files are provided by the CANN software package or the MKI
 | Library File | Source | Description |
 | --- | --- | --- |
 | libmki.so / libmki_static.a | MKI framework (3rdparty/mki) | **MKI kernel abstraction framework library**. Provides core abstractions such as Tensor, Kernel, and Operation, as well as runtime scheduling capabilities. `libasdsip_core.so` statically links `libmki_static.a` in release mode and dynamically links `libmki.so` in test mode. |
-| libascendcl.so | CANN software package ($ASCEND_HOME_PATH/lib64) | **Ascend CL runtime library**. Provides basic data types such as `aclTensor`, as well as runtime interfaces for device management, memory management, and stream management. `acl/acl.h` is referenced in the AsdSip public header files. |
+| libascendcl.so | CANN software package ($ASCEND_HOME_PATH/lib64) | **AscendCL runtime library**. Provides basic data types such as `aclTensor`, as well as runtime interfaces for device management, memory management, and stream management. `acl/acl.h` is referenced in the AsdSip public header files. |
 | libaclnn.so | CANN software package ($ASCEND_HOME_PATH/lib64) | **Ascend NN operator library**. Provides the aclnn series of operator interfaces. Some operations in the BLAS module depend on aclnn header files (`aclnn/opdev/fp16_t.h`, `acl/acl_meta.h`, etc.). |
