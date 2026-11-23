@@ -60,7 +60,11 @@ echo "  总运行数: $TOTAL"
 echo -e "  成功通过: \e[32m$PASSED\e[0m"
 echo -e "  失败项数: \e[31m$FAILED\e[0m"
 
-if [ $FAILED -gt 0 ]; then
+if [ $TOTAL -eq 0 ]; then
+    echo -e "\e[31m未发现可执行的测试脚本\e[0m"
+    rm -rf "$LOG_DIR"
+    exit 1
+elif [ $FAILED -gt 0 ]; then
     echo -e "\e[31m具体失败脚本: $FAILED_LIST\e[0m"
     rm -rf "$LOG_DIR"
     exit 1
