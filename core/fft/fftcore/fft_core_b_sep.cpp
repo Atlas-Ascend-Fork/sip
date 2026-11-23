@@ -244,12 +244,12 @@ AspbStatus FFTCoreBSep::InitTactic()
     launchParam.AddInTensor(*tMatrix);
     launchParam.AddOutTensor(tensorOutReal);
     launchParam.AddOutTensor(tensorOutImag);
-    Operation* opFftBSep = Ops::Instance().GetOperationByName(std::string("FftBSepOperation"));
-    if (opFftBSep == nullptr) {
+    Operation* op = Ops::Instance().GetOperationByName(std::string("FftBSepOperation"));
+    if (op == nullptr) {
         return AsdSip::ErrorType::ACL_ERROR_INTERNAL_ERROR;
     }
-    opFftBSep->InferShape(launchParam);
-    kernel = std::unique_ptr<Kernel>(opFftBSep->GetBestKernel(launchParam));
+    ASDSIP_ECHECK(op->InferShape(launchParam).Ok(), "InferShape failed.", AsdSip::ErrorType::ACL_ERROR_INTERNAL_ERROR);
+    kernel = std::unique_ptr<Kernel>(op->GetBestKernel(launchParam));
     ASDSIP_ECHECK(kernel != nullptr, "Get best kernel failed", AsdSip::ErrorType::ACL_ERROR_INTERNAL_ERROR);
     // allocate and initialize tiling workspace
     uint8_t* buffer = nullptr;
@@ -261,7 +261,7 @@ AspbStatus FFTCoreBSep::InitTactic()
     }
     std::vector<uint8_t> hostLaunchBuffer(launchBufferSize);
     kernel->SetTilingHostAddr(hostLaunchBuffer.data(), launchBufferSize);
-    kernel->Init(launchParam);
+    ASDSIP_ECHECK(kernel->Init(launchParam).Ok(), "Kernel Init failed.", AsdSip::ErrorType::ACL_ERROR_INTERNAL_ERROR);
 
     void* tempDevicePtr = nullptr;
     int st = MkiRtMemMallocDevice(&tempDevicePtr, launchBufferSize, MKIRT_MEM_DEFAULT);

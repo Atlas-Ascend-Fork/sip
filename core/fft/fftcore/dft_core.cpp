@@ -243,7 +243,7 @@ AspbStatus DFTCore::InitTactic()
     if (op == nullptr) {
         return AsdSip::ErrorType::ACL_ERROR_INTERNAL_ERROR;
     }
-    op->InferShape(launchParam);
+    ASDSIP_ECHECK(op->InferShape(launchParam).Ok(), "InferShape failed.", AsdSip::ErrorType::ACL_ERROR_INTERNAL_ERROR);
     kernel = std::unique_ptr<Kernel>(op->GetBestKernel(launchParam));
     ASDSIP_ECHECK(kernel != nullptr, "Get best kernel failed", AsdSip::ErrorType::ACL_ERROR_INTERNAL_ERROR);
 
@@ -258,7 +258,7 @@ AspbStatus DFTCore::InitTactic()
 
     std::vector<uint8_t> hostLaunchBuffer(launchBufferSize);
     kernel->SetTilingHostAddr(hostLaunchBuffer.data(), launchBufferSize);
-    kernel->Init(launchParam);
+    ASDSIP_ECHECK(kernel->Init(launchParam).Ok(), "Kernel Init failed.", AsdSip::ErrorType::ACL_ERROR_INTERNAL_ERROR);
     // ops-fft 后端 dft stub 的 tiling 为值传递, 保留 host 副本供 RunViaOpsFft 装载
     opsTilingHost.assign(hostLaunchBuffer.begin(), hostLaunchBuffer.end());
     void* tempDevicePtr = nullptr;

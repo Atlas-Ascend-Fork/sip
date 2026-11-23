@@ -194,7 +194,7 @@ AspbStatus DftR2CCore::InitTactic()
     if (op == nullptr) {
         return AsdSip::ErrorType::ACL_ERROR_INTERNAL_ERROR;
     }
-    op->InferShape(launchParam);
+    ASDSIP_ECHECK(op->InferShape(launchParam).Ok(), "InferShape failed.", AsdSip::ErrorType::ACL_ERROR_INTERNAL_ERROR);
     kernel = std::unique_ptr<Kernel>(op->GetBestKernel(launchParam));
     ASDSIP_ECHECK(kernel != nullptr, "Get best kernel failed", AsdSip::ErrorType::ACL_ERROR_INTERNAL_ERROR);
 
@@ -208,7 +208,7 @@ AspbStatus DftR2CCore::InitTactic()
     }
     std::vector<uint8_t> hostLaunchBuffer(launchBufferSize);
     kernel->SetTilingHostAddr(hostLaunchBuffer.data(), launchBufferSize);
-    kernel->Init(launchParam);
+    ASDSIP_ECHECK(kernel->Init(launchParam).Ok(), "Kernel Init failed.", AsdSip::ErrorType::ACL_ERROR_INTERNAL_ERROR);
 
     void* tempDevicePtr = nullptr;
     int st = MkiRtMemMallocDevice(&tempDevicePtr, launchBufferSize, MKIRT_MEM_DEFAULT);
