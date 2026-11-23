@@ -28,13 +28,23 @@ run_command() {
 }
 
 version_ge() {
-    # Version comparison, format: xx.xx.xx
+    # Version comparison, format: xx.xx.xx (base-10, strips non-digit suffixes)
     IFS='.' read -r -a curr_arr <<< "$1"
     IFS='.' read -r -a req_arr <<< "$2"
 
-    for ((i=0; i<${#req_arr[@]}; i++)); do
+    local max_len=${#req_arr[@]}
+    if (( ${#curr_arr[@]} > max_len )); then
+        max_len=${#curr_arr[@]}
+    fi
+
+    local i curr req
+    for ((i=0; i<max_len; i++)); do
         curr=${curr_arr[i]:-0}
-        req=${req_arr[i]}
+        req=${req_arr[i]:-0}
+        curr=${curr%%[!0-9]*}
+        req=${req%%[!0-9]*}
+        curr=$((10#${curr:-0}))
+        req=$((10#${req:-0}))
         if (( curr > req )); then
             return 0
         elif (( curr < req )); then
@@ -326,7 +336,7 @@ install_patch() {
             run_command sudo $PKG_MANAGER update
             run_command sudo $PKG_MANAGER install -y patch
             ;;
-        rhel)
+        rhel|euler)
             run_command sudo $PKG_MANAGER install -y patch
             ;;
         macos)
