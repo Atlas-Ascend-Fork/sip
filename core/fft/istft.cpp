@@ -46,6 +46,24 @@ inline bool IstftShouldAllocTempCaches(const AsdSip::FFTPlan& plan) { return pla
 
 inline bool IstftShouldAllocWorkspace(const AsdSip::FFTPlan& plan) { return IstftComputeWorkspaceSize(plan) != 0; }
 
+// workspace 绑定/需求量双重守卫（issue #162/#486，口径与 fft_api.cpp CheckWorkspaceBinding
+// 一致）：绑定守卫要求需 workspace 的 plan 已 SetWorkspace（#162）；需求量守卫要求先经
+// asdFftGetWorkspaceSize 记录需求量——plan.workspaceSize 为 0 时 Workspace 以
+// capacity_==0"容量未知"语义构造，#195 的 allocate 越界防护被整体旁路
+inline AspbStatus IstftCheckWorkspaceBinding(const AsdSip::FFTPlan& plan)
+{
+    const bool workspaceRequired = IstftShouldAllocTempCaches(plan) || IstftShouldAllocWorkspace(plan);
+    if (workspaceRequired && !plan.hasWorkspace()) {
+        ASDSIP_LOG(ERROR) << "workspace has not been allocated.";
+        return AsdSip::ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
+    if (workspaceRequired && plan.workspaceSize == 0) {
+        ASDSIP_LOG(ERROR) << "workspace size has not been queried, call asdFftGetWorkspaceSize before exec.";
+        return AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM;
+    }
+    return AsdSip::ErrorType::ACL_SUCCESS;
+}
+
 std::vector<void*> IstftAllocInterCaches(FFTPlan& plan, workspace::Workspace& wkspace)
 {
     std::vector<void*> cache;
@@ -62,7 +80,11 @@ void IstftRecycleInterCaches(FFTPlan& plan, workspace::Workspace& wkspace)
 {
     int64_t num = plan.steps.size() <= ISTFT_K_FACTOR_2 ? 1 : ISTFT_K_FACTOR_2;
     for (int64_t i = 0; i < num; i++) {
-        wkspace.recycleLast();
+        // 容错回收（issue #486）：异常 catch 内清理时 allocate 可能部分完成后即抛出，
+        // 此时无可回收项，直接 recycleLast 会在 catch 内二次抛异常穿透 C 接口
+        if (wkspace.CanRecycle()) {
+            wkspace.recycleLast();
+        }
     }
 }
 
@@ -209,11 +231,10 @@ AspbStatus asdFftExecIstftV2(FFTPlan& plan, const aclTensor* input, const aclTen
         return ErrorType::ACL_ERROR_INVALID_PARAM;
     }
 
-    // 与 asdFftExecV2 的口径一致：多步临时缓存与单步 scratch 任一需要即要求已设置
-    // workspace，否则需 workspace 的 plan 会以空基址进入 Run（issue #162）
-    if ((IstftShouldAllocTempCaches(plan) || IstftShouldAllocWorkspace(plan)) && !plan.hasWorkspace()) {
-        ASDSIP_LOG(ERROR) << "workspace has not been allocated.";
-        return AsdSip::ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    // workspace 绑定/需求量双重守卫（issue #162/#486），口径与 asdFftExecV2 一致
+    AspbStatus wsGuardStatus = IstftCheckWorkspaceBinding(plan);
+    if (wsGuardStatus != AsdSip::ErrorType::ACL_SUCCESS) {
+        return wsGuardStatus;
     }
 
     // 带容量构造：allocate 越界即抛异常，防止用户传入小于需求量的 workspace 静默越界写（issue #195）
@@ -243,14 +264,14 @@ AspbStatus asdFftExecIstftV2(FFTPlan& plan, const aclTensor* input, const aclTen
         return interceptStatus;
     }
 
-    std::vector<void*> tmpCache = IstftAllocInterCaches(plan, wkspace);
-
     // 1 transpose transposeOut size: (channel, n_frames, fft_size)
     // 2 c2c or c2r size: (channel, n_frames, n_fft) c2c n_fft = fft_size; c2r n_fft = (fft_size - 1) * 2
-    int ping = 0;
     // 执行链异常防护：workspace 回收/对齐校验等抛出的异常不得穿透 extern "C" 边界（issue #193），
-    // 口径与 asdFftExecV2 一致——异常时回收临时缓存并翻译为错误码
+    // 口径与 asdFftExecV2 一致——异常时回收临时缓存并翻译为错误码；多步临时缓存分配
+    // 纳入防护（issue #486）：用户绑定小容量 workspace 触发 allocate 越界时异常同样不得穿透
     try {
+        std::vector<void*> tmpCache = IstftAllocInterCaches(plan, wkspace);
+        int ping = 0;
         for (int64_t i = 0; i < static_cast<int64_t>(plan.steps.size()); i++) {
             void* tmpIn = i == 0 ? inputData : tmpCache[1 - ping];
             void* tmpOut = i == static_cast<int64_t>(plan.steps.size()) - 1 ? outputData : tmpCache[ping];
@@ -357,18 +378,13 @@ bool IstftParamsCheck(struct IstftDesc& istftAnyParms, const aclTensor* input)
     }
 
     // onesided = true 则 n_fft / 2 + 1 = fft_size; 否则 n_fft = fft_size
-    if (istftAnyParms.onesidedOpt) {
-        if (istftAnyParms.nFft / 2 + 1 != fftSize) {
-            ASDSIP_LOG(ERROR) << "expected the frequency dimension (3rd to the last) of the input tensor to "
-                              << "match n_fft / 2 + 1 when onesided=True, but got " << fftSize;
-            return false;
-        }
-    } else {
-        if (istftAnyParms.nFft != fftSize) {
-            ASDSIP_LOG(ERROR) << "expected the frequency dimension (3rd to the last) of the input tensor to "
-                              << "match n_fft when onesided=True, but got " << fftSize;
-            return false;
-        }
+    // 前置约束：本函数入口已无条件将 onesidedOpt 强制改写为 false（true 仅触发 WARN），
+    // onesided=true 分支静态不可达已删除（issue #487）；若后续放开 onesided 支持，
+    // 需恢复 n_fft / 2 + 1 == fft_size 分支
+    if (istftAnyParms.nFft != fftSize) {
+        ASDSIP_LOG(ERROR) << "expected the frequency dimension (3rd to the last) of the input tensor to "
+                          << "match n_fft when onesided=False, but got " << fftSize;
+        return false;
     }
 
     // 0 < hop_length && hop_length <= win_length)
@@ -408,7 +424,8 @@ bool IstftWindowTensorCheck(struct IstftDesc& istftAnyParms, const aclTensor* wi
     }
 
     if (dataType != aclDataType::ACL_FLOAT) {
-        ASDSIP_LOG(ERROR) << "Invalid iwindow tensor dtype! Only support float or complex64!";
+        // 文案与实际校验条件一致（issue #487）：本函数仅放行 ACL_FLOAT
+        ASDSIP_LOG(ERROR) << "Invalid iwindow tensor dtype! Only support float!";
         return false;
     }
     istftAnyParms.windowDtype = static_cast<int64_t>(dataType);

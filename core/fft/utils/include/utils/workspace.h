@@ -30,6 +30,9 @@ public:
     bool isInitialized() const;
     void Reset();
     void* allocate(size_t dataSize);
+    // 容错回收前置判断（issue #486）：清理路径（异常 catch 内 recycleInterCaches）可能
+    // 在 allocate 部分完成后触发，此时无可回收项，直接 recycleLast 会二次抛异常穿透
+    bool CanRecycle() const { return offsets_.size() > 1; }
     void recycleLast();
 
 private:

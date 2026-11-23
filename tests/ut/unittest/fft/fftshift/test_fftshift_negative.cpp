@@ -150,3 +150,46 @@ TEST(TestFftShiftNegative, TestShiftTensorDimOverflowOutRejected)
 // ifftshift（含 scale 路径）同款防护
 TEST(TestIfftShiftNegative, TestIfftShiftRowColOverflowRejected) { RunShiftOverflowCase(true); }
 TEST(TestIfftShiftNegative, TestIfftShiftRequiredInOverflowRejected) { RunShiftOverflowCase(true); }
+
+// ---- 负向校验：重叠切片拒绝（issue #488）----
+// 文档合同：dist > 0 时需满足 dist >= row*col（切片间存在 padding），0 < dist < row*col
+// 的重叠切片原实现未校验即放行；修复后按文档拒绝（FftShift.md/IfftShift.md zh/en 同款条目）
+
+void RunShiftOverlapCase(bool isIfftShift)
+{
+    int deviceId = 0;
+    MkiRtStream stream = OpTestInit(deviceId);
+    aclrtStream aclStream = static_cast<aclrtStream>(stream);
+
+    std::vector<std::complex<float>> inData(16, std::complex<float>(1.0f, 0.0f));
+    std::vector<std::complex<float>> outData(16, std::complex<float>(0.0f, 0.0f));
+    aclTensor* aclInput = nullptr;
+    aclTensor* aclOutput = nullptr;
+    void* inputDeviceAddr = nullptr;
+    void* outputDeviceAddr = nullptr;
+    ASSERT_EQ(CreateAclTensor(inData, {16}, &inputDeviceAddr, aclDataType::ACL_COMPLEX64, &aclInput), 0);
+    ASSERT_EQ(CreateAclTensor(outData, {16}, &outputDeviceAddr, aclDataType::ACL_COMPLEX64, &aclOutput), 0);
+
+    // row=2, col=2 → sliceSize=4；dist=3 落在 (0, sliceSize) 重叠区间
+    if (isIfftShift) {
+        EXPECT_EQ(asdIfftShift(2, 2, 4, 3, 1.0, aclInput, aclOutput, aclStream, nullptr),
+                  AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    } else {
+        EXPECT_EQ(asdFftShift(2, 2, 4, 3, aclInput, aclOutput, aclStream, nullptr),
+                  AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    }
+
+    aclDestroyTensor(aclInput);
+    aclDestroyTensor(aclOutput);
+    aclrtFree(inputDeviceAddr);
+    aclrtFree(outputDeviceAddr);
+
+    TensorContext context;
+    OpTestEnd(deviceId, context, stream);
+}
+
+// 0 < dist < row*col 重叠切片拒绝（asdFftShift）
+TEST(TestFftShiftNegative, TestShiftOverlappingSliceRejected) { RunShiftOverlapCase(false); }
+
+// 0 < dist < row*col 重叠切片拒绝（asdIfftShift）
+TEST(TestIfftShiftNegative, TestIfftShiftOverlappingSliceRejected) { RunShiftOverlapCase(true); }

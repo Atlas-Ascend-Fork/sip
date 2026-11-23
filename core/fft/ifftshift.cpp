@@ -100,6 +100,13 @@ AsdSip::AspbStatus AsdSip::asdIfftShift(int64_t row, int64_t col, int64_t batch,
     int64_t sliceSize = row * col;
     if (dist <= 0) {
         dist = sliceSize;
+    } else if (dist < sliceSize) {
+        // 文档合同校验（issue #488，对齐 IfftShift.md 约束条目）：dist > 0 时需满足
+        // dist >= row*col（切片间存在 padding），0 < dist < row*col 的重叠切片原实现
+        // 未校验即放行，切片区间重叠读写结果不可预期，按文档拒绝
+        ASDSIP_LOG(ERROR) << "asdIfftShift requires dist >= row*col when dist > 0, got dist:" << dist
+                          << " , row*col:" << sliceSize;
+        return ErrorType::ACL_ERROR_INVALID_PARAM;
     }
 
     auto ret = IfftShiftDtypeCheck(input, output);

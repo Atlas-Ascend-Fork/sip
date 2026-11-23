@@ -986,11 +986,34 @@ inline bool shouldAllocTempCaches(const FFTPlan& plan) { return plan.steps.size(
 
 inline bool shouldAllocWorkspace(const FFTPlan& plan) { return computeWorkspaceSize(plan) != 0; }
 
+// workspace 绑定/需求量双重守卫（issue #162/#486，asdFftExecV2/asdFftExecV2Separated 共用）：
+// 1) 绑定守卫（#162）：需要 workspace/temp cache 的 plan 必须已 SetWorkspace；
+// 2) 需求量守卫（#486）：plan.workspaceSize 仅由 asdFftGetWorkspaceSize 记录，跳过
+//    GetWorkspaceSize 直接 SetWorkspace+Exec 时为 0，Workspace 以 capacity_==0
+//    "容量未知"语义构造，#195 的 allocate 越界防护被整体旁路，必须先记录需求量
+inline AspbStatus CheckWorkspaceBinding(const FFTPlan& plan)
+{
+    const bool workspaceRequired = shouldAllocTempCaches(plan) || shouldAllocWorkspace(plan);
+    if (workspaceRequired && !plan.hasWorkspace()) {
+        ASDSIP_LOG(ERROR) << "workspace has not been allocated.";
+        return AsdSip::ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
+    if (workspaceRequired && plan.workspaceSize == 0) {
+        ASDSIP_LOG(ERROR) << "workspace size has not been queried, call asdFftGetWorkspaceSize before exec.";
+        return AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM;
+    }
+    return AsdSip::ErrorType::ACL_SUCCESS;
+}
+
 void recycleInterCaches(FFTPlan& plan, workspace::Workspace& wkspace)
 {
     int64_t num = plan.steps.size() <= K_FACTOR_2 ? 1 : K_FACTOR_2;
     for (int64_t i = 0; i < num; i++) {
-        wkspace.recycleLast();
+        // 容错回收（issue #486）：异常 catch 内清理时 allocate 可能部分完成后即抛出，
+        // 此时无可回收项，直接 recycleLast 会在 catch 内二次抛异常穿透 C 接口
+        if (wkspace.CanRecycle()) {
+            wkspace.recycleLast();
+        }
     }
 }
 
@@ -1332,9 +1355,10 @@ AspbStatus asdFftExecV2(FFTPlan& plan, const aclTensor* input, const aclTensor* 
         return ErrorType::ACL_ERROR_INVALID_PARAM;
     }
 
-    if ((shouldAllocTempCaches(plan) || shouldAllocWorkspace(plan)) && !plan.hasWorkspace()) {
-        ASDSIP_LOG(ERROR) << "workspace has not been allocated.";
-        return AsdSip::ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    // workspace 绑定/需求量双重守卫（issue #162/#486）
+    AspbStatus wsGuardStatus = CheckWorkspaceBinding(plan);
+    if (wsGuardStatus != ErrorType::ACL_SUCCESS) {
+        return wsGuardStatus;
     }
 
     // 带容量构造：allocate 越界即抛异常，防止用户传入小于需求量的 workspace 静默越界写（issue #195）
@@ -1368,10 +1392,11 @@ AspbStatus asdFftExecV2(FFTPlan& plan, const aclTensor* input, const aclTensor* 
         }
         return AsdSip::ErrorType::ACL_SUCCESS;
     }
-    std::vector<void*> tmpCache = allocInterCachesV2(plan, wkspace);
     int ping = 0;
-    // 核心异常穿透防护：异常时回收已分配的多步临时缓存并翻译为错误码（issue #160）
+    // 多步临时缓存分配纳入异常穿透防护（issue #486）：用户绑定小容量 workspace 触发
+    // allocate 越界时异常不得穿透 C 接口；成功路径与异常路径统一由回收容错保障
     try {
+        std::vector<void*> tmpCache = allocInterCachesV2(plan, wkspace);
         for (int64_t i = 0; i < static_cast<int64_t>(plan.steps.size()); i++) {
             void* tmpIn = i == 0 ? inputData : tmpCache[1 - ping];
             void* tmpOut = i == static_cast<int64_t>(plan.steps.size()) - 1 ? outputData : tmpCache[ping];
@@ -1619,11 +1644,10 @@ AspbStatus asdFftExecV2Separated(FFTPlan& plan, const aclTensor* inputReal, cons
         return ErrorType::ACL_ERROR_INVALID_PARAM;
     }
 
-    // 与 asdFftExecV2 的口径一致：多步临时缓存与单步 scratch 任一需要即要求已设置
-    // workspace，否则单步需 workspace 的 plan 会以空基址进入 Run（issue #162）
-    if ((shouldAllocTempCaches(plan) || shouldAllocWorkspace(plan)) && !plan.hasWorkspace()) {
-        ASDSIP_LOG(ERROR) << "workspace has not been allocated.";
-        return AsdSip::ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    // workspace 绑定/需求量双重守卫（issue #162/#486），口径与 asdFftExecV2 一致
+    AspbStatus wsGuardStatus = CheckWorkspaceBinding(plan);
+    if (wsGuardStatus != ErrorType::ACL_SUCCESS) {
+        return wsGuardStatus;
     }
 
     // 带容量构造：allocate 越界即抛异常，防止用户传入小于需求量的 workspace 静默越界写（issue #195）
