@@ -17,7 +17,6 @@ constexpr int32_t MAX_VECTOT = 40;
 
 // tilingDatas似乎有上限，286*4
 struct IamaxTilingData {
-    uint32_t incx;
     uint32_t needVecCoreNum;
     uint32_t dytpeFlag;
     uint32_t rstLenAllCoreBytes;
@@ -30,10 +29,10 @@ struct IamaxTilingData {
     uint32_t reduceMaxRstsLenEachCore[MAX_VECTOT];
     uint32_t dealLenUpBlockEachTime[MAX_VECTOT];
     uint32_t totalRptCntNor[MAX_VECTOT];
-    uint32_t totalRptCntNorRemainder[MAX_VECTOT];  // should calc
-    uint32_t rptBatchCntNor[MAX_VECTOT];           // limit by L0 API, should calc
-    uint32_t rptBatchCntNorRemainder[MAX_VECTOT];  // should calc
+    uint32_t totalRptCntNorRemainder[MAX_VECTOT]; // should calc
+    uint32_t rptBatchCntNor[MAX_VECTOT];          // limit by L0 API, should calc
+    uint32_t rptBatchCntNorRemainder[MAX_VECTOT]; // should calc
     uint32_t rmdRptLenNor[MAX_VECTOT];
 };
-}
+} // namespace AsdSip
 #endif

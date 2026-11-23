@@ -82,7 +82,7 @@ AspbStatus asdBlasIamaxImpl(asdBlasHandle handle, IamaxImplParam implParam)
         // 非法 n/incx 显式拒绝（issue #254，方案 b）：原将局部 implParam.result
         // 指向 plan 内部张量后返回成功，用户 result 从未被写入（未初始化输出）；
         // 对齐 #243/#247 的非法参数拒绝口径
-        ASDSIP_ECHECK(implParam.n > 0 && implParam.incx > 0, "blas asdBlasIamax get n <= 0 or incx <= 0.",
+        ASDSIP_ECHECK(implParam.n > 0 && implParam.incx == 1, "blas asdBlasIamax get n <= 0 or incx != 1.",
                       ErrorType::ACL_ERROR_INVALID_PARAM);
 
         aclDataType dataType = aclDataType::ACL_DT_UNDEFINED;

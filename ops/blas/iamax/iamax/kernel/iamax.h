@@ -24,10 +24,11 @@ constexpr uint32_t BLOCKS_PER_REPEAT = 8;
 constexpr uint32_t MAX_CAST_COUNT = 512;
 constexpr uint32_t BYTE_LEN_4 = 4;
 constexpr uint32_t MAX_VECTOT = 40;
-constexpr uint64_t REDUCE_MAX_RST_MASK = 72340172838076673;  // 2^0+2^8+2^16+2^24+2^32+2^40+2^48+2^56
+constexpr uint64_t REDUCE_MAX_RST_MASK = 72340172838076673; // 2^0+2^8+2^16+2^24+2^32+2^40+2^48+2^56
 
-// 超过32超过一个repeat上限，reduceMaz进入第二个repeat，全置零后可复用该mask,i = 0 到 31,REDUCE_MAX_CORES_RST_MASK += (uint64_t)1<<(i*2);
-constexpr uint64_t REDUCE_MAX_CORES_RST_MASK = 6148914691236517205;  // (i*2)^0+(i*2)^2+(i*2)^4+..+(i*2)^31
+// 超过32超过一个repeat上限，reduceMaz进入第二个repeat，全置零后可复用该mask,i = 0 到 31,REDUCE_MAX_CORES_RST_MASK +=
+// (uint64_t)1<<(i*2);
+constexpr uint64_t REDUCE_MAX_CORES_RST_MASK = 6148914691236517205; // (i*2)^0+(i*2)^2+(i*2)^4+..+(i*2)^31
 
 constexpr int32_t GM_RESULT_LEN = 2;
 
@@ -37,7 +38,7 @@ constexpr uint32_t MAX_NUM_F32_ELE_EACH_CORE = 23040;
 // 中间结果按2k规划，即2*1024/32=64次，即单核超过63次,就要取一次reduceMax，将空间占用降为一个block
 // 64-63是因为有一个是历史压缩结果
 constexpr int32_t DEAL_TIMES_EACH_CORE_REDUCE = 63;
-constexpr int32_t DEAL_TIMES_EACH_CORE_REDUCE_REP = 8;  // (63+1)/8=8个repeat
+constexpr int32_t DEAL_TIMES_EACH_CORE_REDUCE_REP = 8; // (63+1)/8=8个repeat
 
 template <typename T>
 class Iamax {
@@ -102,7 +103,6 @@ private:
     uint32_t elementsPerBlock = BYTE_BLOCK / BYTE_LEN_4;
     uint32_t elementsPerRepeat = BYTES_PER_REPEAT / BYTE_LEN_4;
 
-    uint32_t incx;
     uint32_t needVecCoreNum;
     uint32_t dytpeFlag;
     uint32_t startOffset;
@@ -119,9 +119,9 @@ private:
 
     uint32_t maxRepeatLen;
     uint32_t totalRptCntNor;
-    uint32_t totalRptCntNorRemainder;  // should calc
-    uint32_t rptBatchCntNor;           // limit by L0 API, should calc
-    uint32_t rptBatchCntNorRemainder;  // should calc
+    uint32_t totalRptCntNorRemainder; // should calc
+    uint32_t rptBatchCntNor;          // limit by L0 API, should calc
+    uint32_t rptBatchCntNorRemainder; // should calc
     uint32_t rmdRptLenNor;
     bool isUpdateRptParas = false;
 
@@ -138,13 +138,13 @@ __aicore__ inline void Iamax<T>::Init(GM_ADDR x, GM_ADDR y, GM_ADDR usrWorkspace
         return;
     }
 
-    inTensorsGM.SetGlobalBuffer((__gm__ T *)x + startOffset, eleTotalEachCore);
-    tmpRstWkGM.SetGlobalBuffer((__gm__ T *)usrWorkspace + blockIdx * GM_RESULT_LEN, GM_RESULT_LEN);
-    outTensorsGM.SetGlobalBuffer((__gm__ int32_t *)y, GM_RESULT_LEN);
+    inTensorsGM.SetGlobalBuffer((__gm__ T*)x + startOffset, eleTotalEachCore);
+    tmpRstWkGM.SetGlobalBuffer((__gm__ T*)usrWorkspace + blockIdx * GM_RESULT_LEN, GM_RESULT_LEN);
+    outTensorsGM.SetGlobalBuffer((__gm__ int32_t*)y, GM_RESULT_LEN);
 
     this->pipe.InitBuffer(this->inDataQueue, BUFFER_NUM, this->dealLenUpBlockEachTime * BYTE_LEN_4);
     this->pipe.InitBuffer(this->reduceMaxRsts,
-                          this->reduceMaxRstsLen * BYTE_LEN_4);  // 保存多次reduceMax的结果，用于汇总
+                          this->reduceMaxRstsLen * BYTE_LEN_4); // 保存多次reduceMax的结果，用于汇总
     this->pipe.InitBuffer(this->reduceMaxWrk, this->reduceMaxRstsLen * BYTE_LEN_4);
     this->pipe.InitBuffer(this->reduceMaxDst, this->elementsPerBlock * BYTE_LEN_4);
     this->pipe.InitBuffer(this->rMaxRsts, this->elementsPerBlock * BYTE_LEN_4);
@@ -169,37 +169,36 @@ __aicore__ inline void Iamax<T>::Init(GM_ADDR x, GM_ADDR y, GM_ADDR usrWorkspace
 template <typename T>
 __aicore__ inline bool Iamax<T>::ParseTilingData(GM_ADDR tiling)
 {
-    auto tilingBuf = reinterpret_cast<__gm__ uint32_t *>(tiling);
-    this->incx = (*(__gm__ uint32_t *)(tilingBuf + 0));
-    this->needVecCoreNum = (*(__gm__ uint32_t *)(tilingBuf + 1));
+    auto tilingBuf = reinterpret_cast<__gm__ uint32_t*>(tiling);
+    this->needVecCoreNum = (*(__gm__ uint32_t*)(tilingBuf + 0));
 
     // mix模式下，每个AICore会启动两个AIVcore,。tiling中根据AIVcoreNum推算的BlockDim可能会多一个
     if (this->blockIdx + 1 > this->needVecCoreNum) {
         return false;
     }
 
-    this->dytpeFlag = (*(__gm__ uint32_t *)(tilingBuf + 2));
-    this->rstLenAllCoreBytes = (*(__gm__ uint32_t *)(tilingBuf + 3));
-    this->tailCount = (*(__gm__ uint32_t *)(tilingBuf + 4));
-    this->maxRepeatLen = (*(__gm__ uint32_t *)(tilingBuf + 5));
+    this->dytpeFlag = (*(__gm__ uint32_t*)(tilingBuf + 1));
+    this->rstLenAllCoreBytes = (*(__gm__ uint32_t*)(tilingBuf + 2));
+    this->tailCount = (*(__gm__ uint32_t*)(tilingBuf + 3));
+    this->maxRepeatLen = (*(__gm__ uint32_t*)(tilingBuf + 4));
 
-    this->startOffset = (*(__gm__ uint32_t *)(tilingBuf + 6 + this->blockIdx));
-    this->eleTotalEachCore = (*(__gm__ uint32_t *)(tilingBuf + 6 + 1 * MAX_VECTOT + this->blockIdx));
-    this->dealTimesEachCore = (*(__gm__ uint32_t *)(tilingBuf + 6 + 2 * MAX_VECTOT + this->blockIdx));
-    this->dealLenEachTime = (*(__gm__ uint32_t *)(tilingBuf + 6 + 3 * MAX_VECTOT + this->blockIdx));
-    this->reduceMaxRstsLen = (*(__gm__ uint32_t *)(tilingBuf + 6 + 4 * MAX_VECTOT + this->blockIdx));
-    this->dealLenUpBlockEachTime = (*(__gm__ uint32_t *)(tilingBuf + 6 + 5 * MAX_VECTOT + this->blockIdx));
+    this->startOffset = (*(__gm__ uint32_t*)(tilingBuf + 5 + this->blockIdx));
+    this->eleTotalEachCore = (*(__gm__ uint32_t*)(tilingBuf + 5 + 1 * MAX_VECTOT + this->blockIdx));
+    this->dealTimesEachCore = (*(__gm__ uint32_t*)(tilingBuf + 5 + 2 * MAX_VECTOT + this->blockIdx));
+    this->dealLenEachTime = (*(__gm__ uint32_t*)(tilingBuf + 5 + 3 * MAX_VECTOT + this->blockIdx));
+    this->reduceMaxRstsLen = (*(__gm__ uint32_t*)(tilingBuf + 5 + 4 * MAX_VECTOT + this->blockIdx));
+    this->dealLenUpBlockEachTime = (*(__gm__ uint32_t*)(tilingBuf + 5 + 5 * MAX_VECTOT + this->blockIdx));
 
-    this->totalRptCntNor = (*(__gm__ uint32_t *)(tilingBuf + 6 + 6 * MAX_VECTOT + this->blockIdx));
-    this->totalRptCntNorRemainder = (*(__gm__ uint32_t *)(tilingBuf + 6 + 7 * MAX_VECTOT + this->blockIdx));
-    this->rptBatchCntNor = (*(__gm__ uint32_t *)(tilingBuf + 6 + 8 * MAX_VECTOT + this->blockIdx));
-    this->rptBatchCntNorRemainder = (*(__gm__ uint32_t *)(tilingBuf + 6 + 9 * MAX_VECTOT + this->blockIdx));
-    this->rmdRptLenNor = (*(__gm__ uint32_t *)(tilingBuf + 6 + 10 * MAX_VECTOT + this->blockIdx));
+    this->totalRptCntNor = (*(__gm__ uint32_t*)(tilingBuf + 5 + 6 * MAX_VECTOT + this->blockIdx));
+    this->totalRptCntNorRemainder = (*(__gm__ uint32_t*)(tilingBuf + 5 + 7 * MAX_VECTOT + this->blockIdx));
+    this->rptBatchCntNor = (*(__gm__ uint32_t*)(tilingBuf + 5 + 8 * MAX_VECTOT + this->blockIdx));
+    this->rptBatchCntNorRemainder = (*(__gm__ uint32_t*)(tilingBuf + 5 + 9 * MAX_VECTOT + this->blockIdx));
+    this->rmdRptLenNor = (*(__gm__ uint32_t*)(tilingBuf + 5 + 10 * MAX_VECTOT + this->blockIdx));
 
     this->startElement = this->startOffset;
     this->dealEleEachTime = this->dealLenEachTime;
     this->tailEle = this->tailCount;
-    if (this->dytpeFlag == 1) {  // 如果是复数
+    if (this->dytpeFlag == 1) { // 如果是复数
         this->startElement = this->startOffset / 2;
         this->dealEleEachTime = this->dealEleEachTime / 2;
         this->tailEle = this->tailCount / 2;
@@ -298,7 +297,7 @@ __aicore__ inline void Iamax<T>::CopyInAttacheTail(uint32_t calCount, uint32_t t
     uint16_t blockCout = (uint16_t)1;
     uint16_t blockLen = tailCount * BYTE_LEN_4;
     DataCopyParams copyParams{blockCout, blockLen, 0, 0};
-    DataCopyPadParams padParams{true, 0, 0, 0};  // dummy自动补齐32B，paddingValue=0
+    DataCopyPadParams padParams{true, 0, 0, 0}; // dummy自动补齐32B，paddingValue=0
     DataCopyPad(inLocalTensor[calCount], inTensorsGM[offset + calCount], copyParams, padParams);
 
     inDataQueue.EnQue(inLocalTensor);
@@ -310,21 +309,21 @@ __aicore__ inline void Iamax<T>::SingleProcess(const int32_t count, uint32_t k)
     LocalTensor<T> srcLocal = inDataQueue.DeQue<T>();
 
     // 如果本次是第64次（k=63）,k-1结果已经在376行处理过了，不需要再处理
-    if (k % DEAL_TIMES_EACH_CORE_REDUCE != 0 && k > 0) {  // 上一次
+    if (k % DEAL_TIMES_EACH_CORE_REDUCE != 0 && k > 0) { // 上一次
         GetReduceMaxCount(k - 1);
     }
 
     uint32_t totalRepeatCnt = this->totalRptCntNor;
-    uint32_t totalRepeatCntRemainder = this->totalRptCntNorRemainder;  // should calc
-    uint32_t repeatBatchCnt = this->rptBatchCntNor;                    // limit by L0 API, should calc
-    uint32_t repeatBatchCntRemainder = this->rptBatchCntNorRemainder;  // should calc
+    uint32_t totalRepeatCntRemainder = this->totalRptCntNorRemainder; // should calc
+    uint32_t repeatBatchCnt = this->rptBatchCntNor;                   // limit by L0 API, should calc
+    uint32_t repeatBatchCntRemainder = this->rptBatchCntNorRemainder; // should calc
     uint32_t maxRepeatLen = this->maxRepeatLen;
     uint32_t rmdRepeatLen = this->rmdRptLenNor;
     if (this->isUpdateRptParas == true) {
         totalRepeatCnt = count / elementsPerRepeat;
-        totalRepeatCntRemainder = count % elementsPerRepeat;     // should calc
-        repeatBatchCnt = totalRepeatCnt / MAX_REPEATS;           // limit by L0 API, should calc
-        repeatBatchCntRemainder = totalRepeatCnt % MAX_REPEATS;  // should calc
+        totalRepeatCntRemainder = count % elementsPerRepeat;    // should calc
+        repeatBatchCnt = totalRepeatCnt / MAX_REPEATS;          // limit by L0 API, should calc
+        repeatBatchCntRemainder = totalRepeatCnt % MAX_REPEATS; // should calc
         rmdRepeatLen = repeatBatchCntRemainder * elementsPerRepeat;
     }
 
@@ -393,9 +392,9 @@ __aicore__ inline void Iamax<T>::GetReduceMaxCount(uint32_t k)
     SetFlag<HardEvent::V_S>(eventID2);
     WaitFlag<HardEvent::V_S>(eventID2);
 
-    float val = 0;                      // 最值
-    float idx = 0;                      // 最值的索引值，
-    GetReduceMaxMinCount<T>(val, idx);  // 获取上次WholeReudceMax的结果
+    float val = 0;                     // 最值
+    float idx = 0;                     // 最值的索引值，
+    GetReduceMaxMinCount<T>(val, idx); // 获取上次WholeReudceMax的结果
 
     this->rMaxTmpRstsTenor.SetValue(tmpK, val);
     this->rMaxTmpRstsTenor.SetValue(tmpK + 1, idx);
@@ -415,14 +414,14 @@ __aicore__ inline void Iamax<T>::reduceMaxTmpResult(uint32_t k)
     SetFlag<HardEvent::V_S>(eventID1);
     WaitFlag<HardEvent::V_S>(eventID1);
 
-    float tmpK = this->rMaxDstTenor.GetValue(1);                 // 第二次reduceMax的结果，
-    int32_t maxIdxInRst = *reinterpret_cast<uint32_t *>(&tmpK);  //
+    float tmpK = this->rMaxDstTenor.GetValue(1);               // 第二次reduceMax的结果，
+    int32_t maxIdxInRst = *reinterpret_cast<uint32_t*>(&tmpK); //
 
     float tmpK2 = this->rMaxALLRstsTenor.GetValue(maxIdxInRst + 1);
-    int32_t maxIdxInOriVec = *reinterpret_cast<uint32_t *>(&tmpK2);
+    int32_t maxIdxInOriVec = *reinterpret_cast<uint32_t*>(&tmpK2);
 
     // rMaxALLRstsTenord的结构为  第一个block为历史压缩结果，第二block开始为本轮第一个结果
-    if (maxIdxInRst != 0) {  // 如果不是历史压缩结果最大;
+    if (maxIdxInRst != 0) { // 如果不是历史压缩结果最大;
         int32_t preOffset = (k / DEAL_TIMES_EACH_CORE_REDUCE) * DEAL_TIMES_EACH_CORE_REDUCE;
         int32_t maxValueIndex = this->startElement +
                                 (preOffset + maxIdxInRst / this->elementsPerBlock - 1) * this->dealEleEachTime +
@@ -435,7 +434,7 @@ __aicore__ inline void Iamax<T>::reduceMaxTmpResult(uint32_t k)
         }
         // 写回头部
         this->rMaxALLRstsTenor.SetValue(0, this->rMaxDstTenor.GetValue(0));
-        this->rMaxALLRstsTenor.SetValue(1, *reinterpret_cast<float *>(&maxValueIndex));
+        this->rMaxALLRstsTenor.SetValue(1, *reinterpret_cast<float*>(&maxValueIndex));
 
         // V等S，V包括getCoreTmpReduResult中的Copy或者SingleProcess中的Abs(更准确的是下一次的reduceMaxTmpResult中的ReduceMax)
         event_t eventID2 = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::S_V));
@@ -480,7 +479,7 @@ __aicore__ inline void Iamax<T>::copyInCoresTmpRst()
 {
     LocalTensor<T> inLocalTensor = coresRstInDataQueue.AllocTensor<T>();
 
-    Duplicate<T>(inLocalTensor, 0.0, this->coresRstReduceMaxLen);  // 多申请了一部分内存置零
+    Duplicate<T>(inLocalTensor, 0.0, this->coresRstReduceMaxLen); // 多申请了一部分内存置零
 
     event_t eventID1 = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::V_MTE2));
     SetFlag<HardEvent::V_MTE2>(eventID1);
@@ -488,7 +487,7 @@ __aicore__ inline void Iamax<T>::copyInCoresTmpRst()
 
     uint16_t blockLen = this->rstLenAllCoreBytes;
     DataCopyParams copyParams{1, blockLen, 0, 0};
-    DataCopyPadParams padParams{true, 0, 0, 0};  // dummy自动补齐32B，paddingValue=0
+    DataCopyPadParams padParams{true, 0, 0, 0}; // dummy自动补齐32B，paddingValue=0
     DataCopyPad(inLocalTensor, tmpRstWkGM, copyParams, padParams);
 
     coresRstInDataQueue.EnQue(inLocalTensor);
@@ -509,10 +508,10 @@ __aicore__ inline void Iamax<T>::ReduceMaxCoresTmpRst()
     SetFlag<HardEvent::V_S>(eventID3);
     WaitFlag<HardEvent::V_S>(eventID3);
 
-    float tmpK = this->coresRstReduceTmp.GetValue(1);  // 第二次reduceMax的结果，
-    int32_t maxIdxInRst = *reinterpret_cast<uint32_t *>(&tmpK);
-    float tmpK2 = srcLocal.GetValue(maxIdxInRst + 1);  // 去第一次汇总结果中找到真正的index
-    int32_t maxValueIndex = *reinterpret_cast<uint32_t *>(&tmpK2) + 1;  // 再加1（culblas下标从1开始）
+    float tmpK = this->coresRstReduceTmp.GetValue(1); // 第二次reduceMax的结果，
+    int32_t maxIdxInRst = *reinterpret_cast<uint32_t*>(&tmpK);
+    float tmpK2 = srcLocal.GetValue(maxIdxInRst + 1);                 // 去第一次汇总结果中找到真正的index
+    int32_t maxValueIndex = *reinterpret_cast<uint32_t*>(&tmpK2) + 1; // 再加1（culblas下标从1开始）
 
     outLocalTensor.SetValue(0, maxValueIndex);
 
@@ -542,8 +541,8 @@ __aicore__ inline void Iamax<T>::getCoreReduResult()
     LocalTensor<int32_t> outLocalTensor = coresRstOutDataQueue.AllocTensor<int32_t>();
 
     float tmpK = rMaxALLRstsTenor.GetValue(1);
-    int32_t maxIdxInRst = *reinterpret_cast<uint32_t *>(&tmpK);  //
-    rMaxRstsTenor.SetValue(0, maxIdxInRst + 1);                  // 再加1（culblas下标从1开始）
+    int32_t maxIdxInRst = *reinterpret_cast<uint32_t*>(&tmpK); //
+    rMaxRstsTenor.SetValue(0, maxIdxInRst + 1);                // 再加1（culblas下标从1开始）
 
     event_t eventID2 = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::S_V));
     SetFlag<HardEvent::S_V>(eventID2);
@@ -568,6 +567,6 @@ __aicore__ inline void Iamax<T>::CopyTmpRstOut()
     coresRstOutDataQueue.FreeTensor(outLocalTensor);
 }
 
-}  // namespace IAMAX
+} // namespace Iamax
 
-#endif  // IAMAX_H
+#endif // IAMAX_H

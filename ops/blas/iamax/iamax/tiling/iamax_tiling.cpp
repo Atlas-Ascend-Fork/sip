@@ -15,8 +15,8 @@
 #include "iamax_tiling_data.h"
 #include "iamax_tiling.h"
 
-constexpr int32_t MAXNUMF32ELEEACHCORE = 23040;       // 实数超过这么多个，需要多轮循环处理
-constexpr int32_t MAX_NUM_COM_ELE_EACH_CORE = 11520;  // 复数超过这么多个，需要多轮循环处理
+constexpr int32_t MAXNUMF32ELEEACHCORE = 23040;      // 实数超过这么多个，需要多轮循环处理
+constexpr int32_t MAX_NUM_COM_ELE_EACH_CORE = 11520; // 复数超过这么多个，需要多轮循环处理
 constexpr int32_t BYTESPERBLOCK = 32;
 constexpr int32_t BYTESPERREPEAT = 256;
 constexpr int32_t F32LEN = 4;
@@ -53,18 +53,17 @@ uint32_t GetNeedVecCoreNum(uint32_t tensorLen, uint32_t elements)
     if (tensorLen > MAXVECTORNUM * elements) {
         needVecCoreNum = MAXVECTORNUM;
     } else if (tensorLen > elements) {
-        needVecCoreNum = tensorLen / elements;  // 不足一个repeat的数据给第一个核，减少多核同步的可能性
+        needVecCoreNum = tensorLen / elements; // 不足一个repeat的数据给第一个核，减少多核同步的可能性
     } else {
         needVecCoreNum = 1;
     }
     return needVecCoreNum;
 }
 
-AsdSip::AspbStatus IamaxTiling(const LaunchParam &launchParam, KernelInfo &kernelInfo)
+AsdSip::AspbStatus IamaxTiling(const LaunchParam& launchParam, KernelInfo& kernelInfo)
 {
     OpParam::Iamax param = AnyCast<OpParam::Iamax>(launchParam.GetParam());
     uint32_t numberElements = static_cast<uint32_t>(param.n);
-    uint32_t incx = static_cast<uint32_t>(param.incx);
     uint32_t dytpeFlag = static_cast<uint32_t>(param.dtype);
 
     uint32_t elementsPerRepeat = BYTESPERREPEAT / F32LEN;
@@ -93,7 +92,7 @@ AsdSip::AspbStatus IamaxTiling(const LaunchParam &launchParam, KernelInfo &kerne
     uint32_t minEleRepeatsNumberEachCore = minEleRepeatsNumber / needVecCoreNum;
     uint32_t minEleRepeatsNumbeTail = minEleRepeatsNumber % needVecCoreNum;
 
-    uint32_t *allMem = nullptr;
+    uint32_t* allMem = nullptr;
     try {
         allMem = new uint32_t[12 * MAXVECTORNUM];
     } catch (std::bad_alloc& e) {
@@ -101,18 +100,18 @@ AsdSip::AspbStatus IamaxTiling(const LaunchParam &launchParam, KernelInfo &kerne
         return AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM;
     }
 
-    uint32_t *startOffset = allMem;
-    uint32_t *endOffset = allMem + MAXVECTORNUM;
-    uint32_t *eleTotalEachCore = allMem + 2 * MAXVECTORNUM ;
-    uint32_t *dealLenEachTime = allMem + 3 * MAXVECTORNUM;
-    uint32_t *dealTimesEachCore = allMem + 4 * MAXVECTORNUM;
-    uint32_t *reduceMaxRstsLenEachCore = allMem + 5 * MAXVECTORNUM;
-    uint32_t *dealLenUpBlockEachTime = allMem + 6 * MAXVECTORNUM;
-    uint32_t *totalRptCntNor = allMem + 7 * MAXVECTORNUM;
-    uint32_t *totalRptCntNorRemainder = allMem + 8 * MAXVECTORNUM;
-    uint32_t *rptBatchCntNor = allMem + 9 * MAXVECTORNUM;
-    uint32_t *rptBatchCntNorRemainder = allMem + 10 * MAXVECTORNUM;
-    uint32_t *rmdRptLenNor = allMem + 11 * MAXVECTORNUM;
+    uint32_t* startOffset = allMem;
+    uint32_t* endOffset = allMem + MAXVECTORNUM;
+    uint32_t* eleTotalEachCore = allMem + 2 * MAXVECTORNUM;
+    uint32_t* dealLenEachTime = allMem + 3 * MAXVECTORNUM;
+    uint32_t* dealTimesEachCore = allMem + 4 * MAXVECTORNUM;
+    uint32_t* reduceMaxRstsLenEachCore = allMem + 5 * MAXVECTORNUM;
+    uint32_t* dealLenUpBlockEachTime = allMem + 6 * MAXVECTORNUM;
+    uint32_t* totalRptCntNor = allMem + 7 * MAXVECTORNUM;
+    uint32_t* totalRptCntNorRemainder = allMem + 8 * MAXVECTORNUM;
+    uint32_t* rptBatchCntNor = allMem + 9 * MAXVECTORNUM;
+    uint32_t* rptBatchCntNorRemainder = allMem + 10 * MAXVECTORNUM;
+    uint32_t* rmdRptLenNor = allMem + 11 * MAXVECTORNUM;
 
     uint32_t eleLenEachCore = 0;
     for (uint32_t i = 0; i < needVecCoreNum; i++) {
@@ -129,7 +128,7 @@ AsdSip::AspbStatus IamaxTiling(const LaunchParam &launchParam, KernelInfo &kerne
             minEleRepeatsNumbeTail--;
         }
         dealTimesEachCore[i] = 0;
-        dealLenEachTime[i] = eleLenEachCore;  // 不带尾块算
+        dealLenEachTime[i] = eleLenEachCore; // 不带尾块算
         if (eleLenEachCore > 0 && eleLenEachCore <= MAXNUMF32ELEEACHCORE) {
             dealTimesEachCore[i] = 1;
         } else if (eleLenEachCore > MAXNUMF32ELEEACHCORE) {
@@ -142,7 +141,7 @@ AsdSip::AspbStatus IamaxTiling(const LaunchParam &launchParam, KernelInfo &kerne
 
         uint32_t dealLenEachTimeAttachTail = dealLenEachTime[i];
         if (i == 0 && minEleRepeatTail != 0) {
-            eleLenEachCore += minEleRepeatTail;  // 尾块全给第一个核
+            eleLenEachCore += minEleRepeatTail; // 尾块全给第一个核
             if (dealTimesEachCore[i] == 0) {
                 dealTimesEachCore[i] = 1;
             }
@@ -156,14 +155,14 @@ AsdSip::AspbStatus IamaxTiling(const LaunchParam &launchParam, KernelInfo &kerne
         dealLenUpBlockEachTime[i] = CeilA2B(dealLenEachTimeAttachTail, ELEMENTS_IN_BLOCK) * ELEMENTS_IN_BLOCK;
 
         totalRptCntNor[i] = dealLenEachTime[i] / elementsPerRepeat;
-        totalRptCntNorRemainder[i] = dealLenEachTime[i] % elementsPerRepeat;  // should calc
-        rptBatchCntNor[i] = totalRptCntNor[i] / MAX_REPEATS;                  // limit by L0 API, should calc
-        rptBatchCntNorRemainder[i] = totalRptCntNor[i] % MAX_REPEATS;         // should calc
+        totalRptCntNorRemainder[i] = dealLenEachTime[i] % elementsPerRepeat; // should calc
+        rptBatchCntNor[i] = totalRptCntNor[i] / MAX_REPEATS;                 // limit by L0 API, should calc
+        rptBatchCntNorRemainder[i] = totalRptCntNor[i] % MAX_REPEATS;        // should calc
         rmdRptLenNor[i] = rptBatchCntNorRemainder[i] * elementsPerRepeat;
     }
     uint32_t maxRepeatLen = MAX_REPEATS * elementsPerRepeat;
 
-    IamaxTilingData *tilingDataPtr = reinterpret_cast<AsdSip::IamaxTilingData *>(kernelInfo.GetTilingHostAddr());
+    IamaxTilingData* tilingDataPtr = reinterpret_cast<AsdSip::IamaxTilingData*>(kernelInfo.GetTilingHostAddr());
 
     if (tilingDataPtr == nullptr) {
         delete[] allMem;
@@ -171,7 +170,6 @@ AsdSip::AspbStatus IamaxTiling(const LaunchParam &launchParam, KernelInfo &kerne
         return AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM;
     }
 
-    tilingDataPtr->incx = incx;
     tilingDataPtr->needVecCoreNum = needVecCoreNum;
     tilingDataPtr->dytpeFlag = dytpeFlag;
     tilingDataPtr->rstLenAllCoreBytes = rstLenAllCoreBytes;
@@ -205,4 +203,4 @@ AsdSip::AspbStatus IamaxTiling(const LaunchParam &launchParam, KernelInfo &kerne
 
     return AsdSip::ErrorType::ACL_SUCCESS;
 }
-}  // namespace AsdSip
+} // namespace AsdSip
