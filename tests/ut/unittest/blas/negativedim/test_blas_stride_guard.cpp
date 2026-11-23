@@ -12,6 +12,10 @@
 // swap/ssyr2 对 incx/incy <= 0 原静默改写为 1 继续计算返回成功，ssyr/strmm/cgerc/
 // cgemv_batched 对 lda/ldb/ldc <= 0 原仅打日志放行，均属非法参数显式拒绝口径（#243/#260）
 // 的遗漏；修复后统一返回 ACL_ERROR_INVALID_PARAM。
+// 非约定步长/leading dimension 显式拒绝负向用例（issue #484）：cal/copy/ssyr/ssyr2 的
+// incx/incy 与 cgerc/ssyr/ssyr2 的 lda 均未被 tiling/kernel 消费，恒按连续内存/紧凑布局
+// 计算，非约定正值（incx=2、lda=n-1 等）原静默算错；修复后按 cgemv/ctrmv 家族口径
+// 统一返回 ACL_ERROR_INVALID_PARAM（docs 已声明当前约束为 1/m/n）。
 
 #include <gtest/gtest.h>
 #include <complex>
@@ -498,6 +502,267 @@ TEST(TestBlasStrideGuard, CgemvBatchedRejectLdaMismatch)
 
     asdBlasDestroy(handle);
     DestroyAclTensorWithAddr(a, aAddr);
+    DestroyAclTensorWithAddr(x, xAddr);
+    DestroyAclTensorWithAddr(y, yAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+}
+
+// ssyr2：非约定步长/leading dimension（incx=2、lda=n-1）应返回 ACL_ERROR_INVALID_PARAM
+// （issue #484）：incx/incy/lda 均未被 tiling/kernel 消费，恒按连续内存/紧凑布局计算
+
+TEST(TestBlasStrideGuard, Ssyr2RejectStridedIncx)
+{
+    MkiRtStream stream = OpTestInit(0);
+    aclTensor* x = nullptr;
+    aclTensor* y = nullptr;
+    aclTensor* a = nullptr;
+    void* xAddr = nullptr;
+    void* yAddr = nullptr;
+    void* aAddr = nullptr;
+    std::vector<float> xHost(4, 1.0f);
+    std::vector<float> yHost(4, 1.0f);
+    std::vector<float> aHost(16, 0.0f);
+    ASSERT_EQ(CreateAclTensor(xHost, {4}, &xAddr, aclDataType::ACL_FLOAT, &x), 0);
+    ASSERT_EQ(CreateAclTensor(yHost, {4}, &yAddr, aclDataType::ACL_FLOAT, &y), 0);
+    ASSERT_EQ(CreateAclTensor(aHost, {4, 4}, &aAddr, aclDataType::ACL_FLOAT, &a), 0);
+
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeSsyr2Plan(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasSsyr2(handle, asdBlasFillMode_t::ASDBLAS_FILL_MODE_UPPER, 4, 1.0f, x, 2, y, 1, a, 4),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+
+    asdBlasDestroy(handle);
+    DestroyAclTensorWithAddr(x, xAddr);
+    DestroyAclTensorWithAddr(y, yAddr);
+    DestroyAclTensorWithAddr(a, aAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+}
+
+TEST(TestBlasStrideGuard, Ssyr2RejectLdaMismatch)
+{
+    MkiRtStream stream = OpTestInit(0);
+    aclTensor* x = nullptr;
+    aclTensor* y = nullptr;
+    aclTensor* a = nullptr;
+    void* xAddr = nullptr;
+    void* yAddr = nullptr;
+    void* aAddr = nullptr;
+    std::vector<float> xHost(4, 1.0f);
+    std::vector<float> yHost(4, 1.0f);
+    std::vector<float> aHost(16, 0.0f);
+    ASSERT_EQ(CreateAclTensor(xHost, {4}, &xAddr, aclDataType::ACL_FLOAT, &x), 0);
+    ASSERT_EQ(CreateAclTensor(yHost, {4}, &yAddr, aclDataType::ACL_FLOAT, &y), 0);
+    ASSERT_EQ(CreateAclTensor(aHost, {4, 4}, &aAddr, aclDataType::ACL_FLOAT, &a), 0);
+
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeSsyr2Plan(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasSsyr2(handle, asdBlasFillMode_t::ASDBLAS_FILL_MODE_UPPER, 4, 1.0f, x, 1, y, 1, a, 3),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+
+    asdBlasDestroy(handle);
+    DestroyAclTensorWithAddr(x, xAddr);
+    DestroyAclTensorWithAddr(y, yAddr);
+    DestroyAclTensorWithAddr(a, aAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+}
+
+// ssyr：非约定步长/leading dimension（incx=2、lda=n-1）应返回 ACL_ERROR_INVALID_PARAM（issue #484）
+
+TEST(TestBlasStrideGuard, SsyrRejectStridedIncx)
+{
+    MkiRtStream stream = OpTestInit(0);
+    aclTensor* x = nullptr;
+    aclTensor* a = nullptr;
+    void* xAddr = nullptr;
+    void* aAddr = nullptr;
+    std::vector<float> xHost(4, 1.0f);
+    std::vector<float> aHost(16, 0.0f);
+    ASSERT_EQ(CreateAclTensor(xHost, {4}, &xAddr, aclDataType::ACL_FLOAT, &x), 0);
+    ASSERT_EQ(CreateAclTensor(aHost, {4, 4}, &aAddr, aclDataType::ACL_FLOAT, &a), 0);
+
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeSsyrPlan(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasSsyr(handle, asdBlasFillMode_t::ASDBLAS_FILL_MODE_UPPER, 4, 1.0f, x, 2, a, 4),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+
+    asdBlasDestroy(handle);
+    DestroyAclTensorWithAddr(x, xAddr);
+    DestroyAclTensorWithAddr(a, aAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+}
+
+TEST(TestBlasStrideGuard, SsyrRejectLdaMismatch)
+{
+    MkiRtStream stream = OpTestInit(0);
+    aclTensor* x = nullptr;
+    aclTensor* a = nullptr;
+    void* xAddr = nullptr;
+    void* aAddr = nullptr;
+    std::vector<float> xHost(4, 1.0f);
+    std::vector<float> aHost(16, 0.0f);
+    ASSERT_EQ(CreateAclTensor(xHost, {4}, &xAddr, aclDataType::ACL_FLOAT, &x), 0);
+    ASSERT_EQ(CreateAclTensor(aHost, {4, 4}, &aAddr, aclDataType::ACL_FLOAT, &a), 0);
+
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeSsyrPlan(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasSsyr(handle, asdBlasFillMode_t::ASDBLAS_FILL_MODE_UPPER, 4, 1.0f, x, 1, a, 3),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+
+    asdBlasDestroy(handle);
+    DestroyAclTensorWithAddr(x, xAddr);
+    DestroyAclTensorWithAddr(a, aAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+}
+
+// cgerc：非约定 leading dimension（lda=m-1）应返回 ACL_ERROR_INVALID_PARAM（issue #484）
+
+TEST(TestBlasStrideGuard, CgercRejectLdaMismatch)
+{
+    MkiRtStream stream = OpTestInit(0);
+    aclTensor* x = nullptr;
+    aclTensor* y = nullptr;
+    aclTensor* a = nullptr;
+    void* xAddr = nullptr;
+    void* yAddr = nullptr;
+    void* aAddr = nullptr;
+    std::vector<std::complex<float>> xHost(4, {1.0f, 0.0f});
+    std::vector<std::complex<float>> yHost(2, {1.0f, 0.0f});
+    std::vector<std::complex<float>> aHost(8, {0.0f, 0.0f});
+    ASSERT_EQ(CreateAclTensor(xHost, {4}, &xAddr, aclDataType::ACL_COMPLEX64, &x), 0);
+    ASSERT_EQ(CreateAclTensor(yHost, {2}, &yAddr, aclDataType::ACL_COMPLEX64, &y), 0);
+    ASSERT_EQ(CreateAclTensor(aHost, {4, 2}, &aAddr, aclDataType::ACL_COMPLEX64, &a), 0);
+
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeCgercPlan(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasCgerc(handle, 4, 2, {1.0f, 0.0f}, x, 1, y, 1, a, 3), AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+
+    asdBlasDestroy(handle);
+    DestroyAclTensorWithAddr(x, xAddr);
+    DestroyAclTensorWithAddr(y, yAddr);
+    DestroyAclTensorWithAddr(a, aAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+}
+
+// cal（Sscal/Cscal/Csscal）：非约定步长（incx=2）应返回 ACL_ERROR_INVALID_PARAM（issue #484）：
+// incx 未写入 OpParam::Cal，tiling/kernel 无步长消费，恒按连续内存计算
+
+TEST(TestBlasStrideGuard, SscalRejectStridedIncx)
+{
+    MkiRtStream stream = OpTestInit(0);
+    aclTensor* x = nullptr;
+    void* xAddr = nullptr;
+    std::vector<float> xHost(4, 1.0f);
+    ASSERT_EQ(CreateAclTensor(xHost, {4}, &xAddr, aclDataType::ACL_FLOAT, &x), 0);
+
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeCalPlan(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasSscal(handle, 4, 1.0f, x, 2), AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+
+    asdBlasDestroy(handle);
+    DestroyAclTensorWithAddr(x, xAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+}
+
+TEST(TestBlasStrideGuard, CscalRejectStridedIncx)
+{
+    MkiRtStream stream = OpTestInit(0);
+    aclTensor* x = nullptr;
+    void* xAddr = nullptr;
+    std::vector<std::complex<float>> xHost(4, {1.0f, 0.0f});
+    ASSERT_EQ(CreateAclTensor(xHost, {4}, &xAddr, aclDataType::ACL_COMPLEX64, &x), 0);
+
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeCalPlan(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasCscal(handle, 4, {1.0f, 0.0f}, x, 2), AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+
+    asdBlasDestroy(handle);
+    DestroyAclTensorWithAddr(x, xAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+}
+
+// copy（Scopy/Ccopy）：非约定步长（incx=2/incy=2）应返回 ACL_ERROR_INVALID_PARAM（issue #484）
+
+TEST(TestBlasStrideGuard, ScopyRejectStridedIncx)
+{
+    MkiRtStream stream = OpTestInit(0);
+    aclTensor* x = nullptr;
+    aclTensor* y = nullptr;
+    void* xAddr = nullptr;
+    void* yAddr = nullptr;
+    std::vector<float> xHost(4, 1.0f);
+    std::vector<float> yHost(4, 0.0f);
+    ASSERT_EQ(CreateAclTensor(xHost, {4}, &xAddr, aclDataType::ACL_FLOAT, &x), 0);
+    ASSERT_EQ(CreateAclTensor(yHost, {4}, &yAddr, aclDataType::ACL_FLOAT, &y), 0);
+
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeCopyPlan(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasScopy(handle, 4, x, 2, y, 1), AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+
+    asdBlasDestroy(handle);
+    DestroyAclTensorWithAddr(x, xAddr);
+    DestroyAclTensorWithAddr(y, yAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+}
+
+TEST(TestBlasStrideGuard, ScopyRejectStridedIncy)
+{
+    MkiRtStream stream = OpTestInit(0);
+    aclTensor* x = nullptr;
+    aclTensor* y = nullptr;
+    void* xAddr = nullptr;
+    void* yAddr = nullptr;
+    std::vector<float> xHost(4, 1.0f);
+    std::vector<float> yHost(4, 0.0f);
+    ASSERT_EQ(CreateAclTensor(xHost, {4}, &xAddr, aclDataType::ACL_FLOAT, &x), 0);
+    ASSERT_EQ(CreateAclTensor(yHost, {4}, &yAddr, aclDataType::ACL_FLOAT, &y), 0);
+
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeCopyPlan(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasScopy(handle, 4, x, 1, y, 2), AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+
+    asdBlasDestroy(handle);
+    DestroyAclTensorWithAddr(x, xAddr);
+    DestroyAclTensorWithAddr(y, yAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+}
+
+TEST(TestBlasStrideGuard, CcopyRejectStridedIncx)
+{
+    MkiRtStream stream = OpTestInit(0);
+    aclTensor* x = nullptr;
+    aclTensor* y = nullptr;
+    void* xAddr = nullptr;
+    void* yAddr = nullptr;
+    std::vector<std::complex<float>> xHost(4, {1.0f, 0.0f});
+    std::vector<std::complex<float>> yHost(4, {0.0f, 0.0f});
+    ASSERT_EQ(CreateAclTensor(xHost, {4}, &xAddr, aclDataType::ACL_COMPLEX64, &x), 0);
+    ASSERT_EQ(CreateAclTensor(yHost, {4}, &yAddr, aclDataType::ACL_COMPLEX64, &y), 0);
+
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeCopyPlan(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdBlasCcopy(handle, 4, x, 2, y, 1), AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+
+    asdBlasDestroy(handle);
     DestroyAclTensorWithAddr(x, xAddr);
     DestroyAclTensorWithAddr(y, yAddr);
     TensorContext context;

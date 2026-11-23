@@ -46,7 +46,10 @@ at::Tensor asdBlasCgerc(at::Tensor& A, const at::Tensor& x, const at::Tensor& y,
     // 根据 BLAS 规范，A 是 m x n 矩阵，x 长度为 m，y 长度为 n
     int64_t m = x.size(0);
     int64_t n = y.size(0);
-    int64_t lda = A.size(1); // A 为 Row-Major，lda 对应物理列数
+    // lda 按文档约定为 m（A 第一个维度，issue #484 收紧后底层显式拒绝 lda != m）：
+    // 连续 m*n 缓冲下列主序 lda==m 与行主序紧凑布局描述同一物理存储，内核恒按
+    // 紧凑布局计算，此处传 m 与文档口径一致
+    int64_t lda = A.size(0);
 
     // 转换标量 alpha
     c10::complex<float> a_c10 = alpha.to<c10::complex<float>>();

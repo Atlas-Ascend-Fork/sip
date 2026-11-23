@@ -1259,6 +1259,38 @@ TEST(TestBlasVectorNBound, Cgerc)
     OpTestEnd(0, context, stream);
 }
 
+// Ssyr2 实数计数入口补齐 n 上限（issue #489，对齐 ssyr #462 家族口径）：n > INT32_MAX
+// 显式拒绝；n 上界校验位于 x/y/A shape 校验之前，越界组以 dims == n 的形状描述子张量
+// 穿过 dtype 校验触达上界点位
+TEST(TestBlasVectorNBound, Ssyr2)
+{
+    MkiRtStream stream = OpTestInit(0);
+    const int64_t nOver = static_cast<int64_t>(INT32_MAX) + 1;
+    aclTensor* xOver = nullptr;
+    aclTensor* yOver = nullptr;
+    aclTensor* aOver = nullptr;
+    void* xOverAddr = nullptr;
+    void* yOverAddr = nullptr;
+    void* aOverAddr = nullptr;
+    ASSERT_EQ(CreateShapeOnlyAclTensor(aclDataType::ACL_FLOAT, {nOver}, &xOver, &xOverAddr), 0);
+    ASSERT_EQ(CreateShapeOnlyAclTensor(aclDataType::ACL_FLOAT, {nOver}, &yOver, &yOverAddr), 0);
+    ASSERT_EQ(CreateShapeOnlyAclTensor(aclDataType::ACL_FLOAT, {nOver, nOver}, &aOver, &aOverAddr), 0);
+
+    asdBlasHandle handle;
+    ASSERT_EQ(asdBlasCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdBlasMakeSsyr2Plan(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(
+        asdBlasSsyr2(handle, asdBlasFillMode_t::ASDBLAS_FILL_MODE_UPPER, nOver, 1.0f, xOver, 1, yOver, 1, aOver, 1),
+        AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+
+    asdBlasDestroy(handle);
+    DestroyAclTensorWithAddr(xOver, xOverAddr);
+    DestroyAclTensorWithAddr(yOver, yOverAddr);
+    DestroyAclTensorWithAddr(aOver, aOverAddr);
+    TensorContext context;
+    OpTestEnd(0, context, stream);
+}
+
 TEST(TestBlasVectorNBound, ColwiseMul)
 {
     MkiRtStream stream = OpTestInit(0);

@@ -70,7 +70,12 @@ AspbStatus asdBlasCgerc(asdBlasHandle handle, const int64_t m, const int64_t n, 
                   ErrorType::ACL_ERROR_INVALID_PARAM);
     // 非法 leading dimension 显式拒绝（issue #385，对齐本文件 incx/incy 显式拒绝口径）：
     // 原 lda <= 0 仅打日志后继续执行，非法输入得到"成功"返回，结果静默错误
-    ASDSIP_ECHECK(lda > 0, "blas asdBlasCgerc get lda <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
+    // 非约定 leading dimension 显式拒绝（issue #484，对齐 cgemv #461 的 lda==m 口径）：
+    // lda 未进 OpParam、tiling/kernel 恒按紧凑布局计算，lda != m 时与 A 元素数 = m*n
+    // 契约不可同时满足（lda < m 列区间重叠静默算错、lda > m 越过元素存储），
+    // 仅放行 lda == m（docs Cgerc.md lda 当前约束为 m）
+    ASDSIP_ECHECK(lda > 0 && lda == m, "blas asdBlasCgerc get lda <= 0 or lda != m.",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
 
     try {
         AsdSip::BlasCgercPlan& plan = dynamic_cast<AsdSip::BlasCgercPlan&>(BlasPlanCache::getPlan(handle));

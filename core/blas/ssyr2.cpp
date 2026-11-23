@@ -32,7 +32,10 @@ AspbStatus Ssyr2DtypeCheck(struct Ssyr2TensorParam parm)
 
 AspbStatus Ssyr2ShapeCheck(struct Ssyr2TensorParam parm, const int64_t n)
 {
-    ASDSIP_ECHECK(n > 0, "blas asdBlasSsyr2 get n <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
+    // n 上界收紧（issue #489，对齐 ssyr #462 家族口径）：:82 static_cast<uint32_t>(n)
+    // 窄化进 tiling，n > INT32_MAX 时元素偏移越过 int32 正域，行为未定义，须显式拒绝
+    ASDSIP_ECHECK(n > 0 && n <= INT32_MAX, "blas asdBlasSsyr2 get n <= 0 or n > INT32_MAX.",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
     SIP_OP_CHECK_SHAPE_NOT_MATCH(parm.A, (std::vector<int64_t>{n, n}), ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
     SIP_OP_CHECK_SHAPE_NOT_MATCH(parm.x, (std::vector<int64_t>{n}), ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
     SIP_OP_CHECK_SHAPE_NOT_MATCH(parm.y, (std::vector<int64_t>{n}), ErrorType::ACL_ERROR_OP_INPUT_NOT_MATCH);
@@ -60,12 +63,18 @@ AspbStatus asdBlasSsyr2(asdBlasHandle handle, asdBlasFillMode_t uplo, const int6
         return ret;
     }
 
-    // 非步长/leading dimension 显式拒绝（issue #385，对齐 asum/ssyr 显式拒绝口径）：
+    // 非正步长显式拒绝（issue #385，对齐 asum/ssyr 显式拒绝口径）：
     // 原 incx/incy <= 0 仅打 INFO 日志后静默改写为 1 继续计算并返回成功，用户输入的
     // 参数与实际计算内容不对应，结果静默错误；lda <= 0 同样仅日志放行
-    ASDSIP_ECHECK(incx > 0, "blas asdBlasSsyr2 get incx <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
-    ASDSIP_ECHECK(incy > 0, "blas asdBlasSsyr2 get incy <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
-    ASDSIP_ECHECK(lda > 0, "blas asdBlasSsyr2 get lda <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
+    // 非约定步长/leading dimension 显式拒绝（issue #484，对齐 cgemv/ctrmv 家族口径）：
+    // incx/incy 写入 OpParam 后 tiling/kernel 从不消费（ssyr2_tiling.cpp 仅取 uplo/n/alpha），
+    // lda 未进 OpParam，kernel 恒按连续内存/紧凑布局计算，非约定值静默算错
+    // （docs Ssyr2.md incx/incy 当前约束为 1、lda 当前约束为 n）
+    ASDSIP_ECHECK(incx == 1, "blas asdBlasSsyr2 get incx <= 0 or != 1 (strided access not supported).",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
+    ASDSIP_ECHECK(incy == 1, "blas asdBlasSsyr2 get incy <= 0 or != 1 (strided access not supported).",
+                  ErrorType::ACL_ERROR_INVALID_PARAM);
+    ASDSIP_ECHECK(lda == n, "blas asdBlasSsyr2 get lda <= 0 or lda != n.", ErrorType::ACL_ERROR_INVALID_PARAM);
 
     try {
         AsdSip::BlasPlan& plan = dynamic_cast<AsdSip::BlasPlan&>(BlasPlanCache::getPlan(handle));

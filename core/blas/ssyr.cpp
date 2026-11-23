@@ -50,12 +50,10 @@ AspbStatus asdBlasSsyr(asdBlasHandle handle, asdBlasFillMode_t uplo, const int64
 
     ASDSIP_ECHECK(n > 0, "blas asdBlasSsyr get n <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
 
-    // 上界校验（issue #345）：:73 static_cast<uint32_t>(n)/(incx)，超 2^32-1 时
+    // 上界校验（issue #345）：:92 static_cast<uint32_t>(n)/(incx)，超 2^32-1 时
     // 回绕为错误维度/步长下传内核
-    // n 上限收紧（issue #462）：实数计数入口对齐 sdot/isamax 的 INT32_MAX 口径；
-    // incx 为步长非计数，维持 #243 步长专项口径不变
+    // n 上限收紧（issue #462）：实数计数入口对齐 sdot/isamax 的 INT32_MAX 口径
     ASDSIP_ECHECK(n <= INT32_MAX, "blas asdBlasSsyr get n > INT32_MAX.", ErrorType::ACL_ERROR_INVALID_PARAM);
-    ASDSIP_ECHECK(incx <= UINT32_MAX, "blas asdBlasSsyr get incx > 2^32-1.", ErrorType::ACL_ERROR_INVALID_PARAM);
 
     // 非法枚举显式拒绝（issue #345，对齐 cgemm 的 trans 校验口径）：原三目映射把
     // 超出枚举域的 uplo 静默映射为 UPPER，按错误模式计算并返回成功
@@ -66,12 +64,18 @@ AspbStatus asdBlasSsyr(asdBlasHandle handle, asdBlasFillMode_t uplo, const int64
     // 负/零步长显式拒绝（issue #243）：内核不支持负步长遍历，原仅打日志后
     // static_cast<uint32_t>(incx) 将负值回绕为超大步长传入内核，产生非法寻址；
     // 对齐 ssyr2/asum 的 <=0 拦截口径
-    ASDSIP_ECHECK(incx > 0, "blas asdBlasSsyr get incx <= 0 (negative stride not supported).",
+    // 非约定步长显式拒绝（issue #484，对齐 cgerc/cgemv 的 !=1 口径）：incx 写入
+    // OpParam 后 tiling/kernel 从不消费（ssyr_tiling.cpp 无 incx 引用），恒按连续
+    // 内存计算，incx=2 等合法语义但非约定步长静默算错（docs Ssyr.md incx 当前约束为 1）
+    ASDSIP_ECHECK(incx == 1, "blas asdBlasSsyr get incx <= 0 or != 1 (strided access not supported).",
                   ErrorType::ACL_ERROR_INVALID_PARAM);
 
     // 非法 leading dimension 显式拒绝（issue #385，对齐本文件 incx 显式拒绝口径）：
     // 原 lda <= 0 仅打日志后继续执行，非法输入得到"成功"返回，结果静默错误
-    ASDSIP_ECHECK(lda > 0, "blas asdBlasSsyr get lda <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
+    // 非约定 leading dimension 显式拒绝（issue #484，对齐 cgemv #461 的 lda==m 口径）：
+    // lda 未进 OpParam、tiling/kernel 恒按紧凑布局计算，lda != n 时与 A 形状 (n, n)
+    // 契约不可同时满足，静默算错（docs Ssyr.md lda 当前约束为 n）
+    ASDSIP_ECHECK(lda == n, "blas asdBlasSsyr get lda <= 0 or lda != n.", ErrorType::ACL_ERROR_INVALID_PARAM);
 
     try {
         AsdSip::BlasPlan& plan = dynamic_cast<AsdSip::BlasPlan&>(BlasPlanCache::getPlan(handle));

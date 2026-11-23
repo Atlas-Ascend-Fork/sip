@@ -79,10 +79,14 @@ AspbStatus asdBlasCopyImpl(asdBlasHandle handle, CopyImplParam implParam, int64_
     ASDSIP_ECHECK(implParam.n > 0, "blas asdBlasCopyImpl get n <= 0.", ErrorType::ACL_ERROR_INVALID_PARAM);
 
     // 非正步长显式拒绝（issue #260，统一口径）：原静默改写为 1 返回成功，实际计算另一组连续元素，结果静默错误
-    ASDSIP_ECHECK(implParam.incx > 0, "blas asdBlasCopyImpl get implParam.incx <= 0.",
+    // 非约定步长显式拒绝（issue #484，对齐 cgerc/cgemv 的 !=1 口径）：incx/incy 均未
+    // 写入 OpParam::Copy，tiling/kernel 无步长消费，恒按连续内存计算，incx=2/incy=2
+    // 等合法语义但非约定步长静默算错（docs Copy.md incx/incy 当前约束为 1）
+    ASDSIP_ECHECK(implParam.incx == 1,
+                  "blas asdBlasCopyImpl get implParam.incx <= 0 or != 1 (strided access not supported).",
                   ErrorType::ACL_ERROR_INVALID_PARAM);
-    // 非正步长显式拒绝（issue #260，统一口径）：原静默改写为 1 返回成功，实际计算另一组连续元素，结果静默错误
-    ASDSIP_ECHECK(implParam.incy > 0, "blas asdBlasCopyImpl get implParam.incy <= 0.",
+    ASDSIP_ECHECK(implParam.incy == 1,
+                  "blas asdBlasCopyImpl get implParam.incy <= 0 or != 1 (strided access not supported).",
                   ErrorType::ACL_ERROR_INVALID_PARAM);
 
     OpDesc opDesc;
