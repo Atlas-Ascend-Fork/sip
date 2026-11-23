@@ -28,3 +28,4 @@
 - [CgemvBatched](../API_Reference/BLAS/CgemvBatched.md)
 - [HCmatinvBatched](../API_Reference/BLAS/HCmatinvBatched.md)
 - [CmatinvBatched](../API_Reference/BLAS/CmatinvBatched.md)
+- [SmatinvBatched](../API_Reference/BLAS/SmatinvBatched.md)
