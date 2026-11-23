@@ -254,7 +254,10 @@ def main():
     args = sys.argv[1:]
     i = 0
     while i < len(args):
-        if args[i] == "--stage" and i + 1 < len(args):
+        if args[i] == "--stage":
+            if i + 1 >= len(args):
+                print("Error: --stage requires a value (0, 1, or 2)")
+                return 1
             stage = int(args[i + 1])
             i += 2
         else:
@@ -266,7 +269,13 @@ def main():
 
     if fftN not in [2048, 4096]:
         print(f"Error: fftN must be 2048 or 4096, got {fftN}")
-        sys.exit(1)
+        return 1
+    if batch <= 0:
+        print(f"Error: batch must be positive, got {batch}")
+        return 1
+    if stage not in (0, 1, 2):
+        print(f"Error: stage must be 0, 1, or 2, got {stage}")
+        return 1
 
     print(f"Generating test data: fftN={fftN}, batch={batch}, stage={stage}")
     if HAS_TORCH:
