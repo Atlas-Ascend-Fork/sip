@@ -195,6 +195,11 @@ function fn_example_cleanup()
 
 function fn_example_test()
 {
+    if [ ${#VALID_TEST_DIRS[@]} -eq 0 ]; then
+        log_info "No example categories selected, skipping example tests"
+        return 0
+    fi
+
     fn_example_prepare || return
 
     log_line
@@ -229,7 +234,7 @@ function fn_example_test()
 
     [ ${#example_files[@]} -eq 0 ] && {
         log_fail "No example_*.cpp files found in: ${VALID_TEST_DIRS[*]}"
-        return
+        return 1
     }
 
     # Print summary
