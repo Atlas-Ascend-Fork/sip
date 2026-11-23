@@ -222,6 +222,26 @@ python sip_pta/test/base/asd_mul.py
         return torch.ops.torch_sip.asd_fft_c2c(input_tensor, is_forward)
    ```
 
+### C2C 分离实部和虚部接口约束
+
+`asd_fft_c2c_sep` 是 PTA 提供的分离式 C2C FFT 接口。它与接收单个复数
+Tensor 的 `asd_fft_c2c` 不同，输入和输出分别使用实部、虚部 Tensor：
+
+- `in_real` 和 `in_imag` 必须是 `torch.float32`，且形状必须完全相同；这与
+  直接 C 接口 `asdFftExecC2CSeparated` 的 `FLOAT32`、`ND` 合同一致。
+- `is_forward` 是必选的布尔参数；传入 `True` 执行正向 FFT，传入 `False` 执行
+  逆向 FFT。Python 包装函数默认使用 `True`，底层 `torch.ops` 调用必须显式传入该参数。
+- 返回值为 `(out_real, out_imag)`，两个 Tensor 均为 `torch.float32`，形状与
+  对应输入相同。
+- PTA 会在调用底层接口前将非连续输入复制为连续 Tensor；因此调用方可以传入
+  非连续布局，但返回的输出是新分配的连续 Tensor。
+
+```python
+real = torch.randn(16, 128, dtype=torch.float32, device="npu")
+imag = torch.randn(16, 128, dtype=torch.float32, device="npu")
+out_real, out_imag = torch.ops.torch_sip.asd_fft_c2c_sep(real, imag, True)
+```
+
 **blas类算子：** - 完整实现
 
 1. **csrc/blas/asd_blas_ctrmv.cpp** - 完整实现
