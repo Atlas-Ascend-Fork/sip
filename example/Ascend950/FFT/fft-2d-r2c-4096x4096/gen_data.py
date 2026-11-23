@@ -95,7 +95,10 @@ def main():
 
     if fftN not in [2048, 4096]:
         print(f"Error: fftN must be 2048 or 4096, got {fftN}")
-        sys.exit(1)
+        return 1
+    if batch <= 0:
+        print(f"Error: batch must be positive, got {batch}")
+        return 1
 
     print(f"Generating test data: fftN={fftN}, batch={batch}")
     if HAS_TORCH:
@@ -115,13 +118,15 @@ def main():
     if os.path.exists(npu_output_file):
         print(f"\nFound NPU output: {npu_output_file}")
         total_floats = batch * fftN * (fftN // 2 + 1) * 2
+        expected_bytes = total_floats * np.dtype(np.float32).itemsize
+        actual_bytes = os.path.getsize(npu_output_file)
+        if actual_bytes != expected_bytes:
+            print(f"Error: expected {expected_bytes} bytes, got {actual_bytes}")
+            return 1
         npu_output = read_binary(npu_output_file, total_floats)
-        if len(npu_output) == total_floats:
-            # 比较结果必须传播为进程退出码：验证失败不能伪装成成功
-            passed = compare_precision(npu_output, golden, fftN, batch)
-            return 0 if passed else 1
-        print(f"Error: expected {total_floats} floats, got {len(npu_output)}")
-        return 1
+        # 比较结果必须传播为进程退出码：验证失败不能伪装成成功
+        passed = compare_precision(npu_output, golden, fftN, batch)
+        return 0 if passed else 1
     print("\nNPU output not found. Run the NPU executable first.")
     print("  bash scripts/build.sh -DCATLASS_ARCH=3510 85_ascend950_fft_r2c_2d --clean")
     print(f"  ./output/bin/85_ascend950_fft_r2c_2d {fftN} {batch} 0")
