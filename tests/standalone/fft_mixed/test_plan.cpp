@@ -9,6 +9,7 @@
  */
 
 #include <iostream>
+#include <fstream>
 #include <stdexcept>
 #include "fft_mixed_selection.h"
 using namespace AsdSip;
@@ -17,7 +18,7 @@ void require(bool b)
     if (!b)
         throw std::runtime_error("host contract failed");
 }
-int main()
+int main(int argc, char** argv)
 {
     // All eligible lengths must fit their selected dynamic layout; boundaries
     // change the number of buffers, never fall back just because rows == 1.
@@ -102,6 +103,7 @@ int main()
             }
             require(prefix * (cube.tail ? cube.tail : 1) == n);
         }
+        require(cube.rowsPerAivTile == 1 && t.rowsPerAivTile == 1);
         if (!cube.tail)
             continue;
         require(eligible && t.tail == cube.tail && t.outBlocks == cube.outBlocks && t.kBlocks == cube.kBlocks);
@@ -151,5 +153,149 @@ int main()
     require(!fft1d::CommonMixedEligible(352, 1, 0, false, true, false));
     require(!fft1d::CommonMixedEligible(1536, 1, 1, true, true, true));
     require(!fft1d::CommonMixedEligible(1536, 1, 2, false, true, true));
-    std::cout << "HOST_PASS positive_grid=" << count << " cube_axis_lengths=8192\n";
+    int realCases = 0;
+    for (int n = 1; n <= 8192; ++n) {
+        int left = n / 2;
+        for (int radix = 2; radix <= 251 && left > 1; ++radix)
+            while (left % radix == 0)
+                left /= radix;
+        const bool publicEligible = n >= 96 && n % 2 == 0 && (n & (n - 1)) != 0 && left == 1;
+        require(OpParam::RealMixedLength(n) == publicEligible);
+        for (int batch : {1, 3, 7, 8, 193, 8192}) {
+            for (auto pass : {OpParam::MixedCommonPass::Real, OpParam::MixedCommonPass::Hermitian}) {
+                const bool inverse = pass == OpParam::MixedCommonPass::Hermitian;
+                OpParam::FftMixedCommon p{n, batch, pass, inverse, false, true};
+                const auto cube = OpParam::SelectCubeTail(p);
+                OpParam::MixedCommonTiling t{};
+                const bool valid = OpParam::BuildMixedCommonTiling(p, t);
+                require(t.rowsPerAivTile >= 1);
+                require(fft1d::CommonMixedEligible(n, batch, int(pass), inverse, true, true, true) == publicEligible);
+                require(valid == publicEligible);
+                if (!valid) {
+                    require(cube.tail == 0);
+                    continue;
+                }
+                const int outputFloats = inverse ? n : n + 2;
+                if (OpParam::FixedRealTargetTail(p) < 0)
+                    require((t.rowGroup * outputFloats) % 8 == 0);
+                int prefix = 1 << t.radix2Stages;
+                for (int s = 0; s < t.oddStages; ++s) {
+                    require(t.prev[s] == prefix && t.radix[s] <= 251);
+                    prefix *= t.radix[s];
+                }
+                require(prefix * (t.tail ? t.tail : 1) == n / 2);
+                require(t.tail == cube.tail);
+                const auto tile = OpParam::SelectMixedCommonTile(p);
+                const int stride = (n + 135) / 8 * 8;
+                require(tile.rows > 0 && tile.rows * stride <= tile.capacity);
+                require(tile.buffers * tile.capacity + 2 * n <= 54272);
+                if (!cube.tail) {
+                    require(t.rowsPerAivTile == 1 && t.realCubePipeline == 0);
+                    continue;
+                }
+                require(!cube.direct && t.rowGroup == 4);
+                require(cube.rowsPerAivTile == 1 || cube.rowsPerAivTile == 2);
+                require(t.rowsPerAivTile == cube.rowsPerAivTile);
+                const int rootFloats = (2 * n + 511) / 512 * 512;
+                const int rowFloats = (n + 128 + 511) / 512 * 512;
+                const int pipelineBytes = t.realCubePipeline ? 16 * cube.lanes : 0;
+                require(4 * (rootFloats + 2 * cube.rowsPerAivTile * rowFloats) + 48 * cube.lanes * cube.width +
+                            pipelineBytes <=
+                        212 * 1024);
+                require(64 * cube.lanes * cube.kBlocks * cube.width <= 128 * 1024);
+                require(OpParam::MixedCommonCoeffFloats(p) ==
+                        OpParam::CubeWeightOffset(n) + 2 * cube.width * cube.width * cube.kBlocks * cube.outBlocks);
+                if (t.realCubePipeline) {
+                    require(cube.kBlocks == 1 && cube.outBlocks == 1 && cube.rowsPerAivTile * prefix <= cube.lanes);
+                    p.allowRealCubePipeline = false;
+                    require(!OpParam::UseRealCubePipeline(p, cube));
+                }
+                if (cube.rowsPerAivTile == 2)
+                    require(prefix == 16 && cube.lanes == 32 && batch >= 8);
+                ++realCases;
+                p.inverse = !inverse;
+                require(!OpParam::UseMixedCubeTail(p));
+                p.inverse = inverse;
+                p.cubeTailAllowed = false;
+                require(!OpParam::UseMixedCubeTail(p));
+            }
+        }
+    }
+    for (int batch : {0, 8193})
+        require(!OpParam::UseMixedCubeTail({2848, batch, OpParam::MixedCommonPass::Real, false, false, true}));
+    for (int n : {0, 514, 1024, 1057, 8193})
+        require(!OpParam::UseMixedCubeTail({n, 8192, OpParam::MixedCommonPass::Real, false, false, true}));
+    const TailCase realFallback[] = {{1424, 89}, {2096, 131}, {262, 0}, {1050, 0}, {4128, 129}, {928, 29}};
+    for (const auto& c : realFallback) {
+        for (auto pass : {OpParam::MixedCommonPass::Real, OpParam::MixedCommonPass::Hermitian}) {
+            OpParam::FftMixedCommon p{c.n, 193, pass, pass == OpParam::MixedCommonPass::Hermitian, false, true};
+            require(OpParam::FixedRealTargetTail(p) == -1 && OpParam::SelectCubeTail(p).tail == c.tail);
+            require(fft1d::CommonMixedEligible(c.n, p.rows, int(pass), p.inverse, true, true, true));
+            require(!fft1d::CommonMixedEligible(c.n, p.rows, int(pass), !p.inverse, true, true, true));
+        }
+    }
+    for (int n : {58, 94, 514})
+        require(!fft1d::CommonMixedEligible(n, 193, 1, false, true, true, true));
+    // Validate the actual public entry, capacity and kernel schedule for both directional tables.
+    for (int n = 32; n <= 8192; n += 32) {
+        for (auto pass : {OpParam::MixedCommonPass::Real, OpParam::MixedCommonPass::Hermitian}) {
+            OpParam::FftMixedCommon p{n, n, pass, pass == OpParam::MixedCommonPass::Hermitian, false, true};
+            const int tail = OpParam::FixedRealTargetTail(p);
+            if (!OpParam::MixedCommonLength(n)) {
+                require(tail == -1);
+                continue;
+            }
+            require(tail >= 0 && fft1d::CommonMixedEligible(n, n, int(pass), p.inverse, true, true, true));
+            const auto cube = OpParam::SelectCubeTail(p);
+            OpParam::MixedCommonTiling t{};
+            require(OpParam::BuildMixedCommonTiling(p, t) && t.tail == tail && cube.tail == tail);
+            int prefix = 1 << t.radix2Stages;
+            for (int stage = 0; stage < t.oddStages; ++stage)
+                prefix *= t.radix[stage];
+            require(prefix * (t.tail ? t.tail : 1) == n / 2);
+            if (!t.tail) {
+                require(t.rowGroup == 1);
+                continue;
+            }
+            const bool whole = cube.kBlocks == 1 && cube.outBlocks == 1;
+            const int ub = OpParam::RealCubeUbBytes(n, cube.rowsPerAivTile, cube.lanes, cube.width);
+            require(ub + (t.realCubePipeline == 1 ? 16 * cube.lanes : 0) <= 212 * 1024);
+            require(64 * cube.lanes * cube.kBlocks * cube.width <= 128 * 1024);
+            if (t.realCubePipeline == 1) {
+                require(whole && cube.rowsPerAivTile * prefix <= cube.lanes);
+                p.allowRealCubePipeline = false;
+                require(OpParam::BuildMixedCommonTiling(p, t) && t.realCubePipeline == 0);
+            }
+        }
+    }
+    if (argc > 1) {
+        std::ofstream scan(argv[1]);
+        require(bool(scan));
+        scan << "n,batch,direction,route,candidate_tail,prefix,tail,rows_per_aiv_tile,j,t,k_blocks,out_blocks,cube_ub_"
+                "bytes,cube_l1_bytes,"
+                "tiling_key,real_kernel_schedule\n";
+        for (int n = 32; n <= 8192; n += 32) {
+            for (auto pass : {OpParam::MixedCommonPass::Real, OpParam::MixedCommonPass::Hermitian}) {
+                OpParam::FftMixedCommon p{n, n, pass, pass == OpParam::MixedCommonPass::Hermitian, false, true};
+                const auto cube = OpParam::SelectCubeTail(p);
+                const auto candidate = OpParam::SelectRealCubeCandidate(p);
+                const bool power2 = (n & (n - 1)) == 0;
+                const bool mixed = fft1d::CommonMixedEligible(n, n, int(pass), p.inverse, true, true, true);
+                const char* route = power2 ? "power2" : !mixed ? "dft" : cube.tail ? "cube" : "mixed_vec";
+                const int rootFloats = (2 * n + 511) / 512 * 512, rowFloats = (n + 128 + 511) / 512 * 512;
+                const int ub = cube.tail ? 4 * (rootFloats + 2 * cube.rowsPerAivTile * rowFloats) +
+                                               48 * cube.lanes * cube.width :
+                                           0;
+                const int l1 = cube.tail ? 64 * cube.lanes * cube.kBlocks * cube.width : 0;
+                scan << n << ',' << n << ',' << (pass == OpParam::MixedCommonPass::Real ? "r2c" : "c2r") << ',' << route
+                     << ',' << candidate.tail << ',' << (candidate.tail ? n / (2 * candidate.tail) : 0) << ','
+                     << cube.tail << ',' << cube.rowsPerAivTile << ',' << cube.lanes << ',' << cube.width << ','
+                     << cube.kBlocks << ',' << cube.outBlocks << ',' << ub << ',' << l1 << ','
+                     << (cube.tail ? cube.TilingKey() : 0) << ',' << OpParam::UseRealCubePipeline(p, cube) << '\n';
+            }
+        }
+        require(bool(scan));
+    }
+    std::cout << "HOST_PASS positive_grid=" << count
+              << " cube_axis_lengths=8192 real_scan_cases=98304 real_cube_cases=" << realCases << '\n';
 }

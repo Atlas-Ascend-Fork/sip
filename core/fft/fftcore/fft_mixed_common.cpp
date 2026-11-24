@@ -53,6 +53,8 @@ bool FftMixedCommonCore::init()
     auto& p = *impl_;
     if (!ValidMixedCommon(p.param))
         return false;
+    const char* pipeline = std::getenv("ASDSIP_FFT_REAL_CUBE_PIPELINE");
+    p.param.allowRealCubePipeline = !pipeline || std::string(pipeline) != "0";
     std::vector<float> tw;
     tw.resize(MixedCommonCoeffFloats(p.param));
     const double sign = p.param.inverse ? 1.0 : -1.0;
@@ -107,8 +109,10 @@ bool FftMixedCommonCore::init()
     if (trace && std::string(trace) == "1")
         std::cerr << "ASDSIP_MIXED_FFT N=" << p.param.n << " batch=" << p.param.rows << " pass=" << int(p.param.pass)
                   << " inverse=" << p.param.inverse << " cube_tail=" << bool(cube.tail) << " tail=" << cube.tail
-                  << " lanes=" << cube.lanes << " width=" << cube.width << " two_frequency=" << (p.param.n >= 1824)
-                  << '\n';
+                  << " lanes=" << cube.lanes << " width=" << cube.width << " rows_per_aiv_tile=" << cube.rowsPerAivTile
+                  << " real_pipeline=" << UseRealCubePipeline(p.param, cube) << " real_resident="
+                  << (p.param.pass != MixedCommonPass::Complex && cube.kBlocks == 1 && cube.outBlocks == 1)
+                  << " two_frequency=" << (p.param.n >= 1824) << '\n';
     return true;
 }
 void FftMixedCommonCore::Run(Tensor& x, Tensor& y, void* stream, workspace::Workspace& w)

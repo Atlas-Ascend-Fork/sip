@@ -16,10 +16,10 @@ inline bool CommonMixedEligible(int64_t n, int64_t batch, int pass, bool inverse
 {
     if (!ascend950 || !horizontal || pass < 0 || pass > 2)
         return false;
-    // The established real selector uses DFT for all non-power-of-two N <= 1024.
-    if (pass != 0 && n <= 1024)
+    const OpParam::FftMixedCommon p{n,       batch, static_cast<OpParam::MixedCommonPass>(pass),
+                                    inverse, false, cubeTailAllowed};
+    if (pass != 0 && n <= 1024 && !cubeTailAllowed)
         return false;
-    return OpParam::ValidMixedCommon(
-        {n, batch, static_cast<OpParam::MixedCommonPass>(pass), inverse, false, cubeTailAllowed});
+    return OpParam::ValidMixedCommon(p);
 }
 } // namespace AsdSip::fft1d

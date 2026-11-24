@@ -693,11 +693,17 @@ void addFFTSteps(FFTPlan& plan, int dim, int64_t batchSize, asdFftType fftType)
     const bool complex2dAxis = plan.fftSizes.size() == 2 && plan.fftType == asdFftType::ASCEND_FFT_C2C && ascend950 &&
                                fftStride == 1 && !UseOpsFftKernelBackend();
     const bool regBaseAxis = complex2dAxis && fftSize >= 32 && fftSize <= 8192 && (fftSize & (fftSize - 1)) == 0;
-    const OpParam::FftMixedCommon axisParam{
-        fftSize,           batchSize,     static_cast<OpParam::MixedCommonPass>(mixedPass),
-        !plan.isForward(), complex2dAxis, plan.fftType == asdFftType::ASCEND_FFT_C2C};
     const bool mixedScope = plan.fftSizes.size() == 1 ||
                             (plan.fftSizes.size() == 2 && plan.batchSize == 1 && plan.fftSizes[0] == plan.fftSizes[1]);
+    const bool realPlan = plan.fftType == asdFftType::ASCEND_FFT_R2C || plan.fftType == asdFftType::ASCEND_FFT_C2R;
+    // Within an existing real plan, the real axis and the contiguous complex axis
+    // of its half spectrum each choose a tail for their own transform length.
+    const bool allowCube = plan.fftType == asdFftType::ASCEND_FFT_C2C ||
+                           (realPlan && mixedScope &&
+                            (mixedPass == 0 ? OpParam::MixedCommonLength(fftSize) : OpParam::RealMixedLength(fftSize)));
+    const OpParam::FftMixedCommon axisParam{
+        fftSize,           batchSize,     static_cast<OpParam::MixedCommonPass>(mixedPass),
+        !plan.isForward(), complex2dAxis, allowCube};
     // External backend requests retain their established dispatch and strict/auto semantics.
     if ((complex2dAxis && !regBaseAxis && OpParam::ValidMixedCommon(axisParam)) ||
         (mixedScope && !UseOpsFftKernelBackend() &&

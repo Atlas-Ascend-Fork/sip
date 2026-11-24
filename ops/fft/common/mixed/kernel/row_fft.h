@@ -106,12 +106,13 @@ __aicore__ inline void WaitRowSlot(int slot)
 }
 // Preserve the specialized small-radix formulas; larger prime stages retain
 // planar symmetry and single/two-frequency reuse, all over the actual tile rows.
+template <bool IncludeRealBoundary = true>
 __aicore__ inline __ubuf__ float* ComputeTileButterfly(__ubuf__ float* a, __ubuf__ float* b, __ubuf__ float* roots,
                                                        const __gm__ AsdSip::OpParam::MixedCommonTiling* t, int rows,
                                                        int stride)
 {
     const int n = t->n, pass = t->pass, size = pass == 0 ? n : n / 2;
-    if (pass == 2) {
+    if (IncludeRealBoundary && pass == 2) {
         asc_vf_call<BatchedRealBoundary>(dim3(256), a, b, roots, n, true, rows, stride);
         AscendC::PipeBarrier<PIPE_V>();
         auto* tmp = a;
@@ -145,7 +146,7 @@ __aicore__ inline __ubuf__ float* ComputeTileButterfly(__ubuf__ float* a, __ubuf
             b = tmp;
         }
     }
-    if (pass == 1) {
+    if (IncludeRealBoundary && pass == 1) {
         asc_vf_call<BatchedRealBoundary>(dim3(256), a, b, roots, n, false, rows, stride);
         AscendC::PipeBarrier<PIPE_V>();
         a = b;
