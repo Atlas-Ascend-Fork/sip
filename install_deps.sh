@@ -237,8 +237,33 @@ install_cmake() {
                 # 日志写入 stdout（直接进入管道），导致 gpg/tee 收到日志而非密钥与 deb
                 # 行（issue #332）；脚本开头的 set -euo pipefail 保证任一管道阶段失败时
                 # 以非零状态终止安装
-                echo "Executing command: wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc | gpg --dearmor - | sudo tee /usr/share/keyrings/kitware-archive-keyring.gpg"
-                wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | gpg --dearmor - | sudo tee /usr/share/keyrings/kitware-archive-keyring.gpg > /dev/null
+                # 固定指纹"集合"校验: 只允许 pin 这一把主密钥; 响应体中附加任何未授权 key 即终止。
+                # 不能用 grep 包含匹配——"官方 key + 攻击者 key" 的投毒响应体会被放行,
+                # 而 signed-by 信任 keyring 内任意一把 key, 攻击者即可签伪造 apt 元数据取得 root。
+                # key 只在管道/变量中流转, 不落盘。
+                # 注: Kitware 轮换密钥期间 latest.asc 会同时含旧+新两把主密钥, 届时本校验按设计
+                #     失败(fail-closed), 需核对官方公告后更新 KITWARE_FPR 并走评审。该分支仅
+                #     Ubuntu 18.04 使用, 其他发行版走各自仓库的信任链。
+                KITWARE_FPR="4DBEBE3EEC96E7B8C6EC5BE99E92FDC6C5B9BA75"   # 以 apt.kitware.com 官方公布为准
+                key_asc="$(wget -qO - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null)" || {
+                    echo "FATAL: kitware key download failed, abort." >&2; exit 1; }
+                # 只取主密钥指纹: --with-colons 输出中, 每条 pub 记录后紧跟自身的指纹行
+                # (第 10 列为 40 位十六进制), 其后 subkey 的指纹行因 want 已复位而不计入
+                key_fprs="$(printf '%s\n' "${key_asc}" \
+                    | gpg --batch --with-colons --import-options show-only --import 2>/dev/null \
+                    | awk -F: '/^pub:/{want=1; next} want && length($10)==40 {print $10; want=0}')"
+                if [ -z "${key_fprs}" ]; then
+                    echo "FATAL: kitware key parse failed (no primary key found), abort." >&2
+                    exit 1
+                fi
+                while IFS= read -r key_fpr; do
+                    if [ -n "${key_fpr}" ] && [ "${key_fpr}" != "${KITWARE_FPR}" ]; then
+                        echo "FATAL: kitware key contains unauthorized fingerprint ${key_fpr}, abort." >&2
+                        exit 1
+                    fi
+                done <<< "${key_fprs}"
+                echo "Executing command: gpg --dearmor < key.asc | sudo tee keyring"
+                printf '%s\n' "${key_asc}" | gpg --dearmor | sudo tee /usr/share/keyrings/kitware-archive-keyring.gpg > /dev/null
                 echo "Executing command: echo <kitware-archive deb line> | sudo tee /etc/apt/sources.list.d/kitware.list"
                 echo 'deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ bionic main' | sudo tee /etc/apt/sources.list.d/kitware.list > /dev/null
                 run_command sudo apt update
@@ -411,6 +436,8 @@ install_git() {
 }
 
 install_googletest() {
+    # 注意: 版本与下方 gtest_sha256 必须成对更新——哈希锚定该版本发布物,
+    # 只改版本不改哈希会导致校验失败并中断安装(安全上 fail-closed, 但会打断构建)
     local gtest_ver="v1.14.0"
     local gtest_install_prefix="/usr/local"
     echo -e "\n==== Checking googletest ===="
@@ -436,6 +463,18 @@ install_googletest() {
         trap - EXIT
         cd "${orig_dir}"
         return
+    fi
+
+    # 完整性校验: 与官方发布物 sha256 比对, 不匹配即中止全部安装(fail-closed)
+    # 锚点对应上方 gtest_ver="v1.14.0"; 升级版本时必须同步更新此哈希,
+    # 并与 build.sh 的 fn_build_googletest 锚点保持一致(两处指向同一发布物)
+    local gtest_sha256="8ad598c73ad796e0d8280b082cebd82a630d73e73cd3c70057938a6501bba5d7"
+    if ! echo "${gtest_sha256}  ${tmp_dir}/googletest.tar.gz" | sha256sum -c --quiet -; then
+        echo "FATAL: googletest tarball checksum mismatch, abort install." >&2
+        rm -rf "${tmp_dir}"
+        trap - EXIT
+        cd "${orig_dir}"
+        exit 1
     fi
 
     tar -xzf "${tmp_dir}/googletest.tar.gz" -C "${tmp_dir}"

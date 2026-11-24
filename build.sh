@@ -350,9 +350,19 @@ function fn_build_googletest()
     if [ ! -d $GTEST_DIR ]; then
         [[ ! -d $THIRD_PARTY_DIR_PATH ]] && mkdir -p $THIRD_PARTY_DIR_PATH
         cd $THIRD_PARTY_DIR_PATH
-        wget https://gitcode.com/cann-src-third-party/googletest/releases/download/v1.14.0/googletest-1.14.0.tar.gz
-        tar -xf googletest-1.14.0.tar.gz
-        rm googletest-1.14.0.tar.gz
+        # 完整性锚点: sha256 与 GitHub google/googletest 官方 v1.14.0 tag 归档逐字节一致(已实测)
+        # 升级版本 = 同时更新 URL/文件名/SHA256 三处并核对官方哈希
+        local gtest_tar_name="googletest-1.14.0.tar.gz"
+        local gtest_url="https://gitcode.com/cann-src-third-party/googletest/releases/download/v1.14.0/${gtest_tar_name}"
+        local gtest_sha256="8ad598c73ad796e0d8280b082cebd82a630d73e73cd3c70057938a6501bba5d7"
+        wget -q -O ${gtest_tar_name} ${gtest_url}
+        if ! echo "${gtest_sha256}  ${gtest_tar_name}" | sha256sum -c --quiet -; then
+            echo "FATAL: googletest checksum mismatch, abort build" >&2
+            rm -f ${gtest_tar_name}
+            exit 1
+        fi
+        tar -xf ${gtest_tar_name}
+        rm ${gtest_tar_name}
     fi
     cd $CODE_ROOT
 }
