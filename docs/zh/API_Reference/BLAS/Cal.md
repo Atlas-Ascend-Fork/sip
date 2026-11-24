@@ -220,7 +220,7 @@ AspbStatus asdBlasCscal(
       <td>相邻元素间的内存地址偏移量（当前约束为1）。</td>
     </tr>
     <tr>
-      <td>alpha（const std::complex&ltfloat&gt &）</td>
+      <td>alpha（const std::complex&lt;float&gt; &）</td>
       <td>输入</td>
       <td>向量的缩放因子。</td>
     </tr>
