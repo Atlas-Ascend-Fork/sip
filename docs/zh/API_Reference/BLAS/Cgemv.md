@@ -169,7 +169,7 @@ AspbStatus asdBlasCgemv(
       <td>矩阵A的列数，向量x的元素个数。</td>
     </tr>
     <tr>
-      <td>alpha（std::complex&ltfloat&gt &）</td>
+      <td>alpha（std::complex&lt;float&gt; &）</td>
       <td>输入</td>
       <td>对应公式中的alpha，复数标量，用于乘以矩阵和向量乘法的结果。</td>
     </tr>
@@ -187,18 +187,19 @@ AspbStatus asdBlasCgemv(
       <td>x（aclTensor *）</td>
       <td>输入</td>
       <td><ul><li>对应公式中的'x'。</li><li>数据类型支持COMPLEX64。</li><li>数据格式支持ND。</li><li>shape为[n]。</li></ul></td>
-    </tr><tr>
+    </tr>
     <tr>
       <td>incx（int64_t）</td>
       <td>输入</td>
       <td>向量x的步长（当前约束为1）。</td>
     </tr>
     <tr>
-      <td>beta（std::complex&ltfloat&gt &）</td>
+      <td>beta（std::complex&lt;float&gt; &）</td>
       <td>输入</td>
       <td>对应公式中的beta，复数标量，用于乘以向量y 。</td>
     </tr>
-    <td>y（aclTensor *）</td>
+    <tr>
+      <td>y（aclTensor *）</td>
       <td>输入/输出</td>
       <td><ul><li>输入/输出的矩阵，对应公式中的'y'。</li><li>数据类型支持COMPLEX64。</li><li>数据格式支持ND。</li><li>shape为[m]。</li></ul></td>
     </tr>
