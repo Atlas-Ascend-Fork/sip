@@ -83,7 +83,7 @@
 - **asdFftGetWorkspaceSize**
 
     功能描述：计算当前plan所需的设备端workspace字节数。\
-    函数原型：AspbStatus asdFftGetWorkspaceSize(asdFftHandle handle, size_t &workSize)\
+    函数原型：AspbStatus asdFftGetWorkspaceSize(asdFftHandle handle, size_t &workspaceSize)\
     **参数说明：**
     <table style="undefined;table-layout: fixed; width: 880px"><colgroup>
     <col style="width: 250px">
@@ -103,7 +103,7 @@
       <td>asdFftGetWorkspaceSize接口的句柄。</td>
     </tr>
     <tr>
-      <td>workSize（size_t &）</td>
+      <td>workspaceSize（size_t &）</td>
       <td>输出</td>
       <td>用于接收所需工作空间的字节数。</td>
     </tr>
