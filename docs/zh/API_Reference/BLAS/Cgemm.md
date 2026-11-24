@@ -230,12 +230,12 @@ AspbStatus asdBlasCgemm(
       <td><ul><li>输入/输出的矩阵，对应公式中的'C'</li><li>数据类型支持COMPLEX64。</li><li>数据格式支持ND。</li><li>shape为[m，n]。</li></ul></td>
     </tr>
     <tr>
-      <td>alpha（std::complex&ltfloat&gt &）</td>
+      <td>alpha（std::complex&lt;float&gt; &）</td>
       <td>输入</td>
       <td>对应公式中的alpha，复数标量，用于乘以矩阵乘法的结果。</td>
     </tr>
     <tr>
-      <td>beta（std::complex&ltfloat&gt &）</td>
+      <td>beta（std::complex&lt;float&gt; &）</td>
       <td>输入</td>
       <td>对应公式中的beta，复数标量，用于乘以矩阵C。</td>
     </tr>
