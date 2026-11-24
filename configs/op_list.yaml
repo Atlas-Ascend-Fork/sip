@@ -306,5 +306,7 @@ FftTransposeOperation:
         ascend950: true
 
 FftMixedCommonOperation:
+    FftCubeTailKernel:
+        ascend950: true
     FftMixedCommonKernel:
         ascend950: true

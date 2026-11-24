@@ -26,7 +26,8 @@ public:
     Kernel* GetBestKernel(const LaunchParam& p) const override
     {
         return IsConsistent(p) && p.GetParam().Type() == typeid(FftMixedCommon) ?
-                   GetKernelByName("FftMixedCommonKernel") :
+                   GetKernelByName(UseMixedCubeTail(AnyCast<FftMixedCommon>(p.GetParam())) ? "FftCubeTailKernel" :
+                                                                                             "FftMixedCommonKernel") :
                    nullptr;
     }
 
@@ -73,20 +74,29 @@ public:
         ASDSIP_CHECK(CanSupport(launch), "Unsupported FFT mixed common pass",
                      return Status::FailStatus(ERROR_INVALID_VALUE));
         const auto& p = AnyCast<FftMixedCommon>(launch.GetParam());
-        const int64_t cores = PlatformInfo::Instance().GetCoreNum(CoreType::CORE_TYPE_VECTOR);
+        const auto cube = SelectCubeTail(p);
+        const bool cubeTail = cube.tail != 0;
+        const int64_t cores = PlatformInfo::Instance().GetCoreNum(cubeTail ? CoreType::CORE_TYPE_CUBE :
+                                                                             CoreType::CORE_TYPE_VECTOR);
         ASDSIP_CHECK(cores > 0 && kernelInfo_.GetTilingHostAddr(), "Missing AIV/tiling",
                      return Status::FailStatus(ERROR_INVALID_VALUE));
         auto& tiling = *reinterpret_cast<MixedCommonTiling*>(kernelInfo_.GetTilingHostAddr());
         ASDSIP_CHECK(BuildMixedCommonTiling(p, tiling), "Invalid mixed common factor plan",
                      return Status::FailStatus(ERROR_INVALID_VALUE));
-        // Every launched block owns at least one row; the device drains a completion event per active slot.
-        kernelInfo_.SetBlockDim(std::min(cores, p.rows));
-        kernelInfo_.SetTilingId(SelectMixedCommonTile(p).key);
+        // Each AIV owns a complete alignment group. Two AIVs share one AIC.
+        const int group = (cubeTail ? 2 : 1) * tiling.rowGroup;
+        kernelInfo_.SetBlockDim(std::min(cores, (p.rows + group - 1) / group));
+        kernelInfo_.SetTilingId(cubeTail ? cube.TilingKey() : SelectMixedCommonTile(p).key);
         kernelInfo_.SetLocalMemorySize(0);
         kernelInfo_.GetScratchSizes() = {0};
         return Status::OkStatus();
     }
 };
+class FftCubeTailKernel : public FftMixedCommonKernel {
+public:
+    using FftMixedCommonKernel::FftMixedCommonKernel;
+};
+REG_KERNEL_BASE(FftCubeTailKernel);
 REG_OPERATION(FftMixedCommonOperation);
 REG_KERNEL_BASE(FftMixedCommonKernel);
 } // namespace AsdSip

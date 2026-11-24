@@ -10,6 +10,7 @@
 
 #pragma once
 #include <cstdint>
+#include <initializer_list>
 #include <string>
 namespace AsdSip::OpParam {
 enum class MixedCommonPass : int32_t { Complex, Real, Hermitian };
@@ -17,9 +18,12 @@ struct FftMixedCommon {
     int64_t n = 0, rows = 0;
     MixedCommonPass pass = MixedCommonPass::Complex;
     bool inverse = false;
+    bool complex2dAxis = false;
+    bool cubeTailAllowed = false;
     bool operator==(const FftMixedCommon& p) const
     {
-        return n == p.n && rows == p.rows && pass == p.pass && inverse == p.inverse;
+        return n == p.n && rows == p.rows && pass == p.pass && inverse == p.inverse &&
+               complex2dAxis == p.complex2dAxis && cubeTailAllowed == p.cubeTailAllowed;
     }
     std::string ToString() const
     {
@@ -28,8 +32,125 @@ struct FftMixedCommon {
     }
 };
 inline bool MixedCommonLength(int64_t n) { return n >= 32 && n <= 8192 && n % 32 == 0 && (n & (n - 1)) != 0; }
+struct CubeTailPlan {
+    int tail = 0, lanes = 0, width = 0, kBlocks = 0, outBlocks = 0;
+    bool direct = false;
+    int TilingKey() const { return direct ? width : 1000 + 100 * (lanes / 8) + width; }
+};
+// n is a validated axis length in [1, 8192].
+inline int SelectOddTailFactor(int n)
+{
+    int odd = n;
+    while (odd % 2 == 0)
+        odd /= 2;
+    if (odd == 1)
+        return 0;
+    int factors[9] = {}, count = 0; // 3^9 exceeds the supported axis length.
+    for (int d = 3; d * d <= odd; d += 2) {
+        while (odd % d == 0) {
+            factors[count++] = d;
+            odd /= d;
+        }
+    }
+    if (odd > 1)
+        factors[count++] = odd;
+    const int largest = factors[--count];
+    if (largest > 129)
+        return largest < 257 ? largest : 0;
+    int tail = largest;
+    // Once the smallest factor is <= 7, a composite needs a largest prime >= 17.
+    while (count > 0) {
+        const int d = factors[--count];
+        if (largest < 17 && d <= 7)
+            break;
+        if (tail * d < 129)
+            tail *= d;
+    }
+    return tail == largest && largest <= 23 ? 0 : tail;
+}
+// For each target axis N = 32 * k, store its measured C2C tail (zero selects Vec).
+// The caller validates 1 <= n <= 8192. Both directions share the target table.
+// Other supported axis lengths keep using the factor-based planner.
+inline int CubeTailFactorForLength(int n)
+{
+    static constexpr uint8_t targetTails[] = {
+        0,   0,   0,   0,  0,   0,   0,   0,  0,   0,   0,   0,  0,   0,   0,   0, // k = 1..16
+        0,   0,   0,   0,  0,   0,   23,  0,  0,   0,   0,   0,  29,  0,   31,  0, // k = 17..32
+        33,  0,   0,   0,  37,  0,   39,  0,  41,  0,   43,  0,  0,   0,   47,  0, // k = 33..48
+        0,   0,   51,  0,  53,  0,   55,  0,  57,  0,   59,  0,  61,  31,  0,   0, // k = 49..64
+        65,  0,   67,  0,  69,  0,   71,  0,  73,  0,   0,   0,  77,  0,   79,  0, // k = 65..80
+        0,   0,   83,  0,  85,  43,  87,  0,  89,  0,   91,  0,  93,  47,  95,  0, // k = 81..96
+        97,  0,   99,  0,  101, 0,   103, 0,  0,   53,  107, 0,  109, 0,   111, 0, // k = 97..112
+        113, 0,   115, 0,  117, 59,  119, 0,  121, 61,  123, 31, 125, 0,   127, 0, // k = 113..128
+        43,  0,   131, 0,  0,   67,  0,   0,  137, 0,   139, 0,  47,  71,  0,   0, // k = 129..144
+        29,  73,  0,   0,  149, 0,   151, 0,  0,   0,   31,  0,  157, 79,  53,  0, // k = 145..160
+        0,   0,   163, 41, 0,   83,  167, 0,  169, 85,  57,  43, 173, 87,  0,   0, // k = 161..176
+        59,  89,  179, 0,  181, 0,   61,  0,  185, 93,  187, 47, 0,   95,  191, 0, // k = 177..192
+        193, 97,  0,   0,  197, 0,   199, 0,  67,  101, 29,  0,  41,  103, 0,   0, // k = 193..208
+        209, 0,   211, 53, 71,  107, 43,  0,  31,  109, 73,  0,  0,   0,   223, 0, // k = 209..224
+        0,   113, 227, 0,  229, 0,   0,   0,  233, 0,   47,  59, 79,  0,   239, 0, // k = 225..240
+        241, 121, 0,   61, 0,   123, 0,   31, 83,  0,   251, 0,  0,   127, 0,   0, // k = 241..256
+    };
+    static_assert(sizeof(targetTails) / sizeof(targetTails[0]) == 256);
+    return n % 32 == 0 ? targetTails[n / 32 - 1] : SelectOddTailFactor(n);
+}
+inline CubeTailPlan SelectCubeTail(const FftMixedCommon& p)
+{
+    if (!p.cubeTailAllowed || p.pass != MixedCommonPass::Complex || p.n < 1 || p.n > 8192)
+        return {};
+    const int n = static_cast<int>(p.n);
+    const int tail = CubeTailFactorForLength(n);
+    if (tail == 0)
+        return {};
+    const bool blocked = tail >= 129;
+    const int prefix = n / tail, half = tail / 2;
+    const int width = (half / 16 + 1) * 16;
+    if (!blocked && prefix == 32)
+        return {tail, 32, width, 1, 1, true};
+    const int rowFloats = (2 * n + 511) / 512 * 512;
+    CubeTailPlan best;
+    int bestWork = 0, bestCalls = 0;
+    for (int j : {32, 16, 8}) {
+        if (blocked && prefix % j != 0)
+            continue;
+        for (int tile : {64, 48, 32, 16}) {
+            if ((blocked && tile == 16) || (!blocked && tile > width))
+                continue;
+            const int kb = (half + tile - 1) / tile, nb = (half + tile) / tile;
+            // UB holds three rows and six half-matrix fragments. L1 holds two input slots
+            // for both AIVs and both (cosine/sine) stages. Weights use a separate L1 region.
+            if (12 * rowFloats + 48 * j * tile > 212 * 1024 || 64 * j * kb * tile > 128 * 1024)
+                continue;
+            const int groups = (prefix + j - 1) / j;
+            const int work = groups * j * kb * nb * tile * tile;
+            const int calls = groups * kb * nb;
+            if (!best.tail || work < bestWork || (work == bestWork && calls < bestCalls)) {
+                best = {tail, j, tile, kb, nb, false};
+                bestWork = work;
+                bestCalls = calls;
+            }
+        }
+    }
+    return best;
+}
+inline bool UseMixedCubeTail(const FftMixedCommon& p) { return SelectCubeTail(p).tail != 0; }
+inline int CubeWeightOffset(int n) { return (2 * n + 7) / 8 * 8; }
 inline bool ValidMixedCommon(const FftMixedCommon& p)
 {
+    if (p.complex2dAxis || (p.cubeTailAllowed && p.pass == MixedCommonPass::Complex)) {
+        // Standalone C2C retains its existing power-of-two route and batch limit.
+        // The rectangular 2D planner separately selects RegBase for power-of-two axes.
+        if (p.pass != MixedCommonPass::Complex || p.n < 1 || p.n > 8192 || p.rows < 1 ||
+            p.rows > 0x7fffffff / (2 * p.n))
+            return false;
+        if (!p.complex2dAxis && (p.rows > 8192 || (p.n & (p.n - 1)) == 0))
+            return false;
+        int64_t left = p.n;
+        for (int radix = 2; radix <= 251 && left > 1; ++radix)
+            while (left % radix == 0)
+                left /= radix;
+        return left == 1;
+    }
     return MixedCommonLength(p.n) && p.rows >= 1 && p.rows <= 8192 && int(p.pass) >= 0 && int(p.pass) <= 2 &&
            (p.pass != MixedCommonPass::Real || !p.inverse) && (p.pass != MixedCommonPass::Hermitian || p.inverse);
 }
@@ -44,7 +165,7 @@ inline MixedCommonTilePlan SelectMixedCommonTile(const FftMixedCommon& p)
         return {-1, 0, 0, 0};
     constexpr int arenaFloats = 212 * 1024 / sizeof(float);
     const bool real = p.pass != MixedCommonPass::Complex;
-    const int stride = (real ? p.n : 2 * p.n) + 128;
+    const int stride = ((real ? p.n : 2 * p.n) + 135) / 8 * 8;
     int buffers;
     if (real)
         buffers = p.n > 5312 && p.n <= 6688 ? 3 : 4;
@@ -67,10 +188,17 @@ inline int64_t MixedCommonFloats(const FftMixedCommon& p, bool output)
         return p.rows * (output ? p.n : p.n + 2);
     return 2 * p.rows * p.n;
 }
-inline int64_t MixedCommonCoeffFloats(const FftMixedCommon& p) { return 2 * p.n; }
+inline int64_t MixedCommonCoeffFloats(const FftMixedCommon& p)
+{
+    const auto plan = SelectCubeTail(p);
+    if (!plan.tail)
+        return 2 * p.n;
+    return CubeWeightOffset(p.n) + 2 * plan.width * plan.width * plan.kBlocks * plan.outBlocks;
+}
 struct MixedCommonTiling {
-    int32_t n, rows, pass, inverse, radix2Stages, oddStages, twoFrequencies;
+    int32_t n, rows, pass, inverse, radix2Stages, oddStages, twoFrequencies, rowGroup;
     int32_t radix[8], prev[8];
+    int32_t tail, kBlocks, outBlocks;
 };
 inline bool BuildMixedCommonTiling(const FftMixedCommon& p, MixedCommonTiling& t)
 {
@@ -79,11 +207,19 @@ inline bool BuildMixedCommonTiling(const FftMixedCommon& p, MixedCommonTiling& t
         return false;
     t.n = int32_t(p.n);
     t.rows = int32_t(p.rows);
+    // Assign complete 32-byte GM blocks to one core even for short/odd rows.
+    t.rowGroup = (p.complex2dAxis || p.cubeTailAllowed) && p.n % 4 != 0 ? (p.n % 2 == 0 ? 2 : 4) : 1;
     t.pass = int32_t(p.pass);
     t.inverse = p.inverse;
     // Use paired symmetric outputs for larger transforms.
     t.twoFrequencies = p.n >= 1824;
     int left = p.pass == MixedCommonPass::Complex ? t.n : t.n / 2, prev = 1;
+    const auto cube = SelectCubeTail(p);
+    t.tail = cube.tail;
+    t.kBlocks = cube.kBlocks;
+    t.outBlocks = cube.outBlocks;
+    if (cube.tail)
+        left /= cube.tail;
     while (left % 2 == 0) {
         ++t.radix2Stages;
         left /= 2;
@@ -99,6 +235,6 @@ inline bool BuildMixedCommonTiling(const FftMixedCommon& p, MixedCommonTiling& t
             prev *= r;
         }
     }
-    return t.oddStages > 0;
+    return t.oddStages > 0 || p.complex2dAxis || cube.tail;
 }
 } // namespace AsdSip::OpParam

@@ -11,13 +11,15 @@
 #pragma once
 #include "params/fft_mixed_common.h"
 namespace AsdSip::fft1d {
-inline bool CommonMixedEligible(int64_t n, int64_t batch, int pass, bool inverse, bool ascend950, bool horizontal)
+inline bool CommonMixedEligible(int64_t n, int64_t batch, int pass, bool inverse, bool ascend950, bool horizontal,
+                                bool cubeTailAllowed = false)
 {
     if (!ascend950 || !horizontal || pass < 0 || pass > 2)
         return false;
     // The established real selector uses DFT for all non-power-of-two N <= 1024.
     if (pass != 0 && n <= 1024)
         return false;
-    return OpParam::ValidMixedCommon({n, batch, static_cast<OpParam::MixedCommonPass>(pass), inverse});
+    return OpParam::ValidMixedCommon(
+        {n, batch, static_cast<OpParam::MixedCommonPass>(pass), inverse, false, cubeTailAllowed});
 }
 } // namespace AsdSip::fft1d

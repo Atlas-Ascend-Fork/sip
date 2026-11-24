@@ -690,13 +690,20 @@ void addFFTSteps(FFTPlan& plan, int dim, int64_t batchSize, asdFftType fftType)
                           kind == fft1d::Kind::R2C ? 1 :
                           kind == fft1d::Kind::C2R ? 2 :
                                                      -1;
+    const bool complex2dAxis = plan.fftSizes.size() == 2 && plan.fftType == asdFftType::ASCEND_FFT_C2C && ascend950 &&
+                               fftStride == 1 && !UseOpsFftKernelBackend();
+    const bool regBaseAxis = complex2dAxis && fftSize >= 32 && fftSize <= 8192 && (fftSize & (fftSize - 1)) == 0;
+    const OpParam::FftMixedCommon axisParam{
+        fftSize,           batchSize,     static_cast<OpParam::MixedCommonPass>(mixedPass),
+        !plan.isForward(), complex2dAxis, plan.fftType == asdFftType::ASCEND_FFT_C2C};
     const bool mixedScope = plan.fftSizes.size() == 1 ||
                             (plan.fftSizes.size() == 2 && plan.batchSize == 1 && plan.fftSizes[0] == plan.fftSizes[1]);
     // External backend requests retain their established dispatch and strict/auto semantics.
-    if (mixedScope && !UseOpsFftKernelBackend() &&
-        fft1d::CommonMixedEligible(fftSize, batchSize, mixedPass, !plan.isForward(), ascend950, fftStride == 1)) {
-        auto core = std::make_unique<FftMixedCommonCore>(OpParam::FftMixedCommon{
-            fftSize, batchSize, static_cast<OpParam::MixedCommonPass>(mixedPass), !plan.isForward()});
+    if ((complex2dAxis && !regBaseAxis && OpParam::ValidMixedCommon(axisParam)) ||
+        (mixedScope && !UseOpsFftKernelBackend() &&
+         fft1d::CommonMixedEligible(fftSize, batchSize, mixedPass, !plan.isForward(), ascend950, fftStride == 1,
+                                    axisParam.cubeTailAllowed))) {
+        auto core = std::make_unique<FftMixedCommonCore>(axisParam);
         if (core->init()) {
             plan.steps.push_back(PlanStep{std::move(core)});
             return;
@@ -706,6 +713,8 @@ void addFFTSteps(FFTPlan& plan, int dim, int64_t batchSize, asdFftType fftType)
     int config = 0;
     if (plan.fftSizes.size() == 1) {
         config = fft1d::OptimizedConfig(fftSize, batchSize, kind, !plan.isForward(), ascend950, fftStride == 1);
+    } else if (regBaseAxis) {
+        config = fft1d::OptimizedConfig(fftSize, fftSize, kind, !plan.isForward(), ascend950, true);
     } else if (plan.fftSizes.size() == 2) {
         config = fft1d::OptimizedSquareConfig(fftSize, plan.fftSizes[1 - dim], plan.batchSize, batchSize, kind,
                                               kindOf(plan.fftType), !plan.isForward(), ascend950, fftStride == 1);
@@ -724,6 +733,10 @@ void addFFTSteps(FFTPlan& plan, int dim, int64_t batchSize, asdFftType fftType)
         else
             core.reset(new FftRealRegBaseCore(1, fftSize, 1, batchSize, fftType, plan.isForward(), config, multirow));
         if (core->init()) {
+            const char* trace = std::getenv("ASDSIP_FFT_PLAN_TRACE");
+            if (regBaseAxis && trace && std::string(trace) == "1")
+                std::cerr << "ASDSIP_REGBASE_FFT N=" << fftSize << " batch=" << batchSize
+                          << " inverse=" << !plan.isForward() << std::endl;
             plan.steps.push_back(PlanStep{std::move(core)});
             return;
         }
@@ -820,13 +833,16 @@ void init2DSteps(FFTPlan& plan)
             break;
         case asdFftType::ASCEND_FFT_C2C:
             if (Mki::PlatformInfo::Instance().GetPlatformType() == Mki::PlatformType::ASCEND_950) {
-                // Radix-2 axes follow the same backend policy as 1D/3D passes.
-                // Covered mixed squares share the common 1D/transpose composition;
-                // other mixed shapes retain the dedicated implementation.
-                const bool commonMixed = batchSize == 1 && fftSizeX == fftSizeY && !UseOpsFftKernelBackend() &&
-                                         fft1d::CommonMixedEligible(fftSizeX, fftSizeX, 0, !plan.isForward(), true,
-                                                                    true);
-                if (commonMixed || (radixX == K_RADIX_2 && radixY == K_RADIX_2)) {
+                // Check both contiguous passes using their actual row counts, including rectangular batches.
+                const auto axisSupported = [batchSize](int64_t n, int64_t other) {
+                    if (n < 1 || n > 8192 || other < 1 || other > 8192)
+                        return false;
+                    return OpParam::ValidMixedCommon(
+                        {n, int64_t(batchSize) * other, OpParam::MixedCommonPass::Complex, false, true});
+                };
+                const bool commonAxes = !UseOpsFftKernelBackend() && axisSupported(fftSizeX, fftSizeY) &&
+                                        axisSupported(fftSizeY, fftSizeX);
+                if (commonAxes || (radixX == K_RADIX_2 && radixY == K_RADIX_2)) {
                     // Continue into the ordinary transpose/1D composition below.
                 } else if (fftSizeX > 1 && fftSizeY > 1 &&
                            Support(deDuplicates(orderedFactorize(fftSizeX)), RADIX_ARCH35_C2C_MIX) &&

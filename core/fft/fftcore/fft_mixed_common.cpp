@@ -54,12 +54,31 @@ bool FftMixedCommonCore::init()
     if (!ValidMixedCommon(p.param))
         return false;
     std::vector<float> tw;
-    tw.resize(2 * p.param.n);
+    tw.resize(MixedCommonCoeffFloats(p.param));
     const double sign = p.param.inverse ? 1.0 : -1.0;
     for (int64_t k = 0; k < p.param.n; ++k) {
         const double angle = sign * 6.28318530717958647692 * double(k) / double(p.param.n);
         tw[2 * k] = float(std::cos(angle));
         tw[2 * k + 1] = float(std::sin(angle));
+    }
+    const auto cube = SelectCubeTail(p.param);
+    if (cube.tail) {
+        const int q = cube.tail, half = q / 2, width = cube.width;
+        float* cosine = tw.data() + CubeWeightOffset(p.param.n);
+        float* sine = cosine + cube.outBlocks * cube.kBlocks * width * width;
+        for (int i = 1; i <= half; ++i) {
+            for (int col = 0; col <= half; ++col) {
+                const int block = col / width * cube.kBlocks + (i - 1) / width;
+                const int offset = (block * width + (i - 1) % width) * width + col % width;
+                if (col == half) {
+                    cosine[offset] = 1.0f;
+                    continue;
+                }
+                const int root = 2 * (p.param.n / q) * ((i * (col + 1)) % q);
+                cosine[offset] = tw[root];
+                sine[offset] = -tw[root + 1];
+            }
+        }
     }
     if (MkiRtMemMallocDevice(&p.tw, tw.size() * sizeof(float), MKIRT_MEM_DEFAULT) != MKIRT_SUCCESS ||
         MkiRtMemCopy(p.tw, tw.size() * sizeof(float), tw.data(), tw.size() * sizeof(float),
@@ -87,7 +106,9 @@ bool FftMixedCommonCore::init()
     const char* trace = std::getenv("ASDSIP_FFT_PLAN_TRACE");
     if (trace && std::string(trace) == "1")
         std::cerr << "ASDSIP_MIXED_FFT N=" << p.param.n << " batch=" << p.param.rows << " pass=" << int(p.param.pass)
-                  << " inverse=" << p.param.inverse << " two_frequency=" << (p.param.n >= 1824) << '\n';
+                  << " inverse=" << p.param.inverse << " cube_tail=" << bool(cube.tail) << " tail=" << cube.tail
+                  << " lanes=" << cube.lanes << " width=" << cube.width << " two_frequency=" << (p.param.n >= 1824)
+                  << '\n';
     return true;
 }
 void FftMixedCommonCore::Run(Tensor& x, Tensor& y, void* stream, workspace::Workspace& w)

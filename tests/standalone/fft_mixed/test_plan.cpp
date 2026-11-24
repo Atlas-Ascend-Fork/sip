@@ -44,6 +44,84 @@ int main()
             require(OpParam::SelectMixedCommonTile(p).buffers == 0);
         }
     }
+    for (int n : {16, 60, 81, 875, 1573, 5400}) {
+        OpParam::FftMixedCommon p{n, 16384, OpParam::MixedCommonPass::Complex, false, true};
+        OpParam::MixedCommonTiling tiling{};
+        require(OpParam::BuildMixedCommonTiling(p, tiling));
+        require(OpParam::SelectMixedCommonTile(p).rows > 0);
+        int product = 1 << tiling.radix2Stages;
+        for (int i = 0; i < tiling.oddStages; ++i)
+            product *= tiling.radix[i];
+        require(product == n);
+    }
+    require(!OpParam::ValidMixedCommon({257, 32, OpParam::MixedCommonPass::Complex, false, true}));
+    struct TailCase {
+        int n, tail;
+    };
+    // These off-grid lengths continue to use the general prime-factor strategy.
+    const TailCase cases[] = {{16 * 23, 0},    {16 * 29, 29},   {16 * 49, 0},    {16 * 51, 51},   {16 * 89, 89},
+                              {16 * 105, 0},   {16 * 119, 119}, {16 * 121, 121}, {16 * 123, 123}, {16 * 127, 127},
+                              {16 * 129, 43},  {16 * 215, 43},  {16 * 217, 31},  {16 * 255, 85},  {16 * 251, 251},
+                              {24 * 131, 131}, {465, 93},       {393, 0},        {637, 0},        {257, 0},
+                              {133, 0},        {161, 0}};
+    for (const auto& c : cases) {
+        OpParam::FftMixedCommon p{c.n, 3, OpParam::MixedCommonPass::Complex, false, true, true};
+        require(OpParam::SelectCubeTail(p).tail == c.tail);
+        p.inverse = true;
+        require(OpParam::SelectCubeTail(p).tail == c.tail);
+        p.cubeTailAllowed = false;
+        require(!OpParam::UseMixedCubeTail(p));
+    }
+    // Include small and blocked Cube tails, the tied route, and a measured Vec winner.
+    const TailCase targets[] = {{736, 23}, {1760, 55}, {5440, 85}, {8032, 251}, {8160, 0}};
+    for (const auto& c : targets) {
+        OpParam::FftMixedCommon p{c.n, c.n, OpParam::MixedCommonPass::Complex, false, false, true};
+        require(OpParam::SelectCubeTail(p).tail == c.tail);
+    }
+    for (int n = 1; n <= 8192; ++n) {
+        OpParam::FftMixedCommon p{n, 17, OpParam::MixedCommonPass::Complex, false, false, true};
+        const auto cube = OpParam::SelectCubeTail(p);
+        if (n % 32 == 0) {
+            auto axis = p;
+            axis.inverse = true;
+            require(OpParam::SelectCubeTail(axis).tail == cube.tail);
+            axis.complex2dAxis = true;
+            axis.rows = 9173;
+            require(OpParam::SelectCubeTail(axis).tail == cube.tail);
+            axis.pass = OpParam::MixedCommonPass::Real;
+            require(!OpParam::UseMixedCubeTail(axis));
+        }
+        OpParam::MixedCommonTiling t{};
+        const bool eligible = OpParam::BuildMixedCommonTiling(p, t);
+        require(eligible == fft1d::CommonMixedEligible(n, 17, 0, false, true, true, true));
+        if (eligible) {
+            int prefix = 1 << t.radix2Stages;
+            for (int i = 0; i < t.oddStages; ++i) {
+                require(t.prev[i] == prefix);
+                prefix *= t.radix[i];
+            }
+            require(prefix * (cube.tail ? cube.tail : 1) == n);
+        }
+        if (!cube.tail)
+            continue;
+        require(eligible && t.tail == cube.tail && t.outBlocks == cube.outBlocks && t.kBlocks == cube.kBlocks);
+        require(OpParam::MixedCommonCoeffFloats(p) ==
+                OpParam::CubeWeightOffset(n) + 2 * cube.width * cube.width * cube.kBlocks * cube.outBlocks);
+        require(OpParam::CubeWeightOffset(n) % 8 == 0);
+        if (cube.direct) {
+            require(n / cube.tail == 32 && cube.tail < 129);
+        } else {
+            const int rowFloats = (2 * n + 511) / 512 * 512;
+            require(12 * rowFloats + 48 * cube.lanes * cube.width <= 212 * 1024);
+            require(64 * cube.lanes * cube.kBlocks * cube.width <= 128 * 1024);
+        }
+    }
+    for (auto n : {393, 637})
+        require(fft1d::CommonMixedEligible(n, 17, 0, true, true, true, true));
+    for (auto n : {0, 128, 257, 8193})
+        require(!fft1d::CommonMixedEligible(n, 17, 0, false, true, true, true));
+    for (auto b : {0, 8193})
+        require(!fft1d::CommonMixedEligible(465, b, 0, false, true, true, true));
     int count = 0;
     for (int k = 1; k <= 256; ++k)
         for (int pass = 0; pass < 3; ++pass) {
@@ -73,5 +151,5 @@ int main()
     require(!fft1d::CommonMixedEligible(352, 1, 0, false, true, false));
     require(!fft1d::CommonMixedEligible(1536, 1, 1, true, true, true));
     require(!fft1d::CommonMixedEligible(1536, 1, 2, false, true, true));
-    std::cout << "HOST_PASS positive_grid=" << count << " negative=11\n";
+    std::cout << "HOST_PASS positive_grid=" << count << " cube_axis_lengths=8192\n";
 }

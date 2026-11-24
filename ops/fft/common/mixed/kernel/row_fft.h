@@ -186,6 +186,15 @@ __aicore__ inline __ubuf__ float* ComputeSingleComplexRow(__ubuf__ float* a, __u
     }
     return a;
 }
+__aicore__ inline void GetTileRowRange(const __gm__ AsdSip::OpParam::MixedCommonTiling* t, int& start, int& count)
+{
+    const int blocks = AscendC::GetBlockNum(), block = AscendC::GetBlockIdx();
+    const int group = t->rowGroup, groups = (t->rows - 1) / group + 1;
+    const int q = groups / blocks, rem = groups % blocks;
+    start = (block * q + (block < rem ? block : rem)) * group;
+    const int assigned = (q + (block < rem)) * group;
+    count = assigned < t->rows - start ? assigned : t->rows - start;
+}
 template <bool CompactReal = false, int Slots = 2>
 __aicore__ inline void RowsTileAdaptive(__gm__ float* input, __gm__ float* coeff, __gm__ float* output,
                                         const __gm__ AsdSip::OpParam::MixedCommonTiling* t)
@@ -199,15 +208,14 @@ __aicore__ inline void RowsTileAdaptive(__gm__ float* input, __gm__ float* coeff
     __ubuf__ float arena[ArenaFloats];
     const int n = t->n, pass = t->pass;
     // Real FFT uses N/2 complex values. N+128 also covers the N+2 half spectrum.
-    const int stride = (CompactReal ? n : 2 * n) + 128;
+    const int stride = ((CompactReal ? n : 2 * n) + 135) / 8 * 8;
     const int SlotFloats = ((ArenaFloats - 2 * n) / (2 * Slots) / 8) * 8;
     __ubuf__ float* a = arena;
     __ubuf__ float* b = arena + Slots * SlotFloats;
     __ubuf__ float* roots = arena + 2 * Slots * SlotFloats;
     const int tileRows = SlotFloats / stride;
-    const int blocks = AscendC::GetBlockNum(), block = AscendC::GetBlockIdx();
-    const int q = t->rows / blocks, rem = t->rows % blocks;
-    const int count = q + (block < rem), start = block * q + (block < rem ? block : rem);
+    int start, count;
+    GetTileRowRange(t, start, count);
     const int inFloats = pass == 1 ? n : pass == 2 ? n + 2 : 2 * n;
     const int outFloats = pass == 1 ? n + 2 : pass == 2 ? n : 2 * n;
     const int tiles = (count + tileRows - 1) / tileRows;
@@ -266,7 +274,7 @@ __aicore__ inline void RowsTileThree(__gm__ float* input, __gm__ float* coeff, _
 {
     constexpr int ArenaFloats = 212 * 1024 / sizeof(float);
     __ubuf__ float arena[ArenaFloats];
-    const int n = t->n, stride = (CompactReal ? n : 2 * n) + 128;
+    const int n = t->n, stride = ((CompactReal ? n : 2 * n) + 135) / 8 * 8;
     const int inFloats = t->pass == 0 ? 2 * n : t->pass == 1 ? n : n + 2;
     const int outFloats = t->pass == 0 ? 2 * n : t->pass == 1 ? n + 2 : n;
     const int capacity = ((ArenaFloats - 2 * n) / 3 / 8) * 8;
@@ -275,9 +283,8 @@ __aicore__ inline void RowsTileThree(__gm__ float* input, __gm__ float* coeff, _
     __ubuf__ float* scratch = arena + capacity;
     __ubuf__ float* spare = arena + 2 * capacity;
     __ubuf__ float* roots = arena + 3 * capacity;
-    const int blocks = AscendC::GetBlockNum(), block = AscendC::GetBlockIdx();
-    const int q = t->rows / blocks, rem = t->rows % blocks;
-    const int count = q + (block < rem), start = block * q + (block < rem ? block : rem);
+    int start, count;
+    GetTileRowRange(t, start, count);
     const int tiles = (count + tileRows - 1) / tileRows;
     asc_copy_gm2ub_align(roots, coeff, 1, n * 8, 0, 0, false, 0, 0, 0);
     const int firstRows = count < tileRows ? count : tileRows;

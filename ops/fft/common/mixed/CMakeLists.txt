@@ -18,3 +18,15 @@ add_kernel(fft_mixed_common ascend950 vector kernel/mixed.asc FftMixedCommonKern
         ${CMAKE_CURRENT_LIST_DIR}/kernel/radix57.h
         ${CMAKE_CURRENT_LIST_DIR}/kernel/odd_symmetric.h
         ${PROJECT_SOURCE_DIR}/ops/include/params/fft_mixed_common.h)
+add_kernel(fft_cube_tail ascend950 mix kernel/cube_tail.asc FftCubeTailKernel
+    CACHE_POLICY compiler-default
+    INCLUDE_DIRECTORIES ${PROJECT_SOURCE_DIR}/ops/include
+    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/kernel/cube_tail_tiles.h
+        ${CMAKE_CURRENT_LIST_DIR}/kernel/row_fft.h
+        ${CMAKE_CURRENT_LIST_DIR}/kernel/batched_vf.h
+        ${CMAKE_CURRENT_LIST_DIR}/kernel/tile_simd.h
+        ${CMAKE_CURRENT_LIST_DIR}/kernel/radix3.h
+        ${CMAKE_CURRENT_LIST_DIR}/kernel/radix4.h
+        ${CMAKE_CURRENT_LIST_DIR}/kernel/radix57.h
+        ${CMAKE_CURRENT_LIST_DIR}/kernel/odd_symmetric.h
+        ${PROJECT_SOURCE_DIR}/ops/include/params/fft_mixed_common.h)
