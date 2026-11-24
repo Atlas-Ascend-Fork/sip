@@ -117,7 +117,7 @@ AspbStatus asdBlasCaxpy(
       <td>向量中复数元素的个数。</td>
     </tr>
     <tr>
-      <td>alpha（std::complex&ltfloat&gt &）</td>
+      <td>alpha（std::complex&lt;float&gt; &）</td>
       <td>输入</td>
       <td><ul><li>对应公式中的alpha，输入的复数标量。</li><li>数据类型支持COMPLEX64。</li></ul></td>
     </tr>
