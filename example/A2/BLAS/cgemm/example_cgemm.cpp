@@ -173,24 +173,24 @@ int main(int argc, char** argv)
     printTensor(tensorInBData, k, n);
 
     asdBlasHandle handle;
-    asdBlasCreate(handle);
+    ASD_STATUS_CHECK(asdBlasCreate(handle));
 
     size_t lwork = 0;
     void* buffer = nullptr;
-    asdBlasMakeCgemmPlan(handle, transA, transB, m, n, k, lda, ldb, ldc);
-    asdBlasGetWorkspaceSize(handle, lwork);
+    ASD_STATUS_CHECK(asdBlasMakeCgemmPlan(handle, transA, transB, m, n, k, lda, ldb, ldc));
+    ASD_STATUS_CHECK(asdBlasGetWorkspaceSize(handle, lwork));
     std::cout << "lwork = " << lwork << std::endl;
     if (lwork > 0) {
         ret = aclrtMalloc(&buffer, static_cast<int64_t>(lwork), ACL_MEM_MALLOC_HUGE_FIRST);
         CHECK_RET(ret == ::ACL_SUCCESS, LOG_PRINT("allocate workspace failed. ERROR: %d\n", ret); return ret);
     }
-    asdBlasSetWorkspace(handle, buffer);
-    asdBlasSetStream(handle, stream);
+    ASD_STATUS_CHECK(asdBlasSetWorkspace(handle, buffer));
+    ASD_STATUS_CHECK(asdBlasSetStream(handle, stream));
 
     ASD_STATUS_CHECK(asdBlasCgemm(handle, transA, transB, m, n, k, alpha, matA, lda, matB, ldb, beta, matC, ldc));
 
-    asdBlasSynchronize(handle);
-    asdBlasDestroy(handle);
+    ASD_STATUS_CHECK(asdBlasSynchronize(handle));
+    ASD_STATUS_CHECK(asdBlasDestroy(handle));
 
     ret = aclrtMemcpy(tensorInCData.data(), tensorCSize * sizeof(std::complex<float>), matCDeviceAddr,
                       tensorCSize * sizeof(std::complex<float>), ACL_MEMCPY_DEVICE_TO_HOST);
@@ -205,6 +205,10 @@ int main(int argc, char** argv)
     aclrtFree(matADeviceAddr);
     aclrtFree(matBDeviceAddr);
     aclrtFree(matCDeviceAddr);
+
+    if (buffer != nullptr) {
+        aclrtFree(buffer);
+    }
 
     aclrtDestroyStream(stream);
     aclrtResetDevice(deviceId);
