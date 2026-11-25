@@ -102,6 +102,13 @@ def main():
     b1 = int(sys.argv[3]) if len(sys.argv) > 3 else 12000
     fftN2 = int(sys.argv[4]) if len(sys.argv) > 4 else 50
 
+    if direction not in (-1, 1):
+        print(f"Error: direction must be -1 or 1, got {direction}")
+        return 1
+    if fftN1 <= 0 or b1 <= 0 or fftN2 <= 0:
+        print(f"Error: dimensions must be positive ({fftN1}, {b1}, {fftN2})")
+        return 1
+
     data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
     os.makedirs(data_dir, exist_ok=True)
 
@@ -116,14 +123,16 @@ def main():
     write_binary(golden_path, golden)
 
     if os.path.exists(output_path):
-        npu_output = np.fromfile(output_path, dtype=np.float32)
         expected_floats = 2 * golden.size
-        if npu_output.size != expected_floats:
+        expected_bytes = expected_floats * np.dtype(np.float32).itemsize
+        actual_bytes = os.path.getsize(output_path)
+        if actual_bytes != expected_bytes:
             print(
-                f"Output size mismatch: got {npu_output.size} floats, "
-                f"expected {expected_floats}"
+                f"Output size mismatch: got {actual_bytes} bytes, "
+                f"expected {expected_bytes}"
             )
             return 1
+        npu_output = np.fromfile(output_path, dtype=np.float32)
         print(f"Comparing NPU output against golden (direction={direction}):")
         passed = compare_precision(npu_output, golden, b1, fftN1, fftN2, direction)
         return 0 if passed else 1
