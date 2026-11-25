@@ -17,10 +17,19 @@ import argparse
 
 curr_dir = os.path.dirname(os.path.realpath(__file__))
 
-def load_tensor_from_bin(filename):
-    dtype_map = {0: 'undefined', 1: np.float32, 2: np.float16, 3: np.int32, 4: np.int64, 16: np.complex64, 6: np.uint8}
 
-    with open(filename, 'rb') as f:
+def load_tensor_from_bin(filename):
+    dtype_map = {
+        0: "undefined",
+        1: np.float32,
+        2: np.float16,
+        3: np.int32,
+        4: np.int64,
+        16: np.complex64,
+        6: np.uint8,
+    }
+
+    with open(filename, "rb") as f:
         dtype_int = np.frombuffer(f.read(4), dtype=np.int32)[0]
         np_type = dtype_map.get(dtype_int, np.float32)
         dim_count = np.frombuffer(f.read(4), dtype=np.int32)[0]
@@ -29,19 +38,20 @@ def load_tensor_from_bin(filename):
         data = data.reshape(dims)
         return data, dims, np_type
 
+
 def compute_fft_c2r_golden(input_data, nfft):
     golden = np.fft.hfft(input_data, n=nfft)
     return golden.astype(np.float32)
 
+
 def compute_fft_c2r_inverse_golden(input_data, nfft):
-    golden = np.fft.irfft(input_data, n=nfft, norm='forward')
+    golden = np.fft.irfft(input_data, n=nfft, norm="forward")
     return golden.astype(np.float32)
 
+
 def generate_golden_data(batch, nfft, direction):
-    if direction == 'forward':
-        input_filename = curr_dir + "/complex64_input_0.bin"
-    else:
-        input_filename = curr_dir + "/complex64_input_0.bin"
+    # forward/inverse share the same input file; only the golden reference differs
+    input_filename = curr_dir + "/complex64_input_0.bin"
 
     if not os.path.exists(input_filename):
         print(f"Input file not found: {input_filename}")
@@ -51,7 +61,7 @@ def generate_golden_data(batch, nfft, direction):
     print(f"Loaded input: shape={dims}, dtype={dtype}")
     print(f"Input data shape: {input_data.shape}")
 
-    if direction == 'forward':
+    if direction == "forward":
         golden_data = np.zeros((batch, nfft), dtype=np.float32)
         for b in range(batch):
             batch_input = input_data[b, :]
@@ -72,18 +82,29 @@ def generate_golden_data(batch, nfft, direction):
 
     return golden_data
 
+
 def main():
-    parser = argparse.ArgumentParser(description='Generate golden data for FFT C2R test')
-    parser.add_argument('--batch', type=int, default=1, help='Batch size')
-    parser.add_argument('--nfft', type=int, default=16, help='FFT size')
-    parser.add_argument('--direction', type=str, default='forward', choices=['forward', 'inverse'],
-                        help='forward or inverse')
+    parser = argparse.ArgumentParser(
+        description="Generate golden data for FFT C2R test"
+    )
+    parser.add_argument("--batch", type=int, default=1, help="Batch size")
+    parser.add_argument("--nfft", type=int, default=16, help="FFT size")
+    parser.add_argument(
+        "--direction",
+        type=str,
+        default="forward",
+        choices=["forward", "inverse"],
+        help="forward or inverse",
+    )
     args = parser.parse_args()
 
-    print(f"Generating golden data: batch={args.batch}, nfft={args.nfft}, direction={args.direction}")
+    print(
+        f"Generating golden data: batch={args.batch}, nfft={args.nfft}, direction={args.direction}"
+    )
     golden_data = generate_golden_data(args.batch, args.nfft, args.direction)
     print(f"golden_data = {golden_data.flatten()[:10]}")
     print("Done!")
+
 
 if __name__ == "__main__":
     main()

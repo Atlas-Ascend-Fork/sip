@@ -82,7 +82,11 @@ def main():
     parser.add_argument("--batch", type=int, default=1, help="Batch size")
     parser.add_argument("--nfft", type=int, default=16, help="FFT size")
     parser.add_argument(
-        "--direction", type=str, default="forward", help="forward or inverse"
+        "--direction",
+        type=str,
+        default="forward",
+        choices=["forward", "inverse"],
+        help="forward or inverse",
     )
     args = parser.parse_args()
 
