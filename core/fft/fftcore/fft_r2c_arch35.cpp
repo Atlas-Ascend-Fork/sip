@@ -16,6 +16,7 @@
 #include "log/log.h"
 #include "ops.h"
 #include "utils/ops_base.h"
+#include "fft_all_mix.h"
 #include "fft_r2c_arch35.h"
 
 #include "fftcore/fft_r2c_arch35_core.h"
@@ -151,29 +152,10 @@ void FftR2CCoreArch35::InitRadix()
         throw std::runtime_error("FftR2CCoreArch35 N/2 must be positive.");
     }
 
-    constexpr size_t numRadices = std::size(ALLOWED_RADICES);
-
     while (tempN > 1) {
-        int64_t radix = 0;
-        for (size_t i = 0; i < numRadices; i++) {
-            if (tempN % ALLOWED_RADICES[i] == 0) {
-                radix = ALLOWED_RADICES[i];
-                break;
-            }
-        }
-
+        const int64_t radix = OpParam::Arch35RealRadix(tempN);
         if (radix == 0) {
-            std::string allowedStr;
-            for (size_t i = 0; i < numRadices; i++) {
-                if (i > 0)
-                    allowedStr += ", ";
-                allowedStr += std::to_string(ALLOWED_RADICES[i]);
-            }
-            ASDSIP_LOG(ERROR) << "FftR2CCoreArch35 N/2 contains prime factors other than " << allowedStr
-                              << ". Remaining: " << tempN;
-            throw std::runtime_error("FftR2CCoreArch35: unsupported signal length. "
-                                     "Only prime factors " +
-                                     allowedStr + " are allowed.");
+            throw std::runtime_error("Unsupported real FFT factor in remaining length " + std::to_string(tempN));
         }
 
         int64_t M = tempN / radix;
@@ -211,8 +193,8 @@ AspbStatus FftR2CCoreArch35::BuildFftPlan()
         t->dataSize = radixListSize;
         return t;
     };
-    int64_t fftNHalf = static_cast<int64_t>(problemDesc.nDoing) / 2;
-    AsdSip::CoeffKey radixKey = {coreType, 100, {fftNHalf}, problemDesc.forward};
+    const int64_t fftN = static_cast<int64_t>(problemDesc.nDoing);
+    AsdSip::CoeffKey radixKey = {coreType, 100, {fftN}, problemDesc.forward};
     radixListTensor = FFTensorCache::getCoeff(radixKey, radixListFunc);
 
     size_t totalDftFloats = 0;
@@ -308,13 +290,12 @@ AspbStatus FftR2CCoreArch35::BuildFftPlan()
         return t;
     };
 
-    AsdSip::CoeffKey dftKey = {coreType, 101, {fftNHalf}, problemDesc.forward};
+    AsdSip::CoeffKey dftKey = {coreType, 101, {fftN}, problemDesc.forward};
     dftMatrixArray = FFTensorCache::getCoeff(dftKey, dftFunc);
 
-    AsdSip::CoeffKey twKey = {coreType, 102, {fftNHalf}, problemDesc.forward};
+    AsdSip::CoeffKey twKey = {coreType, 102, {fftN}, problemDesc.forward};
     twMatrixArray = FFTensorCache::getCoeff(twKey, twFunc);
 
-    int64_t fftN = static_cast<int64_t>(problemDesc.nDoing);
     int64_t D = fftN / 2 + 1;
     size_t twPostSize = D * 2 * sizeof(float);
 

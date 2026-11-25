@@ -180,6 +180,7 @@ TEST(TestFftR2C1d, TestR2CForwardRadix2Large) { RunFftR2CTest(1, 2048); }
 TEST(TestFftR2C1d, TestR2CForwardRadix3Large) { RunFftR2CTest(1, 2187); }
 TEST(TestFftR2C1d, TestR2CForwardRadix5Large) { RunFftR2CTest(1, 3125); }
 TEST(TestFftR2C1d, TestR2CForwardRadix7Large) { RunFftR2CTest(1, 2401); }
+TEST(TestFftR2C1d, TestR2CForwardRadix11And13) { RunFftR2CTest(2, 1573); }
 TEST(TestFftR2C1d, TestR2CForwardMixedLarge) { RunFftR2CTest(1, 2160); }
 TEST(TestFftR2C1d, TestR2CForwardRadix2Max) { RunFftR2CTest(1, 32768); }
 TEST(TestFftR2C1d, TestR2CForwardMixedMax) { RunFftR2CTest(1, 2520); }
@@ -201,5 +202,6 @@ TEST(TestFftR2C1d, TestR2CInverseRadix2Large) { RunFftR2CTest(1, 2048, asdFftDir
 TEST(TestFftR2C1d, TestR2CInverseRadix3Large) { RunFftR2CTest(1, 2187, asdFftDirection::ASCEND_FFT_INVERSE); }
 TEST(TestFftR2C1d, TestR2CInverseRadix5Large) { RunFftR2CTest(1, 3125, asdFftDirection::ASCEND_FFT_INVERSE); }
 TEST(TestFftR2C1d, TestR2CInverseRadix7Large) { RunFftR2CTest(1, 2401, asdFftDirection::ASCEND_FFT_INVERSE); }
+TEST(TestFftR2C1d, TestR2CInverseRadix11And13) { RunFftR2CTest(2, 1573, asdFftDirection::ASCEND_FFT_INVERSE); }
 TEST(TestFftR2C1d, TestR2CInverseMixedLarge) { RunFftR2CTest(1, 2160, asdFftDirection::ASCEND_FFT_INVERSE); }
 TEST(TestFftR2C1d, TestR2CInverseRadix2Max) { RunFftR2CTest(1, 32768, asdFftDirection::ASCEND_FFT_INVERSE); }

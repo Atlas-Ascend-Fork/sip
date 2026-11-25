@@ -106,14 +106,18 @@ __aicore__ inline void WaitRowSlot(int slot)
 }
 // Preserve the specialized small-radix formulas; larger prime stages retain
 // planar symmetry and single/two-frequency reuse, all over the actual tile rows.
-template <bool IncludeRealBoundary = true>
+template <bool IncludeRealBoundary = true, bool AllowOddReal = false>
 __aicore__ inline __ubuf__ float* ComputeTileButterfly(__ubuf__ float* a, __ubuf__ float* b, __ubuf__ float* roots,
                                                        const __gm__ AsdSip::OpParam::MixedCommonTiling* t, int rows,
                                                        int stride)
 {
-    const int n = t->n, pass = t->pass, size = pass == 0 ? n : n / 2;
-    if (IncludeRealBoundary && pass == 2) {
-        asc_vf_call<BatchedRealBoundary>(dim3(256), a, b, roots, n, true, rows, stride);
+    const int n = t->n, pass = t->pass, size = pass == 0 || (AllowOddReal && n % 2) ? n : n / 2;
+    const bool oddReal = AllowOddReal && pass != 0 && n % 2;
+    if (IncludeRealBoundary && (oddReal || pass == 2)) {
+        if (oddReal)
+            asc_vf_call<OddRealBoundary<true>>(dim3(256), a, b, n, pass, rows, stride);
+        else
+            asc_vf_call<BatchedRealBoundary>(dim3(256), a, b, roots, n, true, rows, stride);
         AscendC::PipeBarrier<PIPE_V>();
         auto* tmp = a;
         a = b;
@@ -145,6 +149,11 @@ __aicore__ inline __ubuf__ float* ComputeTileButterfly(__ubuf__ float* a, __ubuf
             a = b;
             b = tmp;
         }
+    }
+    if (IncludeRealBoundary && oddReal) {
+        asc_vf_call<OddRealBoundary<false>>(dim3(256), a, b, n, pass, rows, stride);
+        AscendC::PipeBarrier<PIPE_V>();
+        return pass == 1 ? a : b;
     }
     if (IncludeRealBoundary && pass == 1) {
         asc_vf_call<BatchedRealBoundary>(dim3(256), a, b, roots, n, false, rows, stride);
@@ -217,8 +226,8 @@ __aicore__ inline void RowsTileAdaptive(__gm__ float* input, __gm__ float* coeff
     const int tileRows = SlotFloats / stride;
     int start, count;
     GetTileRowRange(t, start, count);
-    const int inFloats = pass == 1 ? n : pass == 2 ? n + 2 : 2 * n;
-    const int outFloats = pass == 1 ? n + 2 : pass == 2 ? n : 2 * n;
+    const int inFloats = pass == 1 ? n : pass == 2 ? 2 * (n / 2 + 1) : 2 * n;
+    const int outFloats = pass == 1 ? 2 * (n / 2 + 1) : pass == 2 ? n : 2 * n;
     const int tiles = (count + tileRows - 1) / tileRows;
     asc_copy_gm2ub_align(roots, coeff, 1, n * 8, 0, 0, false, 0, 0, 0);
     const int firstRows = count < tileRows ? count : tileRows;
@@ -242,9 +251,11 @@ __aicore__ inline void RowsTileAdaptive(__gm__ float* input, __gm__ float* coeff
         const int left = count - tile * tileRows, rows = left < tileRows ? left : tileRows;
         __ubuf__ float* result;
         if constexpr (Slots == 1)
-            result = ComputeSingleComplexRow(a, b, roots, t);
+            result = pass == 0 ? ComputeSingleComplexRow(a, b, roots, t) :
+                                 ComputeTileButterfly<true, true>(a, b, roots, t, rows, stride);
         else
-            result = ComputeTileButterfly(a + slot * SlotFloats, b + slot * SlotFloats, roots, t, rows, stride);
+            result = ComputeTileButterfly<true, !CompactReal>(a + slot * SlotFloats, b + slot * SlotFloats, roots, t,
+                                                              rows, stride);
         SetRowSlot<AscendC::HardEvent::V_MTE3>(slot);
         WaitRowSlot<AscendC::HardEvent::V_MTE3>(slot);
         asc_copy_ub2gm_align(output + (start + tile * tileRows) * outFloats, result, rows, outFloats * 4, 0,
@@ -276,8 +287,8 @@ __aicore__ inline void RowsTileThree(__gm__ float* input, __gm__ float* coeff, _
     constexpr int ArenaFloats = 212 * 1024 / sizeof(float);
     __ubuf__ float arena[ArenaFloats];
     const int n = t->n, stride = ((CompactReal ? n : 2 * n) + 135) / 8 * 8;
-    const int inFloats = t->pass == 0 ? 2 * n : t->pass == 1 ? n : n + 2;
-    const int outFloats = t->pass == 0 ? 2 * n : t->pass == 1 ? n + 2 : n;
+    const int inFloats = t->pass == 0 ? 2 * n : t->pass == 1 ? n : 2 * (n / 2 + 1);
+    const int outFloats = t->pass == 0 ? 2 * n : t->pass == 1 ? 2 * (n / 2 + 1) : n;
     const int capacity = ((ArenaFloats - 2 * n) / 3 / 8) * 8;
     const int tileRows = capacity / stride;
     __ubuf__ float* current = arena;
@@ -306,7 +317,7 @@ __aicore__ inline void RowsTileThree(__gm__ float* input, __gm__ float* coeff, _
         }
         WaitRowSlot<AscendC::HardEvent::MTE2_V>(tile % 2);
         const int left = count - tile * tileRows, rows = left < tileRows ? left : tileRows;
-        __ubuf__ float* result = ComputeTileButterfly(current, scratch, roots, t, rows, stride);
+        __ubuf__ float* result = ComputeTileButterfly<true, !CompactReal>(current, scratch, roots, t, rows, stride);
         SetRowSlot<AscendC::HardEvent::V_MTE3>(0);
         WaitRowSlot<AscendC::HardEvent::V_MTE3>(0);
         asc_copy_ub2gm_align(output + (start + tile * tileRows) * outFloats, result, rows, outFloats * 4, 0,

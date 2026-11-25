@@ -9,8 +9,46 @@
  */
 
 #pragma once
+#include "params/fft_c2c_dispatch.h"
 #include "params/fft_mixed_common.h"
+#include "params/fft_real_dispatch.h"
 namespace AsdSip::fft1d {
+enum class Real2dAxisRoute { Native, RegBase, Mixed };
+// Ranges apply only to axes that native dispatch would send to DFT.
+// Odd real rows use the full N-point transform; even rows use the packed N/2 transform.
+inline bool PreferFftToRealDft(int n, int64_t rows)
+{
+    if (n < 16 || n > 1024 || rows < 32 || rows > 512)
+        return false;
+    if (n % 2 != 0)
+        return n < 48 && rows <= 128 && OpParam::LargestPrimeFactor(n) <= 7;
+    if (n < 128)
+        return OpParam::LargestPrimeFactor(n) <= 5;
+    return rows >= 128 && OpParam::LargestPrimeFactor(n) <= 7;
+}
+inline Real2dAxisRoute SelectReal2dAxis(int n, int64_t rows, OpParam::MixedCommonPass pass, bool inverse,
+                                        bool square = false)
+{
+    using Pass = OpParam::MixedCommonPass;
+    if (n < 1 || n > 8192 || rows < 1 || rows > 0x7fffffff / (2 * n))
+        return Real2dAxisRoute::Native;
+    const bool power2 = (n & (n - 1)) == 0;
+    if (pass == Pass::Complex) {
+        const bool shortFft = power2 && n >= 16 && n <= 64 && rows >= 32 && rows <= 4096;
+        if (fft::a5::Select(n, rows) == fft::a5::Route::Dft && !shortFft && !(square && n >= 32))
+            return Real2dAxisRoute::Native;
+        return power2 && n >= 32 ? Real2dAxisRoute::RegBase : Real2dAxisRoute::Mixed;
+    }
+    const bool standard = (pass == Pass::Hermitian) == inverse;
+    const auto native = fft::a5::SelectReal(n, rows, pass == Pass::Hermitian);
+    // Preserve already optimized square real passes. Qualify newly reached DFT axes separately.
+    const bool existingSquareFft = square && standard && OpParam::RealMixedLength(n);
+    if (native == fft::a5::RealRoute::Dft && !existingSquareFft && !PreferFftToRealDft(n, rows))
+        return Real2dAxisRoute::Native;
+    if (power2 && n >= 32 && rows <= 8192 && standard)
+        return Real2dAxisRoute::RegBase;
+    return n >= 96 || native == fft::a5::RealRoute::Dft ? Real2dAxisRoute::Mixed : Real2dAxisRoute::Native;
+}
 inline bool CommonMixedEligible(int64_t n, int64_t batch, int pass, bool inverse, bool ascend950, bool horizontal,
                                 bool cubeTailAllowed = false)
 {

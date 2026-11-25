@@ -22,11 +22,12 @@ struct FftMixedCommon {
     bool complex2dAxis = false;
     bool cubeTailAllowed = false;
     bool allowRealCubePipeline = true;
+    bool real2dAxis = false;
     bool operator==(const FftMixedCommon& p) const
     {
         return n == p.n && rows == p.rows && pass == p.pass && inverse == p.inverse &&
                complex2dAxis == p.complex2dAxis && cubeTailAllowed == p.cubeTailAllowed &&
-               allowRealCubePipeline == p.allowRealCubePipeline;
+               allowRealCubePipeline == p.allowRealCubePipeline && real2dAxis == p.real2dAxis;
     }
     std::string ToString() const
     {
@@ -204,9 +205,10 @@ inline bool PreferRealCubeFactor(int tail, int prefix, int largest)
 }
 inline CubeTailPlan SelectRealCubeCandidate(const FftMixedCommon& p, int fixed = -1)
 {
-    if (!p.cubeTailAllowed || !RealMixedLength(p.n) || p.rows < 1 || p.rows > 8192 ||
+    if (!p.cubeTailAllowed || !RealMixedLength(p.n) || p.rows < 1 ||
+        p.rows > (p.real2dAxis ? 0x7fffffff / (2 * p.n) : 8192) ||
         (p.pass != MixedCommonPass::Real && p.pass != MixedCommonPass::Hermitian) ||
-        (p.pass == MixedCommonPass::Real ? p.inverse : !p.inverse))
+        (!p.real2dAxis && (p.pass == MixedCommonPass::Real ? p.inverse : !p.inverse)))
         return {};
     if (fixed >= 0)
         return PlanRealCubeLayout(p, fixed);
@@ -274,6 +276,11 @@ inline bool UseMixedCubeTail(const FftMixedCommon& p) { return SelectCubeTail(p)
 inline int CubeWeightOffset(int n) { return (2 * n + 7) / 8 * 8; }
 inline bool ValidMixedCommon(const FftMixedCommon& p)
 {
+    if (p.real2dAxis) {
+        // Odd rows expand in UB to N complex points; even rows use the packed N/2 transform.
+        return (p.pass == MixedCommonPass::Real || p.pass == MixedCommonPass::Hermitian) && p.n >= 16 && p.n <= 8192 &&
+               p.rows >= 1 && p.rows <= 0x7fffffff / (2 * p.n) && LargestPrimeFactor(static_cast<int>(p.n)) <= 251;
+    }
     if (p.complex2dAxis || (p.cubeTailAllowed && p.pass == MixedCommonPass::Complex)) {
         // Standalone C2C retains its existing power-of-two route and batch limit.
         // The rectangular 2D planner separately selects RegBase for power-of-two axes.
@@ -303,7 +310,7 @@ inline MixedCommonTilePlan SelectMixedCommonTile(const FftMixedCommon& p)
     if (!ValidMixedCommon(p))
         return {-1, 0, 0, 0};
     constexpr int arenaFloats = 212 * 1024 / sizeof(float);
-    const bool real = p.pass != MixedCommonPass::Complex;
+    const bool real = p.pass != MixedCommonPass::Complex && p.n % 2 == 0;
     const int stride = ((real ? p.n : 2 * p.n) + 135) / 8 * 8;
     int buffers;
     if (real)
@@ -322,9 +329,9 @@ inline MixedCommonTilePlan SelectMixedCommonTile(const FftMixedCommon& p)
 inline int64_t MixedCommonFloats(const FftMixedCommon& p, bool output)
 {
     if (p.pass == MixedCommonPass::Real)
-        return p.rows * (output ? p.n + 2 : p.n);
+        return p.rows * (output ? 2 * (p.n / 2 + 1) : p.n);
     if (p.pass == MixedCommonPass::Hermitian)
-        return p.rows * (output ? p.n : p.n + 2);
+        return p.rows * (output ? p.n : 2 * (p.n / 2 + 1));
     return 2 * p.rows * p.n;
 }
 inline int64_t MixedCommonCoeffFloats(const FftMixedCommon& p)
@@ -353,13 +360,16 @@ inline bool BuildMixedCommonTiling(const FftMixedCommon& p, MixedCommonTiling& t
     t.inverse = p.inverse;
     // Use paired symmetric outputs for larger transforms.
     t.twoFrequencies = p.n >= 1824;
-    int left = p.pass == MixedCommonPass::Complex ? t.n : t.n / 2, prev = 1;
+    int left = p.pass == MixedCommonPass::Complex || t.n % 2 ? t.n : t.n / 2, prev = 1;
     const auto cube = SelectCubeTail(p);
     t.rowsPerAivTile = cube.rowsPerAivTile;
     t.realCubePipeline = UseRealCubePipeline(p, cube);
-    if (cube.tail && p.pass != MixedCommonPass::Complex)
+    if (p.real2dAxis && t.n % 2) {
+        // Eight odd-length real output rows always end at a complete 32-byte block.
+        t.rowGroup = 8;
+    } else if (cube.tail && p.pass != MixedCommonPass::Complex) {
         t.rowGroup = 4;
-    else if (p.pass != MixedCommonPass::Complex && p.cubeTailAllowed && FixedRealTargetTail(p) < 0) {
+    } else if (p.pass != MixedCommonPass::Complex && p.cubeTailAllowed && FixedRealTargetTail(p) < 0) {
         // Adjacent AIVs must not write parts of the same 32-byte GM block.
         const int outputFloats = p.pass == MixedCommonPass::Real ? t.n + 2 : t.n;
         t.rowGroup = outputFloats % 8 == 0 ? 1 : outputFloats % 4 == 0 ? 2 : 4;
@@ -384,6 +394,6 @@ inline bool BuildMixedCommonTiling(const FftMixedCommon& p, MixedCommonTiling& t
             prev *= r;
         }
     }
-    return t.oddStages > 0 || p.complex2dAxis || cube.tail;
+    return t.oddStages > 0 || p.complex2dAxis || p.real2dAxis || cube.tail;
 }
 } // namespace AsdSip::OpParam

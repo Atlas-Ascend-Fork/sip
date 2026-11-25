@@ -43,8 +43,6 @@ public:
     bool OpsFftBackendAdapted() const override { return true; }
     bool OpsFftBackendStubReady() const override;
 
-    static constexpr int64_t ALLOWED_RADICES[] = {2, 3, 5, 7};
-
 private:
     void InitRadix() override;
     bool PreAllocateInDevice() override;
@@ -52,7 +50,7 @@ private:
 
     /**
      * Build the FFT execution plan for R2C.
-     * Decomposes N/2 into prime factors from ALLOWED_RADICES and constructs
+     * Decomposes N/2 into prime factors and constructs
      * W_R and T matrices for each stage.
      * Also builds post-process twiddle tensor W_N^k for Phase 3.
      *

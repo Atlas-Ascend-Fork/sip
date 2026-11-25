@@ -20,6 +20,56 @@ void require(bool b)
 }
 int main(int argc, char** argv)
 {
+    using Pass = OpParam::MixedCommonPass;
+    using Route = fft1d::Real2dAxisRoute;
+    require(fft1d::SelectReal2dAxis(64, 6000, Pass::Complex, false) == Route::Native);
+    require(fft1d::SelectReal2dAxis(58, 37, Pass::Real, false) == Route::Native);
+    require(fft1d::SelectReal2dAxis(64, 128, Pass::Hermitian, true) == Route::RegBase);
+    require(fft1d::SelectReal2dAxis(64, 1024, Pass::Complex, false) == Route::RegBase);
+    require(fft1d::SelectReal2dAxis(16, 1984, Pass::Complex, false) == Route::Mixed);
+    require(fft1d::SelectReal2dAxis(490, 512, Pass::Real, false) == Route::Mixed);
+    require(fft1d::SelectReal2dAxis(490, 513, Pass::Real, false) == Route::Native);
+    require(fft1d::SelectReal2dAxis(875, 256, Pass::Hermitian, true) == Route::Native);
+    require(fft1d::SelectReal2dAxis(928, 928, Pass::Real, false, true) == Route::Mixed);
+    require(fft1d::SelectReal2dAxis(128, 193, Pass::Real, false) == Route::RegBase);
+    for (auto pass : {Pass::Real, Pass::Hermitian}) {
+        for (bool inverse : {false, true}) {
+            const auto route = [pass, inverse](int n, int rows) {
+                return fft1d::SelectReal2dAxis(n, rows, pass, inverse);
+            };
+            require(route(45, 128) == Route::Mixed && route(45, 129) == Route::Native);
+            require(route(49, 64) == Route::Native && route(35, 31) == Route::Native);
+            require(route(48, 512) == Route::Mixed && route(48, 513) == Route::Native);
+            require(route(70, 128) == Route::Native && route(110, 128) == Route::Native);
+            require(route(350, 127) == Route::Native && route(350, 128) == Route::Mixed);
+            require(route(1008, 512) == Route::Mixed && route(1008, 513) == Route::Native);
+        }
+    }
+    require(fft1d::SelectReal2dAxis(32, 31, Pass::Complex, false) == Route::Native);
+    require(fft1d::SelectReal2dAxis(32, 32, Pass::Complex, false) == Route::RegBase);
+    require(fft1d::SelectReal2dAxis(32, 4096, Pass::Complex, true) == Route::RegBase);
+    require(fft1d::SelectReal2dAxis(32, 4097, Pass::Complex, true) == Route::Native);
+    for (auto pass : {Pass::Real, Pass::Hermitian}) {
+        for (bool inverse : {false, true}) {
+            for (int n : {100, 135, 928, 1573, 5400, 7007}) {
+                OpParam::FftMixedCommon p{n, 8201, pass, inverse, false, true, true, true};
+                OpParam::MixedCommonTiling t{};
+                if (n > 1024)
+                    require(fft1d::SelectReal2dAxis(n, p.rows, pass, inverse) == Route::Mixed);
+                require(OpParam::BuildMixedCommonTiling(p, t));
+                const int spectrum = 2 * (n / 2 + 1);
+                require(OpParam::MixedCommonFloats(p, pass == Pass::Real) == spectrum * p.rows);
+                require(OpParam::MixedCommonFloats(p, pass != Pass::Real) == n * p.rows);
+                int factors = (1 << t.radix2Stages) * (t.tail ? t.tail : 1);
+                for (int stage = 0; stage < t.oddStages; ++stage)
+                    factors *= t.radix[stage];
+                require(factors == (n % 2 ? n : n / 2));
+                require(t.rowGroup * (pass == Pass::Real ? spectrum : n) % 8 == 0);
+            }
+        }
+    }
+    require(fft1d::SelectReal2dAxis(5400, 200000, Pass::Real, false) == Route::Native);
+    require(!OpParam::ValidMixedCommon({257, 10, Pass::Hermitian, true, false, true, true, true}));
     // All eligible lengths must fit their selected dynamic layout; boundaries
     // change the number of buffers, never fall back just because rows == 1.
     for (int n = 32; n <= 8192; n += 32) {

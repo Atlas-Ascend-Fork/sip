@@ -17,6 +17,16 @@
 
 namespace AsdSip {
 namespace OpParam {
+// Coefficients and device tiling must decompose each stage in the same order.
+inline int32_t Arch35RealRadix(int64_t remaining)
+{
+    for (int32_t radix : {2, 3, 5, 7, 11, 13}) {
+        if (remaining % radix == 0)
+            return radix;
+    }
+    return 0;
+}
+
 struct FftAllMix {
     int parity;
     int64_t N_doing;
@@ -32,7 +42,7 @@ struct FftAllMix {
     int64_t workspace_c2c_output_size;
     int64_t workspace_auxil_size;
 
-    bool operator==(const FftAllMix &other) const
+    bool operator==(const FftAllMix& other) const
     {
         return this->parity == other.parity && this->N_doing == other.N_doing &&
                this->aiv_split_way == other.aiv_split_way && this->batchSize == other.batchSize &&
@@ -57,7 +67,7 @@ struct FftAllMix {
         return ss.str();
     }
 };
-}  // namespace OpParam
-}  // namespace AsdSip
+} // namespace OpParam
+} // namespace AsdSip
 
 #endif

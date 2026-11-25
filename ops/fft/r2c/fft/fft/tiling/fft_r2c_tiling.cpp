@@ -20,10 +20,6 @@
 namespace AsdSip {
 using namespace Mki;
 
-// Allowed radices for decomposition (matches kernel's FindRadix)
-static constexpr int64_t ALLOWED_RADICES[] = {2, 3, 5, 7};
-static constexpr size_t NUM_RADICES = 4;
-
 AspbStatus FftR2CTiling(const LaunchParam& launchParam, KernelInfo& kernelInfo)
 {
     // Arch35 (Ascend 950): 使用专用 tiling 逻辑
@@ -56,19 +52,10 @@ AspbStatus FftR2CTiling(const LaunchParam& launchParam, KernelInfo& kernelInfo)
         int64_t twOffset = 0;
 
         for (int32_t s = 0; s < param.radixListLen; s++) {
-            int64_t radix = 0;
-            for (size_t i = 0; i < NUM_RADICES; i++) {
-                if (tempN % ALLOWED_RADICES[i] == 0) {
-                    radix = ALLOWED_RADICES[i];
-                    break;
-                }
-            }
-
-            // 防护: tempN 不含 2/3/5/7 因子（如素数 11/13/17）时 radix 为 0，
-            // 下方 tempN/radix 会除零，直接返回参数错误（issue #117）
+            const int32_t radix = OpParam::Arch35RealRadix(tempN);
             if (radix == 0) {
                 ASDSIP_LOG(ERROR) << "FftR2CTiling: fftN " << param.fftN
-                                  << " contains prime factors other than 2/3/5/7, unsupported.";
+                                  << " has unsupported remaining factor: " << tempN << ".";
                 return AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM;
             }
 

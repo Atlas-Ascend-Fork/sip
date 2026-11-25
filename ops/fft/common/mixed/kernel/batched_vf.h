@@ -158,9 +158,17 @@ __simt_vf__ __launch_bounds__(256) inline void BatchedRealBoundary(__ubuf__ floa
                                                                    int rowStride)
 {
     const int m = n / 2;
-    const int count = inverse ? m : m + 1;
+    if (inverse) {
+        for (int row = threadIdx.x; row < rows; row += 256) {
+            auto* src = allSrc + row * rowStride;
+            auto* dst = allDst + row * rowStride;
+            dst[0] = src[0] + src[n];
+            dst[1] = src[0] - src[n];
+        }
+    }
+    const int count = inverse ? m - 1 : m + 1;
     for (int work = threadIdx.x; work < rows * count; work += 256) {
-        const int row = work / count, k = work % count;
+        const int row = work / count, k = work % count + (inverse ? 1 : 0);
         auto* src = allSrc + row * rowStride;
         auto* dst = allDst + row * rowStride;
         const int a = inverse ? k : k % m, b = inverse ? m - k : (m - k) % m;
@@ -180,4 +188,33 @@ __simt_vf__ __launch_bounds__(256) inline void BatchedRealBoundary(__ubuf__ floa
     }
 }
 
+// Odd-length real rows use the same N-point butterflies as C2C. The last stored
+// frequency has a distinct conjugate partner; only DC is self-conjugate.
+template <bool Input>
+__simt_vf__ __launch_bounds__(256) inline void OddRealBoundary(__ubuf__ float* src, __ubuf__ float* dst, int n,
+                                                               int pass, int rows, int stride)
+{
+    if constexpr (!Input) {
+        if (pass == 1) {
+            for (int row = threadIdx.x; row < rows; row += 256)
+                src[row * stride + 1] = 0;
+            return;
+        }
+    }
+    for (int work = threadIdx.x; work < rows * n; work += 256) {
+        const int k = work % n, base = work / n * stride;
+        if constexpr (Input) {
+            if (pass == 1) {
+                dst[base + 2 * k] = src[base + k];
+                dst[base + 2 * k + 1] = 0;
+            } else {
+                const int j = k <= n / 2 ? k : n - k;
+                dst[base + 2 * k] = src[base + 2 * j];
+                dst[base + 2 * k + 1] = k == 0 ? 0 : k == j ? src[base + 2 * j + 1] : -src[base + 2 * j + 1];
+            }
+        } else {
+            dst[base + k] = src[base + 2 * k];
+        }
+    }
+}
 } // namespace fft_mixed

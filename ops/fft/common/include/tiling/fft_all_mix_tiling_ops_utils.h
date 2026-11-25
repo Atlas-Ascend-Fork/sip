@@ -47,22 +47,10 @@ inline AsdSip::AspbStatus InitFftAllMixTiling(const LaunchParam& launchParam, Ke
         int64_t twOff = 0;
 
         for (int32_t s = 0; s < param.radixListLen; s++) {
-            // Compute radix
-            int32_t radix = 0;
-            if (tempN % 2 == 0)
-                radix = 2;
-            else if (tempN % 3 == 0)
-                radix = 3;
-            else if (tempN % 5 == 0)
-                radix = 5;
-            else if (tempN % 7 == 0)
-                radix = 7;
-
-            // 防护: tempN 不含 2/3/5/7 因子（如素数 11/13/17）时 radix 为 0，
-            // 下方 tempN/radix 会除零，直接返回参数错误（issue #116）
+            const int32_t radix = OpParam::Arch35RealRadix(tempN);
             if (radix == 0) {
                 ASDSIP_LOG(ERROR) << "InitFftAllMixTiling: fftN " << param.fftN
-                                  << " contains prime factors other than 2/3/5/7, unsupported.";
+                                  << " has unsupported remaining factor: " << tempN << ".";
                 return AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM;
             }
 

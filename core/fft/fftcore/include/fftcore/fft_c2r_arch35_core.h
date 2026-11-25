@@ -25,7 +25,7 @@
  * T:   Twiddle factor matrix of size [radix, M] (complex, stored as 2*radix*M floats)
  */
 struct FftC2RPlanStage {
-    int64_t radix; // current stage radix, must be one of ALLOWED_RADICES
+    int64_t radix; // current stage radix, selected by Arch35RealRadix
     int64_t M;     // temp_N / radix
 };
 
@@ -46,10 +46,6 @@ public:
     bool OpsFftBackendAdapted() const override { return true; }
     bool OpsFftBackendStubReady() const override;
 
-    // Supported prime radices for mixed-radix decomposition.
-    // Extend this array to support additional radices (e.g., 11, 13).
-    static constexpr int64_t ALLOWED_RADICES[] = {2, 3, 5, 7};
-
 private:
     void InitRadix() override;
     bool PreAllocateInDevice() override;
@@ -57,7 +53,7 @@ private:
 
     /**
      * Build the FFT execution plan (strictly matches fft_c2r_test.py build_fft_plan).
-     * Decomposes nDoing into prime factors from ALLOWED_RADICES and constructs
+     * Decomposes nDoing into prime factors and constructs
      * W_R and T matrices for each stage.
      *
      * NO hardware optimization: uses full nDoing (not nDoing/2)

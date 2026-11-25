@@ -690,25 +690,28 @@ void addFFTSteps(FFTPlan& plan, int dim, int64_t batchSize, asdFftType fftType)
                           kind == fft1d::Kind::R2C ? 1 :
                           kind == fft1d::Kind::C2R ? 2 :
                                                      -1;
-    const bool complex2dAxis = plan.fftSizes.size() == 2 && plan.fftType == asdFftType::ASCEND_FFT_C2C && ascend950 &&
-                               fftStride == 1 && !UseOpsFftKernelBackend();
-    const bool regBaseAxis = complex2dAxis && fftSize >= 32 && fftSize <= 8192 && (fftSize & (fftSize - 1)) == 0;
-    const bool mixedScope = plan.fftSizes.size() == 1 ||
-                            (plan.fftSizes.size() == 2 && plan.batchSize == 1 && plan.fftSizes[0] == plan.fftSizes[1]);
     const bool realPlan = plan.fftType == asdFftType::ASCEND_FFT_R2C || plan.fftType == asdFftType::ASCEND_FFT_C2R;
-    // Within an existing real plan, the real axis and the contiguous complex axis
-    // of its half spectrum each choose a tail for their own transform length.
-    const bool allowCube = plan.fftType == asdFftType::ASCEND_FFT_C2C ||
-                           (realPlan && mixedScope &&
-                            (mixedPass == 0 ? OpParam::MixedCommonLength(fftSize) : OpParam::RealMixedLength(fftSize)));
-    const OpParam::FftMixedCommon axisParam{
-        fftSize,           batchSize,     static_cast<OpParam::MixedCommonPass>(mixedPass),
-        !plan.isForward(), complex2dAxis, allowCube};
-    // External backend requests retain their established dispatch and strict/auto semantics.
-    if ((complex2dAxis && !regBaseAxis && OpParam::ValidMixedCommon(axisParam)) ||
-        (mixedScope && !UseOpsFftKernelBackend() &&
+    const bool axis2d = plan.fftSizes.size() == 2 && ascend950 && fftStride == 1 && !UseOpsFftKernelBackend();
+    const bool real2d = axis2d && realPlan;
+    using RealRoute = fft1d::Real2dAxisRoute;
+    const auto pass = static_cast<OpParam::MixedCommonPass>(mixedPass);
+    const bool square = real2d && plan.batchSize == 1 && plan.fftSizes[0] == plan.fftSizes[1] &&
+                        (plan.fftType == asdFftType::ASCEND_FFT_R2C) == plan.isForward();
+    const auto realRoute = real2d ? fft1d::SelectReal2dAxis(fftSize, batchSize, pass, !plan.isForward(), square) :
+                                    RealRoute::Native;
+    const bool complex2dAxis = axis2d && mixedPass == 0 &&
+                               (plan.fftType == asdFftType::ASCEND_FFT_C2C || realRoute != RealRoute::Native);
+    const bool regBaseAxis = complex2dAxis && fftSize >= 32 && fftSize <= 8192 && (fftSize & (fftSize - 1)) == 0;
+    const bool realRegBase = mixedPass > 0 && realRoute == RealRoute::RegBase;
+    const bool realMixedAxis = mixedPass > 0 && realRoute == RealRoute::Mixed;
+    const bool allowCube = plan.fftType == asdFftType::ASCEND_FFT_C2C || complex2dAxis || realMixedAxis ||
+                           (plan.fftSizes.size() == 1 && realPlan && OpParam::RealMixedLength(fftSize));
+    const OpParam::FftMixedCommon axisParam{fftSize,       batchSize, pass, !plan.isForward(),
+                                            complex2dAxis, allowCube, true, realMixedAxis};
+    if ((((complex2dAxis && !regBaseAxis) || realMixedAxis) && OpParam::ValidMixedCommon(axisParam)) ||
+        (plan.fftSizes.size() == 1 && !UseOpsFftKernelBackend() &&
          fft1d::CommonMixedEligible(fftSize, batchSize, mixedPass, !plan.isForward(), ascend950, fftStride == 1,
-                                    axisParam.cubeTailAllowed))) {
+                                    allowCube))) {
         auto core = std::make_unique<FftMixedCommonCore>(axisParam);
         if (core->init()) {
             plan.steps.push_back(PlanStep{std::move(core)});
@@ -719,17 +722,18 @@ void addFFTSteps(FFTPlan& plan, int dim, int64_t batchSize, asdFftType fftType)
     int config = 0;
     if (plan.fftSizes.size() == 1) {
         config = fft1d::OptimizedConfig(fftSize, batchSize, kind, !plan.isForward(), ascend950, fftStride == 1);
-    } else if (regBaseAxis) {
+    } else if (regBaseAxis || realRegBase) {
         config = fft1d::OptimizedConfig(fftSize, fftSize, kind, !plan.isForward(), ascend950, true);
-    } else if (plan.fftSizes.size() == 2) {
+    } else if (plan.fftSizes.size() == 2 && !real2d) {
         config = fft1d::OptimizedSquareConfig(fftSize, plan.fftSizes[1 - dim], plan.batchSize, batchSize, kind,
                                               kindOf(plan.fftType), !plan.isForward(), ascend950, fftStride == 1);
     }
-    const bool multirow = ascend950 && !UseOpsFftKernelBackend() && plan.fftSizes.size() == 1 && fftStride == 1 &&
-                          batchSize >= 1 && batchSize <= 8192 && fftSize >= 32 &&
-                          fftSize <= (kind == fft1d::Kind::C2C ? 4096 : 8192) && (fftSize & (fftSize - 1)) == 0 &&
-                          (kind == fft1d::Kind::C2C || (kind == fft1d::Kind::R2C && plan.isForward()) ||
-                           (kind == fft1d::Kind::C2R && !plan.isForward()));
+    const bool multirow1d = ascend950 && !UseOpsFftKernelBackend() && plan.fftSizes.size() == 1 && fftStride == 1 &&
+                            batchSize >= 1 && batchSize <= 8192 && fftSize >= 32 &&
+                            fftSize <= (kind == fft1d::Kind::C2C ? 4096 : 8192) && (fftSize & (fftSize - 1)) == 0 &&
+                            (kind == fft1d::Kind::C2C || (kind == fft1d::Kind::R2C && plan.isForward()) ||
+                             (kind == fft1d::Kind::C2R && !plan.isForward()));
+    const bool multirow = multirow1d || (realRegBase && batchSize != fftSize);
     if (multirow)
         config = fft1d::OptimizedConfig(fftSize, fftSize, kind, !plan.isForward(), true, true);
     if (config != 0) {
@@ -740,7 +744,7 @@ void addFFTSteps(FFTPlan& plan, int dim, int64_t batchSize, asdFftType fftType)
             core.reset(new FftRealRegBaseCore(1, fftSize, 1, batchSize, fftType, plan.isForward(), config, multirow));
         if (core->init()) {
             const char* trace = std::getenv("ASDSIP_FFT_PLAN_TRACE");
-            if (regBaseAxis && trace && std::string(trace) == "1")
+            if ((regBaseAxis || realRegBase) && trace && std::string(trace) == "1")
                 std::cerr << "ASDSIP_REGBASE_FFT N=" << fftSize << " batch=" << batchSize
                           << " inverse=" << !plan.isForward() << std::endl;
             plan.steps.push_back(PlanStep{std::move(core)});
