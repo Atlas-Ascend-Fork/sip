@@ -18,7 +18,7 @@ Output: [batch, fftN, fftN]      float32  (real)
 Usage:
     python3 gen_data.py [fftN] [batch] [--stage N]
 
-    fftN: 4096 (default), 2048
+    fftN: 4096 (default), 2048 (stage 2 only)
     batch: 1 (default)
     --stage N: verify a specific kernel stage
         0: K1 only (Hermitian expansion + Row IDFT) → ws0 complex output
@@ -204,7 +204,7 @@ def compare_real(npu_output, golden, fftN, batch, label=""):
 
     print("\n=== Diagnosis ===")
     for r in range(min(4, golden.shape[1])):
-        row = 0 if batch == 1 else 0
+        row = 0
         print(f"  npu[{row},{r},0:8]:   {npu_real[row, r, 0:8]}")
         print(f"  golden[{row},{r},0:8]: {golden[row, r, 0:8]}")
 
@@ -240,7 +240,7 @@ def compare_complex(npu_output_floats, golden_complex, fftN, batch, label=""):
 
     print("\n=== Diagnosis ===")
     for r in range(min(4, golden_complex.shape[1])):
-        row = 0 if batch == 1 else 0
+        row = 0
         print(f"  npu[{row},{r},0:4]:   {npu_complex[row, r, 0:4]}")
         print(f"  golden[{row},{r},0:4]: {golden_complex[row, r, 0:4]}")
 
@@ -267,14 +267,18 @@ def main():
     fftN = int(pos_args[0]) if len(pos_args) > 0 else 4096
     batch = int(pos_args[1]) if len(pos_args) > 1 else 1
 
-    if fftN not in [2048, 4096]:
-        print(f"Error: fftN must be 2048 or 4096, got {fftN}")
+    if stage not in (0, 1, 2):
+        print(f"Error: stage must be 0, 1, or 2, got {stage}")
+        return 1
+    # Stage 0/1 golden follows the radix-64 decomposition hard-coded for 4096
+    # (N1_64/N2_64=64, T64_gold with total_N=4096): reject non-4096 up front with a
+    # controlled error instead of crashing with an uncaught reshape error. Stage 2
+    # golden is a pure torch/numpy reference and keeps supporting 2048.
+    if fftN != 4096 and stage in (0, 1):
+        print(f"Error: stage 0/1 golden only supports fftN=4096, got {fftN}")
         return 1
     if batch <= 0:
         print(f"Error: batch must be positive, got {batch}")
-        return 1
-    if stage not in (0, 1, 2):
-        print(f"Error: stage must be 0, 1, or 2, got {stage}")
         return 1
 
     print(f"Generating test data: fftN={fftN}, batch={batch}, stage={stage}")

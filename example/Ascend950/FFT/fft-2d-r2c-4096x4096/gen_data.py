@@ -82,7 +82,7 @@ def compare_precision(npu_output, golden, fftN, batch):
 
     print("\n=== Diagnosis ===")
     for r in range(min(4, golden.shape[1])):
-        row = 0 if batch == 1 else 0
+        row = 0
         print(f"  npu[{row},{r},0:4]: {npu_complex[row, r, 0:4]}")
         print(f"  golden[{row},{r},0:4]: {golden[row, r, 0:4]}")
 
