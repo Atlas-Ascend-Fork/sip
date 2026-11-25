@@ -154,5 +154,6 @@ int main()
     aclrtDestroyStream(stream);
     aclrtResetDevice(deviceId);
     aclFinalize();
-    return 0;
+    // 精度自检结果必须经退出码传播（纯排列算子要求逐元素精确一致），避免 CI 假绿
+    return diff == 0 ? 0 : 1;
 }

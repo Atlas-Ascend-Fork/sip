@@ -116,21 +116,21 @@ int main()
     ret = CreateAclTensor(outHostData, outShape, &outDeviceAddr, aclDataType::ACL_FLOAT, &out);
     CHECK_RET(ret == ::ACL_SUCCESS, return ret);
     asdFftHandle handle;
-    asdFftCreate(handle);
+    ASD_STATUS_CHECK(asdFftCreate(handle));
 
-    asdFftMakePlan3D(handle, Nfft1, Nfft2, Nfft3, asdFftType::ASCEND_FFT_C2R, asdFftDirection::ASCEND_FFT_FORWARD,
-                     batch);
+    ASD_STATUS_CHECK(asdFftMakePlan3D(handle, Nfft1, Nfft2, Nfft3, asdFftType::ASCEND_FFT_C2R,
+                                      asdFftDirection::ASCEND_FFT_FORWARD, batch));
 
-    size_t work_size;
-    asdFftGetWorkspaceSize(handle, work_size);
+    size_t work_size = 0;
+    ASD_STATUS_CHECK(asdFftGetWorkspaceSize(handle, work_size));
     void* workspaceAddr = nullptr;
     if (work_size > 0) {
         ret = aclrtMalloc(&workspaceAddr, static_cast<int64_t>(work_size), ACL_MEM_MALLOC_HUGE_FIRST);
         CHECK_RET(ret == ::ACL_SUCCESS, LOG_PRINT("allocate workspace failed. ERROR: %d\n", ret); return ret);
     }
-    asdFftSetWorkspace(handle, (uint8_t*)workspaceAddr);
+    ASD_STATUS_CHECK(asdFftSetWorkspace(handle, (uint8_t*)workspaceAddr));
 
-    asdFftSetStream(handle, stream);
+    ASD_STATUS_CHECK(asdFftSetStream(handle, stream));
     ASD_STATUS_CHECK(asdFftExecC2R(handle, input, out));
 
     ret = aclrtSynchronizeStream(stream);
