@@ -1,23 +1,27 @@
 #!/usr/bin/env python3
+# -----------------------------------------------------------------------------------------------------------
+# Copyright (c) 2026 Huawei Technologies Co., Ltd.
+# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+# CANN Open Software License Agreement Version 2.0 (the "License").
+# Please refer to the License for details. You may not use this file except in compliance with the License.
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+# See LICENSE in the root of the software repository for the full text of the License.
+# -----------------------------------------------------------------------------------------------------------
 """Generate test data and compare precision for example 101.
 
-覆盖两个模式（dim）：
-  dim=1（axis=0 纵向 FFT）：
-    forward  (direction=-1): np.fft.fft(x, axis=0)
-    inverse  (direction=+1): np.fft.ifft(x, axis=0, norm="forward")   （不归一化）
-  dim=2（FFT2D 双向）：
-    forward  (direction=-1): np.fft.fft2(x)
-    inverse  (direction=+1): np.fft.ifft2(x, norm="forward")          （不归一化）
+FFT2D 双向精度校验：
+  forward  (direction=-1): np.fft.fft2(x)
+  inverse  (direction=+1): np.fft.ifft2(x, norm="forward")  （不归一化）
 
 引擎归一化约定：norm="forward"——正/反变换均不归一化（方向仅影响指数符号）。
 
 Data files (relative to <data_dir>, default ./data):
-  input_2d_4096x4096_axis0_<direction>.bin     （dim=1）
-  input_2d_4096x4096_fft2_<direction>.bin      （dim=2）
+  input_2d_4096x4096_fft2_<direction>.bin
   golden_*/output_* 同名。
 
 Usage:
-  python3 gen_data.py <dim> <direction> [seed] [data_dir]
+  python3 gen_data.py <direction> [seed] [data_dir]
 """
 
 from __future__ import annotations
@@ -48,7 +52,9 @@ def write_bin(path: str, arr: np.ndarray):
     arr = np.ascontiguousarray(arr, dtype=np.complex64)
     flat = arr.view(np.float32)
     flat.tofile(path)
-    print(f"  written: {path}  ({flat.size} floats, {flat.nbytes / 1024 / 1024:.1f} MB)")
+    print(
+        f"  written: {path}  ({flat.size} floats, {flat.nbytes / 1024 / 1024:.1f} MB)"
+    )
 
 
 def compare(got: np.ndarray, golden: np.ndarray) -> bool:
@@ -100,11 +106,13 @@ def main() -> int:
         return 0
 
     print(f"\nFound NPU output: {output_file}")
-    flat = np.fromfile(output_file, dtype=np.float32)
     expected_floats = ROWS * COLS * 2
-    if flat.size != expected_floats:
-        print(f"Error: expected {expected_floats} floats, got {flat.size}")
+    expected_bytes = expected_floats * np.dtype(np.float32).itemsize
+    actual_bytes = os.path.getsize(output_file)
+    if actual_bytes != expected_bytes:
+        print(f"Error: expected {expected_bytes} bytes, got {actual_bytes}")
         return 1
+    flat = np.fromfile(output_file, dtype=np.float32)
 
     got = (flat[0::2] + 1j * flat[1::2]).reshape(ROWS, COLS).astype(np.complex64)
     return 0 if compare(got, golden) else 1
