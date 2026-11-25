@@ -23,7 +23,7 @@ You can report, discuss, and track all issues you discover or new ideas you want
 
 > 📝 **Tip**
 >
-> - If you encounter issues during the PR submission process, refer to [FAQs](./zh/context/infra-faqs.md) for solutions to common problems.
+> - If you encounter issues during the PR submission process, refer to [FAQs](./en/context/infra-faqs.md) for solutions to common problems.
 
 ### Contribution Categories
 
