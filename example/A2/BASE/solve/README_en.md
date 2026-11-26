@@ -1,0 +1,66 @@
+# Signal Processing Acceleration Library SolveOperation C++ Demo
+
+## Introduction
+
+This directory contains C++ call examples of the SolveOperation operator in the signal processing acceleration library.
+
+## Description
+
+- Operator function: Solves systems of linear equations A·X = B for batches of single-precision real square matrices.
+- Calculation formula:
+    $$A_b X_b = B_b \quad\Rightarrow\quad X_b = A_b^{-1} B_b$$
+    where b is the batch number, A_b is a non-singular square matrix of order n, B_b is the right-hand-side matrix of n×nrhs, and X_b is the solution result.
+- Example (batch=1, n=3, nrhs=2):
+
+    - The input "A" is: `[[4, 1, 0], [1, 3, 1], [0, 1, 2]]`
+    - The input "B" is: `[[7, 12], [15, 20], [13, 16]]`
+    - After the solve operator is called, the output "X" is: `[[1, 2], [3, 4], [5, 6]]`
+
+## Usage
+
+### Environment Setup
+
+ - Set CANN environment variables
+
+    ```sh
+    source [*CANN installation directory*]/set_env.sh
+    ```
+
+    Default: source /usr/local/Ascend/ascend-toolkit/set_env.sh
+
+### Building SiP
+
+ - Enter the SiP root directory and run the following commands to compile the signal processing acceleration library and set the acceleration library environment variables.
+
+    ```sh
+    SiP_root_path="$(git rev-parse --show-toplevel)" || exit 1
+    cd "${SiP_root_path:?Set the repository root path first}" || exit 1
+    bash build.sh
+    source output/set_env.sh
+    ```
+
+    Special notes:
+    - The preceding compilation method supports only the acceleration library downloaded via git. It does not support compiling the acceleration library downloaded as a zip archive.
+    - The compilation process downloads dependency libraries over the network. Therefore, the compilation environment requires Internet access.
+    - The compilation process includes two steps: obtaining and compiling the ascend-boost-comm (Ascend Distributed Communication Acceleration Library) component, and compiling the signal acceleration library. For more command descriptions, see the [build.sh](../../../../build.sh) file in the SiP repository.
+
+ - For more compilation command descriptions, refer to [Compilation and Build](../../../../docs/compilation_build_en.md)
+
+### Running the Demo
+
+- Go to the `example` directory and run the build script.
+
+    ```sh
+    cd  ${*example_directory*}
+    bash build.sh
+    ```
+
+The script compiles and runs the example, and outputs the input matrices A and B, the solution X, and the residual `max|A*X - B|`.
+
+## Additional Notes
+
+The data generated in the example does not represent actual scenarios. You can modify the data according to the specific use case.
+
+## Product Support
+
+This example applies to Atlas A2/A3 training products, Atlas 800I A2 inference product, and Atlas A3 inference products.
