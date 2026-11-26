@@ -103,7 +103,11 @@ AsdSip::AspbStatus BlasCgetriBatchedPlan::GenBatchWAclTensor()
     int64_t t = (std::min(M, N) + blockN - 1) / blockN * blockN;
     int64_t wEleNum = batchNum * t;
     std::vector<uint32_t> wBatchData(wEleNum, 0);
-    memset_s(wBatchData.data(), wEleNum * sizeof(uint32_t), -1, wEleNum * sizeof(uint32_t));
+    if (memset_s(wBatchData.data(), wEleNum * sizeof(uint32_t), -1, wEleNum * sizeof(uint32_t)) != EOK) {
+        ASDSIP_LOG(ERROR) << "BlasCgetriBatchedPlan wBatchData memset_s failed";
+        FreeTensor();
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
 
     wBatchTensor.desc = {TENSOR_DTYPE_UINT32, TENSOR_FORMAT_ND, {wEleNum}, {}, 0};
     wBatchTensor.hostData = wBatchData.data();
