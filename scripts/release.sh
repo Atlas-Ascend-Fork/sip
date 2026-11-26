@@ -79,7 +79,19 @@ function fn_init_makeself()
     [[ ! -d "$ASDSIP_DIR/opensource" ]] && mkdir $ASDSIP_DIR/opensource
     cd $ASDSIP_DIR/opensource/
     rm -rf makeself
-    git clone -b release-2.5.0 https://gitcode.com/gh_mirrors/ma/makeself.git
+    git clone -b v2.5.0.x https://gitcode.com/cann-src-third-party/makeself.git
+    pushd makeself
+    tar -zxf makeself-release-2.5.0.tar.gz
+    pushd makeself-release-2.5.0
+    if command -v patch >/dev/null 2>&1; then
+        echo "patch is installed, applying the patch"
+        patch -p1 -i ../makeself-2.5.0.patch
+    else
+        echo "patch is not installed, patch will not be applied"
+    fi
+    mv * ../
+    popd
+    popd
 }
 
 function fn_build_catlass()
