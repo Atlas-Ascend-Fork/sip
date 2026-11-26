@@ -29,9 +29,18 @@ int64_t GetShapeSize(const std::vector<int64_t>& shape)
 int Init(int32_t deviceId, aclrtStream* stream)
 {
     // 固定写法，acl初始化
-    aclInit(nullptr);
-    aclrtSetDevice(deviceId);
-    aclrtCreateStream(stream);
+    auto ret = aclInit(nullptr);
+    if (ret != ACL_SUCCESS) {
+        return ret;
+    }
+    ret = aclrtSetDevice(deviceId);
+    if (ret != ACL_SUCCESS) {
+        return ret;
+    }
+    ret = aclrtCreateStream(stream);
+    if (ret != ACL_SUCCESS) {
+        return ret;
+    }
     return 0;
 }
 
@@ -41,9 +50,17 @@ int CreateAclTensor(const std::vector<T>& hostData, const std::vector<int64_t>& 
 {
     auto size = GetShapeSize(shape) * sizeof(T);
     // 调用aclrtMalloc申请device侧内存
-    aclrtMalloc(deviceAddr, size, ACL_MEM_MALLOC_HUGE_FIRST);
+    auto ret = aclrtMalloc(deviceAddr, size, ACL_MEM_MALLOC_HUGE_FIRST);
+    if (ret != ACL_SUCCESS) {
+        return ret;
+    }
     // 调用aclrtMemcpy将host侧数据复制到device侧内存上
-    aclrtMemcpy(*deviceAddr, size, hostData.data(), size, ACL_MEMCPY_HOST_TO_DEVICE);
+    ret = aclrtMemcpy(*deviceAddr, size, hostData.data(), size, ACL_MEMCPY_HOST_TO_DEVICE);
+    if (ret != ACL_SUCCESS) {
+        aclrtFree(*deviceAddr);
+        *deviceAddr = nullptr;
+        return ret;
+    }
 
     // 计算连续tensor的strides
     std::vector<int64_t> strides(shape.size(), 1);
