@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
  * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
  * CANN Open Software License Agreement Version 2.0 (the "License").
@@ -17,6 +17,7 @@
 #include "test_common.h"
 #include "mki/utils/status/status.h"
 #include "mki/utils/log/log.h"
+#include "mki/utils/platform/platform_info.h"
 #include "test_util/float_util.h"
 #include "test_util/util.cpp"
 #include "ops.h"
@@ -317,6 +318,202 @@ TEST(TestFftPlanNegative, CrossVariantExecRejected)
     aclDestroyTensor(aclOutput);
     aclrtFree(inputDeviceAddr);
     aclrtFree(outputDeviceAddr);
+
+    TensorContext context;
+    OpTestEnd(deviceId, context, stream);
+}
+
+// ---- 负向校验：MakePlan1D fftType 白名单（issue #551） ----
+
+// STFT_* 与非法枚举值 1D 不支持：应返回参数错误，且 plan 不得被标记为已初始化——
+// 同句柄改用合法类型重新初始化必须成功（修复前 STFT 调用返回成功并占用句柄，
+// 后续 exec 全被拒绝、句柄永久不可执行）
+TEST(TestFftPlanNegative, MakePlan1DRejectStftType)
+{
+    int deviceId = 0;
+    MkiRtStream stream = OpTestInit(deviceId);
+
+    asdFftHandle handle;
+    ASSERT_EQ(asdFftCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdFftMakePlan1D(handle, 64, asdFftType::ASCEND_STFT_C2C, asdFftDirection::ASCEND_FFT_FORWARD, 1),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    EXPECT_EQ(asdFftMakePlan1D(handle, 64, asdFftType::ASCEND_STFT_C2R, asdFftDirection::ASCEND_FFT_FORWARD, 1),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    EXPECT_EQ(asdFftMakePlan1D(handle, 64, asdFftType::ASCEND_STFT_R2C, asdFftDirection::ASCEND_FFT_FORWARD, 1),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    EXPECT_EQ(asdFftMakePlan1D(handle, 64, static_cast<asdFftType>(0x99), asdFftDirection::ASCEND_FFT_FORWARD, 1),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    // 拒绝路径不得改写 plan 状态：合法类型在同一句柄上重新初始化应成功
+    EXPECT_EQ(asdFftMakePlan1D(handle, 64, asdFftType::ASCEND_FFT_C2C, asdFftDirection::ASCEND_FFT_FORWARD, 1),
+              AsdSip::ErrorType::ACL_SUCCESS);
+    asdFftDestroy(handle);
+
+    TensorContext context;
+    OpTestEnd(deviceId, context, stream);
+}
+
+// ---- 负向校验：asdFftExecC2CSeparated plan 形状一致性（issue #550） ----
+
+namespace {
+// 形状不符用例共用：plan 为 batch=8、fftSize=64 的 C2C_SEP，传入 FLOAT 张量仅形状
+// 与 plan 不符（dtype 与四张量内部一致性均满足），应返回参数错误且不直达核心
+void RunSepShapeMismatchCase(const std::vector<int64_t>& shape)
+{
+    int deviceId = 0;
+    MkiRtStream stream = OpTestInit(deviceId);
+
+    int64_t numel = 1;
+    for (auto d : shape) {
+        numel *= d;
+    }
+    std::vector<float> hostData(numel, 1.0f);
+    void* deviceAddr = nullptr;
+    aclTensor* aclTensorPtr = nullptr;
+    ASSERT_EQ(CreateAclTensor(hostData, shape, &deviceAddr, aclDataType::ACL_FLOAT, &aclTensorPtr), 0);
+
+    asdFftHandle handle;
+    ASSERT_EQ(asdFftCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdFftMakePlan1D(handle, 64, asdFftType::ASCEND_FFT_C2C_SEP, asdFftDirection::ASCEND_FFT_FORWARD, 8),
+              AsdSip::ErrorType::ACL_SUCCESS);
+    // 四张量传同一指针：内部一致性 trivially 满足，仅形状 vs plan 校验生效
+    EXPECT_EQ(asdFftExecC2CSeparated(handle, aclTensorPtr, aclTensorPtr, aclTensorPtr, aclTensorPtr),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    asdFftDestroy(handle);
+
+    aclDestroyTensor(aclTensorPtr);
+    aclrtFree(deviceAddr);
+
+    TensorContext context;
+    OpTestEnd(deviceId, context, stream);
+}
+} // namespace
+
+// fftSize 不符：(8, 32) 尾维 32 != plan.fftSize 64
+TEST(TestFftPlanNegative, ExecC2CSeparatedFftSizeMismatchRejected) { RunSepShapeMismatchCase({8, 32}); }
+
+// batch 维错位：(4, 64) 前导元素规模 4 != plan.batch 8
+TEST(TestFftPlanNegative, ExecC2CSeparatedBatchMismatchRejected) { RunSepShapeMismatchCase({4, 64}); }
+
+// 缺失 batch 维：(64,) 单维张量，前导元素规模 1 != plan.batch 8
+TEST(TestFftPlanNegative, ExecC2CSeparatedMissingBatchDimRejected) { RunSepShapeMismatchCase({64}); }
+
+// 3D plan 形状不符：plan 为 batch=2、(8,8,8) 的 C2C_SEP，(2,8,8,4) 尾三维 fftSize 不符应拒绝；
+// (8,8,8) 尾三维与 plan.fftSizes 全部匹配，仅因缺失 batch 维（前导元素规模 1 != plan.batch 2）
+// 被拒绝——与尾维匹配逻辑无关
+TEST(TestFftPlanNegative, ExecC2CSeparatedPlan3DShapeMismatchRejected)
+{
+    int deviceId = 0;
+    MkiRtStream stream = OpTestInit(deviceId);
+
+    asdFftHandle handle;
+    ASSERT_EQ(asdFftCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdFftMakePlan3D(handle, 8, 8, 8, asdFftType::ASCEND_FFT_C2C_SEP, asdFftDirection::ASCEND_FFT_FORWARD, 2),
+              AsdSip::ErrorType::ACL_SUCCESS);
+
+    for (const auto& shape : std::vector<std::vector<int64_t>>{{2, 8, 8, 4}, {8, 8, 8}}) {
+        int64_t numel = 1;
+        for (auto d : shape) {
+            numel *= d;
+        }
+        std::vector<float> hostData(numel, 1.0f);
+        void* deviceAddr = nullptr;
+        aclTensor* aclTensorPtr = nullptr;
+        ASSERT_EQ(CreateAclTensor(hostData, shape, &deviceAddr, aclDataType::ACL_FLOAT, &aclTensorPtr), 0);
+        EXPECT_EQ(asdFftExecC2CSeparated(handle, aclTensorPtr, aclTensorPtr, aclTensorPtr, aclTensorPtr),
+                  AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+        aclDestroyTensor(aclTensorPtr);
+        aclrtFree(deviceAddr);
+    }
+    asdFftDestroy(handle);
+
+    TensorContext context;
+    OpTestEnd(deviceId, context, stream);
+}
+
+namespace {
+// 分离执行合法形状正向链路共用：创建 4 个同形状 FLOAT 张量（输入填 1、输出清零）、
+// 建 plan（由调用方给出 1D/3D 差异）、配 workspace/stream、执行并同步，全链断言成功
+template <typename MakePlan>
+void RunSeparatedLegalExec(const std::vector<int64_t>& shape, MakePlan makePlan, MkiRtStream stream)
+{
+    int64_t numel = 1;
+    for (auto d : shape) {
+        numel *= d;
+    }
+    std::vector<float> hostData(numel, 1.0f);
+    std::vector<float> outputHostData(numel, 0.0f);
+    void* deviceAddrs[4] = {nullptr, nullptr, nullptr, nullptr};
+    aclTensor* tensors[4] = {nullptr, nullptr, nullptr, nullptr};
+    for (int i = 0; i < 4; i++) {
+        const std::vector<float>& src = i < 2 ? hostData : outputHostData;
+        ASSERT_EQ(CreateAclTensor(src, shape, &deviceAddrs[i], aclDataType::ACL_FLOAT, &tensors[i]), 0);
+    }
+
+    asdFftHandle handle;
+    ASSERT_EQ(asdFftCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(makePlan(handle), AsdSip::ErrorType::ACL_SUCCESS);
+
+    size_t workSize = 0;
+    ASSERT_EQ(asdFftGetWorkspaceSize(handle, workSize), AsdSip::ErrorType::ACL_SUCCESS);
+    void* workspaceAddr = nullptr;
+    if (workSize > 0) {
+        ASSERT_EQ(aclrtMalloc(&workspaceAddr, static_cast<int64_t>(workSize), ACL_MEM_MALLOC_HUGE_FIRST),
+                  ::ACL_SUCCESS);
+        ASSERT_EQ(asdFftSetWorkspace(handle, (uint8_t*)workspaceAddr), AsdSip::ErrorType::ACL_SUCCESS);
+    }
+    ASSERT_EQ(asdFftSetStream(handle, static_cast<aclrtStream>(stream)), AsdSip::ErrorType::ACL_SUCCESS);
+
+    EXPECT_EQ(asdFftExecC2CSeparated(handle, tensors[0], tensors[1], tensors[2], tensors[3]),
+              AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdFftSynchronize(handle), AsdSip::ErrorType::ACL_SUCCESS);
+
+    asdFftDestroy(handle);
+    for (int i = 0; i < 4; i++) {
+        aclDestroyTensor(tensors[i]);
+        aclrtFree(deviceAddrs[i]);
+    }
+    if (workspaceAddr != nullptr) {
+        aclrtFree(workspaceAddr);
+    }
+}
+} // namespace
+
+// 合法形状回归：与 plan 完全一致的 (batch, fftSize) 分离张量应正常执行并同步成功
+// （守卫不得误拒文档约定形状）
+TEST(TestFftPlanNegative, ExecC2CSeparatedLegalShapeExecutes)
+{
+    // 1D C2C_SEP 仅 910B 路由到分离核心（getCore 910B 分支）；950 落 FFTCoreAny
+    // （SupportsSeparatedExec=false）执行期必返回 INTERNAL_ERROR，正向断言仅对 910B 有效
+    if (Mki::PlatformInfo::Instance().GetPlatformType() != Mki::PlatformType::ASCEND_910B) {
+        GTEST_SKIP() << "1D C2C_SEP separated cores are routed only on Ascend910B.";
+    }
+    int deviceId = 0;
+    MkiRtStream stream = OpTestInit(deviceId);
+    auto makePlan = [](asdFftHandle handle) {
+        return asdFftMakePlan1D(handle, 64, asdFftType::ASCEND_FFT_C2C_SEP, asdFftDirection::ASCEND_FFT_FORWARD, 8);
+    };
+    RunSeparatedLegalExec({8, 64}, makePlan, stream);
+
+    TensorContext context;
+    OpTestEnd(deviceId, context, stream);
+}
+
+// 3D plan 合法形状回归：DddCoreSep 冻结的启动张量形状即 (batch, fftX, fftY, fftZ)，合法 4D
+// 张量应全链执行成功（守卫不得误拒文档约定形状，尤其不得把改写后的多维 fftStrides 误当
+// batch 推导依据）
+TEST(TestFftPlanNegative, ExecC2CSeparatedPlan3DLegalShapeExecutes)
+{
+    // 3D C2C_SEP 仅 910B 存在分离核心（GetCore3D 在 950 返回 nullptr，plan 创建即失败）
+    if (Mki::PlatformInfo::Instance().GetPlatformType() != Mki::PlatformType::ASCEND_910B) {
+        GTEST_SKIP() << "3D C2C_SEP separated cores are routed only on Ascend910B.";
+    }
+    int deviceId = 0;
+    MkiRtStream stream = OpTestInit(deviceId);
+    auto makePlan = [](asdFftHandle handle) {
+        return asdFftMakePlan3D(handle, 8, 8, 8, asdFftType::ASCEND_FFT_C2C_SEP, asdFftDirection::ASCEND_FFT_FORWARD,
+                                2);
+    };
+    RunSeparatedLegalExec({2, 8, 8, 8}, makePlan, stream);
 
     TensorContext context;
     OpTestEnd(deviceId, context, stream);
