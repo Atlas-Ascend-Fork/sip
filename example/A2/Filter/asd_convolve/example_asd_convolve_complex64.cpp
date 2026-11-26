@@ -183,14 +183,18 @@ int main(int argc, char** argv)
     clock_gettime(CLOCK_MONOTONIC, &start);
 
     aclmdlRIExecuteAsync(modelRI, stream);
-    aclrtSynchronizeStream(stream);
+    auto syncRet = aclrtSynchronizeStream(stream);
+    CHECK_RET(syncRet == ::ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", syncRet);
+              return syncRet);
     clock_gettime(CLOCK_MONOTONIC, &end);
     uint64_t elapsed_time = (end.tv_sec - start.tv_sec) * 1000000000 + (end.tv_nsec - start.tv_nsec);
     printf("ACL graph Execution time: %llu ms\n", elapsed_time / 1000 / 1000);
 
     clock_gettime(CLOCK_MONOTONIC, &start);
     convolve_func();
-    aclrtSynchronizeStream(stream);
+    syncRet = aclrtSynchronizeStream(stream);
+    CHECK_RET(syncRet == ::ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", syncRet);
+              return syncRet);
     clock_gettime(CLOCK_MONOTONIC, &end);
     elapsed_time = (end.tv_sec - start.tv_sec) * 1000000000 + (end.tv_nsec - start.tv_nsec);
     printf("normal Execution time: %llu ms\n", elapsed_time / 1000 / 1000);
