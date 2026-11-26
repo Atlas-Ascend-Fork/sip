@@ -132,24 +132,24 @@ int main(int argc, char** argv)
     CHECK_RET(ret == ::ACL_SUCCESS, return ret);
 
     asdBlasHandle handle;
-    asdBlasCreate(handle);
+    ASD_STATUS_CHECK(asdBlasCreate(handle));
 
     size_t lwork = 0;
     void* buffer = nullptr;
-    asdBlasMakeIamaxPlan(handle);
-    asdBlasGetWorkspaceSize(handle, lwork);
+    ASD_STATUS_CHECK(asdBlasMakeIamaxPlan(handle));
+    ASD_STATUS_CHECK(asdBlasGetWorkspaceSize(handle, lwork));
     std::cout << "lwork = " << lwork << std::endl;
     if (lwork > 0) {
         ret = aclrtMalloc(&buffer, static_cast<int64_t>(lwork), ACL_MEM_MALLOC_HUGE_FIRST);
         CHECK_RET(ret == ::ACL_SUCCESS, LOG_PRINT("allocate workspace failed. ERROR: %d\n", ret); return ret);
     }
-    asdBlasSetWorkspace(handle, buffer);
-    asdBlasSetStream(handle, stream);
+    ASD_STATUS_CHECK(asdBlasSetWorkspace(handle, buffer));
+    ASD_STATUS_CHECK(asdBlasSetStream(handle, stream));
 
     ASD_STATUS_CHECK(asdBlasIsamax(handle, n, inputX, incx, outputY));
 
-    asdBlasSynchronize(handle);
-    asdBlasDestroy(handle);
+    ASD_STATUS_CHECK(asdBlasSynchronize(handle));
+    ASD_STATUS_CHECK(asdBlasDestroy(handle));
 
     ret = aclrtMemcpy(tensorOutYData.data(), ySize * sizeof(int32_t), outputYDeviceAddr, ySize * sizeof(int32_t),
                       ACL_MEMCPY_DEVICE_TO_HOST);
@@ -163,6 +163,10 @@ int main(int argc, char** argv)
     aclDestroyTensor(outputY);
     aclrtFree(inputXDeviceAddr);
     aclrtFree(outputYDeviceAddr);
+
+    if (buffer != nullptr) {
+        aclrtFree(buffer);
+    }
 
     aclrtDestroyStream(stream);
     aclrtResetDevice(deviceId);
