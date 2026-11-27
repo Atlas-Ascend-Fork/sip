@@ -18,7 +18,6 @@
 #include "mki/utils/platform/platform_info.h"
 #include "hcgemm_batched.h"
 #include "hcgemm_batched_tiling_data.h"
-#include "hcgemm_batched_tiling.h"
 
 namespace AsdSip {
 using namespace Mki;

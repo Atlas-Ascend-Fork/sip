@@ -20,7 +20,6 @@
 #include <string>
 #include <vector>
 #include <complex>
-#include <cstdint>
 
 #include "utils/op_desc.h"
 #include "mki/operation.h"

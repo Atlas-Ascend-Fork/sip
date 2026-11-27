@@ -14,7 +14,6 @@
 #include "mki/utils/platform/platform_info.h"
 #include "convolve.h"
 #include "convolve_tiling_data.h"
-#include "convolve_tiling.h"
 
 namespace AsdSip {
 using namespace Mki;
