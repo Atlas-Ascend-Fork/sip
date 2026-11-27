@@ -1081,10 +1081,30 @@ AspbStatus asdFftSetStream(asdFftHandle handle, void* stream)
     return AsdSip::ErrorType::ACL_SUCCESS;
 }
 
+// direction 白名单校验：plan 正反向语义由 FFTPlan::isForward() 以 direction ==
+// ASCEND_FFT_FORWARD 判定（fft_plan.cpp），非法枚举值一律被判为反向，plan 被
+// 静默按逆变换执行并返回成功、调用方得到符号相反的结果且无告警（issue #562，
+// 与 fftType 白名单 2D/3D #124、1D #551 口径对齐）
+AspbStatus CheckFftDirection(asdFftDirection direction)
+{
+    if (direction != asdFftDirection::ASCEND_FFT_FORWARD && direction != asdFftDirection::ASCEND_FFT_INVERSE) {
+        ASDSIP_LOG(ERROR) << "Invalid direction " << static_cast<int>(direction)
+                          << ", only FORWARD/INVERSE are supported.";
+        return ErrorType::ACL_ERROR_INVALID_PARAM;
+    }
+    return AsdSip::ErrorType::ACL_SUCCESS;
+}
+
 // 1D plan 的 batch 布局设置：纵向 plan 的 batch 记录在 fftStrides（fft 沿跨步内存执行），
 // 横向 plan 的 batch 记录在 batchSize（fft 沿连续尾维执行）
 AspbStatus Setup1dBatchLayout(FFTPlan& plan, asdFft1dDimType dimType, int64_t batchSize)
 {
+    // dimType 白名单：非法枚举值落入 else 分支会静默按 HORIZONTAL 处理，还会绕过
+    // 950 平台 VERTICAL+batchSize>1 的不支持拦截（issue #562）
+    if (dimType != asdFft1dDimType::ASCEND_FFT_HORIZONTAL && dimType != asdFft1dDimType::ASCEND_FFT_VERTICAL) {
+        ASDSIP_LOG(ERROR) << "Invalid dimType " << static_cast<int>(dimType) << " for 1D plan.";
+        return ErrorType::ACL_ERROR_INVALID_PARAM;
+    }
     if (dimType == asdFft1dDimType::ASCEND_FFT_VERTICAL) {
         // 950 平台无 stride 核心：纵向 1D FFT 依赖的 stride 会被核心静默丢弃、按连续内存
         // 计算导致结果错误，对 stride>1（即 batchSize>1）显式返回不支持而非静默算错（issue #159）
@@ -1134,6 +1154,11 @@ AspbStatus asdFftMakePlan1D(asdFftHandle handle, int64_t fftSize, asdFftType fft
     if (fftType != asdFftType::ASCEND_FFT_C2C && fftType != asdFftType::ASCEND_FFT_C2R &&
         fftType != asdFftType::ASCEND_FFT_R2C && fftType != asdFftType::ASCEND_FFT_C2C_SEP) {
         ASDSIP_LOG(ERROR) << "asdFftMakePlan1D: unsupported fftType " << static_cast<int>(fftType) << " for 1D plan.";
+        return ErrorType::ACL_ERROR_INVALID_PARAM;
+    }
+
+    // direction 白名单校验：非法枚举值静默按反向变换执行并返回成功（issue #562）
+    if (CheckFftDirection(direction) != AsdSip::ErrorType::ACL_SUCCESS) {
         return ErrorType::ACL_ERROR_INVALID_PARAM;
     }
 
@@ -1234,6 +1259,11 @@ AspbStatus asdFftMakePlan2D(asdFftHandle handle, int64_t fftSizeX, int64_t fftSi
         return ErrorType::ACL_ERROR_INVALID_PARAM;
     }
 
+    // direction 白名单校验：非法枚举值静默按反向变换执行并返回成功（issue #562）
+    if (CheckFftDirection(direction) != AsdSip::ErrorType::ACL_SUCCESS) {
+        return ErrorType::ACL_ERROR_INVALID_PARAM;
+    }
+
     FFTPlan& plan = FFTPlanCache::getPlan(handle);
 
     // 重复初始化守卫：与头文件"Any given handle can only be initialized once"契约对齐（issue #137）
@@ -1273,6 +1303,11 @@ AspbStatus asdFftMakePlan3D(asdFftHandle handle, int64_t fftSizeX, int64_t fftSi
     if (fftType != asdFftType::ASCEND_FFT_C2C && fftType != asdFftType::ASCEND_FFT_C2R &&
         fftType != asdFftType::ASCEND_FFT_R2C && fftType != asdFftType::ASCEND_FFT_C2C_SEP) {
         ASDSIP_LOG(ERROR) << "asdFftMakePlan3D: unsupported fftType " << static_cast<int>(fftType) << " for 3D plan.";
+        return ErrorType::ACL_ERROR_INVALID_PARAM;
+    }
+
+    // direction 白名单校验：非法枚举值静默按反向变换执行并返回成功（issue #562）
+    if (CheckFftDirection(direction) != AsdSip::ErrorType::ACL_SUCCESS) {
         return ErrorType::ACL_ERROR_INVALID_PARAM;
     }
 
@@ -1475,6 +1510,37 @@ AspbStatus asdFftExecV2(FFTPlan& plan, const aclTensor* input, const aclTensor* 
     return AsdSip::ErrorType::ACL_SUCCESS;
 }
 
+// plan 的 batch 规模推导：纵向 1D plan 的 batch 记录在 fftStrides[0]（plan.batchSize
+// 固定为 1），横向 1D 与多维 plan 记录在 plan.batchSize。多维 plan 的 fftStrides 由
+// init*Steps 改写为变换维元素步长（如 3D C2C_SEP 改写为 {Y*Z, Z, 1}），不承载 batch
+// 语义，不得参与推导（matchSeparatedPlan_/#550 与 matchC2R_/matchR2C_/#561 共用）
+int64_t PlanBatchExtent(const FFTPlan& plan)
+{
+    int64_t planBatch = plan.batchSize;
+    if (plan.fftSizes.size() == 1 && plan.fftStrides.size() == 1 && plan.fftStrides[0] > planBatch) {
+        planBatch = plan.fftStrides[0];
+    }
+    return planBatch;
+}
+
+// 前导维度（索引 0..leadingDimCount-1）元素规模须恰为 plan 的 batch：不足会越界读写，
+// 超出语义不符（matchSeparatedPlan_/#550 与 matchC2R_/matchR2C_/#561 共用）；乘法上界
+// 先判后乘防溢出，dims[j] 为 0/负先行拒绝、除法安全
+bool LeadingExtentMatchesBatch(const int64_t* dims, int64_t leadingDimCount, int64_t planBatch)
+{
+    if (planBatch <= 0) {
+        return false;
+    }
+    int64_t leadingExtent = 1;
+    for (int64_t j = 0; j < leadingDimCount; j++) {
+        if (dims[j] <= 0 || leadingExtent > planBatch / dims[j]) {
+            return false;
+        }
+        leadingExtent *= dims[j];
+    }
+    return leadingExtent == planBatch;
+}
+
 bool matchC2C_(const FFTPlan& plan, const aclTensor* input)
 {
     if (input == nullptr || plan.fftStrides.empty() || plan.fftSizes.empty()) {
@@ -1565,6 +1631,13 @@ bool matchC2R_(const FFTPlan& plan, const aclTensor* input)
             }
         }
     }
+    // batch 覆盖校验：尾维匹配只核对 fft 尺寸，前导维度元素规模不足 plan 的 batch 时
+    // （如 batch=1000 的 plan 配 [1, N/2+1] 张量）张量直达核心，核心按 plan.batchSize
+    // 读写造成设备越界（issue #561，对齐 matchSeparatedPlan_ #550 口径）
+    if (!LeadingExtentMatchesBatch(numOfDims, dimIterIdx + 1, PlanBatchExtent(plan))) {
+        delete[] numOfDims;
+        return false;
+    }
     delete[] numOfDims;
     return true;
 }
@@ -1606,6 +1679,12 @@ bool matchR2C_(const FFTPlan& plan, const aclTensor* input)
             return false;
         }
     }
+    // batch 覆盖校验：口径与 matchC2R_ 一致，缺 batch 张量直达核心造成设备越界
+    // （issue #561，对齐 matchSeparatedPlan_ #550 口径）
+    if (!LeadingExtentMatchesBatch(dims, i + 1, PlanBatchExtent(plan))) {
+        delete[] dims;
+        return false;
+    }
     delete[] dims;
     dims = nullptr;
     return true;
@@ -1633,26 +1712,10 @@ bool matchSeparatedPlan_(const FFTPlan& plan, const int64_t* dims, uint64_t dims
         }
     }
 
-    // batch 规模推导仅限 1D plan：纵向 plan 的 batch 记录在 fftStrides[0]（plan.batchSize
-    // 固定为 1），横向 plan 记录在 plan.batchSize。多维 plan 的 fftStrides 由 init*Steps 改写为
-    // 变换维元素步长（如 3D C2C_SEP 改写为 {Y*Z, Z, 1}），不承载 batch 语义，不得参与推导
-    int64_t planBatch = plan.batchSize;
-    if (plan.fftSizes.size() == 1 && plan.fftStrides.size() == 1 && plan.fftStrides[0] > planBatch) {
-        planBatch = plan.fftStrides[0];
-    }
-    if (planBatch <= 0) {
-        return false;
-    }
-    // 前导维度（索引 0..i）元素规模须恰为 plan 的 batch：不足会越界读写，超出语义不符；
-    // 乘法上界先判后乘，防溢出（dims[j] 为 0/负已先行拒绝，除法安全）
-    int64_t leadingExtent = 1;
-    for (int64_t j = 0; j <= i; j++) {
-        if (dims[j] <= 0 || leadingExtent > planBatch / dims[j]) {
-            return false;
-        }
-        leadingExtent *= dims[j];
-    }
-    return leadingExtent == planBatch;
+    // batch 规模推导仅限 1D plan（推导口径详见 PlanBatchExtent）：前导维度（索引 0..i）
+    // 元素规模须恰为 plan 的 batch，不足越界读写、超出语义不符（口径详见
+    // LeadingExtentMatchesBatch，#550/#561 统一实现）
+    return LeadingExtentMatchesBatch(dims, i + 1, PlanBatchExtent(plan));
 }
 
 AsdSip::AspbStatus asdFftExecC2C(asdFftHandle handle, const aclTensor* input, const aclTensor* output)

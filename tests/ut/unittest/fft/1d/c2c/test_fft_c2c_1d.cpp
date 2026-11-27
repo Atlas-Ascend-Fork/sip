@@ -352,6 +352,59 @@ TEST(TestFftPlanNegative, MakePlan1DRejectStftType)
     OpTestEnd(deviceId, context, stream);
 }
 
+// ---- 负向校验：MakePlan1D/2D/3D direction 与 1D dimType 白名单（issue #562） ----
+
+// direction 非法枚举值（未初始化结构体的 0、越界值）：isForward() 以 direction ==
+// ASCEND_FFT_FORWARD 判定正反向，非法值一律静默按反向变换执行并返回成功——应显式
+// 拒绝且 plan 不得被标记为已初始化，同句柄合法参数重新初始化应成功
+TEST(TestFftPlanNegative, MakePlanRejectInvalidDirection)
+{
+    int deviceId = 0;
+    MkiRtStream stream = OpTestInit(deviceId);
+
+    asdFftHandle handle;
+    ASSERT_EQ(asdFftCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdFftMakePlan1D(handle, 64, asdFftType::ASCEND_FFT_C2C, static_cast<asdFftDirection>(0), 1),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    EXPECT_EQ(asdFftMakePlan1D(handle, 64, asdFftType::ASCEND_FFT_C2C, static_cast<asdFftDirection>(0x99), 1),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    EXPECT_EQ(asdFftMakePlan2D(handle, 8, 8, asdFftType::ASCEND_FFT_C2C, static_cast<asdFftDirection>(0), 1),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    EXPECT_EQ(asdFftMakePlan3D(handle, 8, 8, 8, asdFftType::ASCEND_FFT_C2C, static_cast<asdFftDirection>(0), 1),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    // 拒绝路径不得改写 plan 状态：合法参数在同一句柄上重新初始化应成功
+    EXPECT_EQ(asdFftMakePlan1D(handle, 64, asdFftType::ASCEND_FFT_C2C, asdFftDirection::ASCEND_FFT_FORWARD, 1),
+              AsdSip::ErrorType::ACL_SUCCESS);
+    asdFftDestroy(handle);
+
+    TensorContext context;
+    OpTestEnd(deviceId, context, stream);
+}
+
+// 1D dimType 非法枚举值：落入 else 分支会静默按 HORIZONTAL 处理并绕过 950 平台
+// VERTICAL+batchSize>1 的不支持拦截——应显式拒绝，plan 未被标记初始化
+TEST(TestFftPlanNegative, MakePlan1DRejectInvalidDimType)
+{
+    int deviceId = 0;
+    MkiRtStream stream = OpTestInit(deviceId);
+
+    asdFftHandle handle;
+    ASSERT_EQ(asdFftCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    EXPECT_EQ(asdFftMakePlan1D(handle, 64, asdFftType::ASCEND_FFT_C2C, asdFftDirection::ASCEND_FFT_FORWARD, 1,
+                               static_cast<asdFft1dDimType>(0)),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    EXPECT_EQ(asdFftMakePlan1D(handle, 64, asdFftType::ASCEND_FFT_C2C, asdFftDirection::ASCEND_FFT_FORWARD, 1,
+                               static_cast<asdFft1dDimType>(0x99)),
+              AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    // 拒绝路径不得改写 plan 状态：合法参数在同一句柄上重新初始化应成功
+    EXPECT_EQ(asdFftMakePlan1D(handle, 64, asdFftType::ASCEND_FFT_C2C, asdFftDirection::ASCEND_FFT_FORWARD, 1),
+              AsdSip::ErrorType::ACL_SUCCESS);
+    asdFftDestroy(handle);
+
+    TensorContext context;
+    OpTestEnd(deviceId, context, stream);
+}
+
 // ---- 负向校验：asdFftExecC2CSeparated plan 形状一致性（issue #550） ----
 
 namespace {
@@ -517,4 +570,98 @@ TEST(TestFftPlanNegative, ExecC2CSeparatedPlan3DLegalShapeExecutes)
 
     TensorContext context;
     OpTestEnd(deviceId, context, stream);
+}
+
+// ---- 负向校验：asdFftExecC2R/asdFftExecR2C 缺 batch 张量（issue #561） ----
+
+namespace {
+// C2R/R2C 缺 batch 用例共用：plan 为 batch=8、fftSize=64，张量 dtype 与尾维均与 plan
+// 匹配（C2R 侧尾维按 N/2+1 换算），仅一侧张量前导元素规模与 plan.batchSize 不符——
+// 修复前可越过 match 直达核心按 plan.batchSize 读写造成设备越界，应返回参数错误
+void RunRealExecBatchMismatchCase(asdFftType planType, const std::vector<int64_t>& inShape,
+                                  const std::vector<int64_t>& outShape)
+{
+    auto shapeNumel = [](const std::vector<int64_t>& shape) {
+        int64_t numel = 1;
+        for (auto d : shape) {
+            numel *= d;
+        }
+        return numel;
+    };
+    int deviceId = 0;
+    MkiRtStream stream = OpTestInit(deviceId);
+
+    void* inAddr = nullptr;
+    void* outAddr = nullptr;
+    aclTensor* aclIn = nullptr;
+    aclTensor* aclOut = nullptr;
+    if (planType == asdFftType::ASCEND_FFT_C2R) {
+        std::vector<std::complex<float>> inHost(shapeNumel(inShape), std::complex<float>(1.0f, 0.0f));
+        std::vector<float> outHost(shapeNumel(outShape), 0.0f);
+        ASSERT_EQ(CreateAclTensor(inHost, inShape, &inAddr, aclDataType::ACL_COMPLEX64, &aclIn), 0);
+        ASSERT_EQ(CreateAclTensor(outHost, outShape, &outAddr, aclDataType::ACL_FLOAT, &aclOut), 0);
+    } else {
+        std::vector<float> inHost(shapeNumel(inShape), 1.0f);
+        std::vector<std::complex<float>> outHost(shapeNumel(outShape), std::complex<float>(0.0f, 0.0f));
+        ASSERT_EQ(CreateAclTensor(inHost, inShape, &inAddr, aclDataType::ACL_FLOAT, &aclIn), 0);
+        ASSERT_EQ(CreateAclTensor(outHost, outShape, &outAddr, aclDataType::ACL_COMPLEX64, &aclOut), 0);
+    }
+
+    asdFftHandle handle;
+    ASSERT_EQ(asdFftCreate(handle), AsdSip::ErrorType::ACL_SUCCESS);
+    ASSERT_EQ(asdFftMakePlan1D(handle, 64, planType, asdFftDirection::ASCEND_FFT_FORWARD, 8),
+              AsdSip::ErrorType::ACL_SUCCESS);
+    if (planType == asdFftType::ASCEND_FFT_C2R) {
+        EXPECT_EQ(asdFftExecC2R(handle, aclIn, aclOut), AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    } else {
+        EXPECT_EQ(asdFftExecR2C(handle, aclIn, aclOut), AsdSip::ErrorType::ACL_ERROR_INVALID_PARAM);
+    }
+    asdFftDestroy(handle);
+
+    aclDestroyTensor(aclIn);
+    aclDestroyTensor(aclOut);
+    aclrtFree(inAddr);
+    aclrtFree(outAddr);
+
+    TensorContext context;
+    OpTestEnd(deviceId, context, stream);
+}
+} // namespace
+
+// C2R 入口输入侧缺 batch：(1, 33) 尾维 33 == 64/2+1 但前导元素规模 1 != plan.batch 8
+TEST(TestFftPlanNegative, ExecC2RInputBatchMismatchRejected)
+{
+    RunRealExecBatchMismatchCase(asdFftType::ASCEND_FFT_C2R, {1, 33}, {8, 64});
+}
+
+// C2R 入口输出侧缺 batch：输入 (8, 33) 合法，输出 (1, 64) 尾维 64 == fftSize 但前导元素
+// 规模 1 != plan.batch 8（输出 matcher 为 matchR2C_）
+TEST(TestFftPlanNegative, ExecC2ROutputBatchMismatchRejected)
+{
+    RunRealExecBatchMismatchCase(asdFftType::ASCEND_FFT_C2R, {8, 33}, {1, 64});
+}
+
+// R2C 入口输入侧缺 batch：(1, 64) 尾维 64 == fftSize 但前导元素规模 1 != plan.batch 8
+TEST(TestFftPlanNegative, ExecR2CInputBatchMismatchRejected)
+{
+    RunRealExecBatchMismatchCase(asdFftType::ASCEND_FFT_R2C, {1, 64}, {8, 33});
+}
+
+// R2C 入口输出侧缺 batch：输入 (8, 64) 合法，输出 (1, 33) 尾维 33 == 64/2+1 但前导元素
+// 规模 1 != plan.batch 8（输出 matcher 为 matchC2R_）
+TEST(TestFftPlanNegative, ExecR2COutputBatchMismatchRejected)
+{
+    RunRealExecBatchMismatchCase(asdFftType::ASCEND_FFT_R2C, {8, 64}, {1, 33});
+}
+
+// 缺失 batch 维（单维张量）：(33,) 尾维与 C2R 输入匹配但无 batch 维，前导元素规模
+// 1 != plan.batch 8；同理 (64,) 对 R2C 输入
+TEST(TestFftPlanNegative, ExecC2RInputMissingBatchDimRejected)
+{
+    RunRealExecBatchMismatchCase(asdFftType::ASCEND_FFT_C2R, {33}, {8, 64});
+}
+
+TEST(TestFftPlanNegative, ExecR2CInputMissingBatchDimRejected)
+{
+    RunRealExecBatchMismatchCase(asdFftType::ASCEND_FFT_R2C, {64}, {8, 33});
 }
