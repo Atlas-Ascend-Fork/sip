@@ -113,6 +113,24 @@ stages:
         with:
           check_type: 'md_check'
           image_version: ${{ jobs.JOB_image.outputs.staticcheck }}
+      JOB_api_check:
+        permissions:
+          repository: read
+          id-token: write
+        name: API_Check
+        steps:
+          - name: api-check
+            identifier: api-check
+            uses: cann/.gitcode/actions/api-check@master
+            with:
+              org_name: ${{ env.org_name }}
+              mode: check
+              repo_name: ${{ env.repo_name }}
+              merge_id: ${{ env.MERGE_ID }}
+        if: ${{ env.TARGET_BRANCH == 'master' }}
+        runs-on: ["self-hosted", "arch=x64", "spec=small"]
+        container:
+          image: swr.cn-north-4.myhuaweicloud.com/ci_cann/ubuntu24.04_x86:lv6_v2.1026
     pre:
     - type: auto
     fail-fast: true
