@@ -106,7 +106,7 @@ int main()
         }
     }
     for (int n : {32, 64, 128, 256, 512, 1024, 2048, 4096, 8192}) {
-        for (int batch : {1, 7, 65, 129, 193, 8192}) {
+        for (int batch : {1, 7, 65, 129, 193, 8192, 8193, 260865, INT32_MAX}) {
             for (auto kind : {fft::real::Kind::R2C, fft::real::Kind::C2R}) {
                 const bool inverse = kind == fft::real::Kind::C2R;
                 const auto apiKind = inverse ? Kind::C2R : Kind::R2C;

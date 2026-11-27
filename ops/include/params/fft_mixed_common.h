@@ -54,6 +54,13 @@ inline bool RealMixedLength(int64_t n)
         return false;
     return LargestPrimeFactor(int(n / 2)) <= 251;
 }
+// Called after length validation. A standalone even-length real transform uses N
+// floats on the real side and N+2 floats on the half-spectrum side.
+inline bool RealMixedRowsFit(const FftMixedCommon& p)
+{
+    const int64_t stride = p.real2dAxis ? 2 * p.n : p.n + 2;
+    return p.rows >= 1 && p.rows <= INT32_MAX / stride;
+}
 inline int FixedRealTargetTail(const FftMixedCommon& p)
 {
     if (!p.cubeTailAllowed || p.rows != p.n || !MixedCommonLength(p.n))
@@ -205,8 +212,7 @@ inline bool PreferRealCubeFactor(int tail, int prefix, int largest)
 }
 inline CubeTailPlan SelectRealCubeCandidate(const FftMixedCommon& p, int fixed = -1)
 {
-    if (!p.cubeTailAllowed || !RealMixedLength(p.n) || p.rows < 1 ||
-        p.rows > (p.real2dAxis ? 0x7fffffff / (2 * p.n) : 8192) ||
+    if (!p.cubeTailAllowed || !RealMixedLength(p.n) || !RealMixedRowsFit(p) ||
         (p.pass != MixedCommonPass::Real && p.pass != MixedCommonPass::Hermitian) ||
         (!p.real2dAxis && (p.pass == MixedCommonPass::Real ? p.inverse : !p.inverse)))
         return {};
@@ -282,12 +288,12 @@ inline bool ValidMixedCommon(const FftMixedCommon& p)
                p.rows >= 1 && p.rows <= 0x7fffffff / (2 * p.n) && LargestPrimeFactor(static_cast<int>(p.n)) <= 251;
     }
     if (p.complex2dAxis || (p.cubeTailAllowed && p.pass == MixedCommonPass::Complex)) {
-        // Standalone C2C retains its existing power-of-two route and batch limit.
+        // Standalone C2C retains its existing power-of-two route.
         // The rectangular 2D planner separately selects RegBase for power-of-two axes.
         if (p.pass != MixedCommonPass::Complex || p.n < 1 || p.n > 8192 || p.rows < 1 ||
             p.rows > 0x7fffffff / (2 * p.n))
             return false;
-        if (!p.complex2dAxis && (p.rows > 8192 || (p.n & (p.n - 1)) == 0))
+        if (!p.complex2dAxis && (p.n & (p.n - 1)) == 0)
             return false;
         int64_t left = p.n;
         for (int radix = 2; radix <= 251 && left > 1; ++radix)
@@ -297,8 +303,9 @@ inline bool ValidMixedCommon(const FftMixedCommon& p)
     }
     const bool lengthOk = p.cubeTailAllowed && p.pass != MixedCommonPass::Complex ? RealMixedLength(p.n) :
                                                                                     MixedCommonLength(p.n);
-    return lengthOk && p.rows >= 1 && p.rows <= 8192 && int(p.pass) >= 0 && int(p.pass) <= 2 &&
-           (p.pass != MixedCommonPass::Real || !p.inverse) && (p.pass != MixedCommonPass::Hermitian || p.inverse);
+    return lengthOk && (p.pass == MixedCommonPass::Complex ? p.rows >= 1 && p.rows <= 8192 : RealMixedRowsFit(p)) &&
+           int(p.pass) >= 0 && int(p.pass) <= 2 && (p.pass != MixedCommonPass::Real || !p.inverse) &&
+           (p.pass != MixedCommonPass::Hermitian || p.inverse);
 }
 // Keep every eligible mixed pass on the capacity-based scheduler, including
 // one-row tiles. Two data regions remain when three no longer fit a full row.

@@ -172,8 +172,19 @@ int main(int argc, char** argv)
         require(fft1d::CommonMixedEligible(n, 17, 0, true, true, true, true));
     for (auto n : {0, 128, 257, 8193})
         require(!fft1d::CommonMixedEligible(n, 17, 0, false, true, true, true));
-    for (auto b : {0, 8193})
-        require(!fft1d::CommonMixedEligible(465, b, 0, false, true, true, true));
+    require(!fft1d::CommonMixedEligible(465, 0, 0, false, true, true, true));
+    for (int n : {511, 1023}) {
+        const bool inverse = n == 511;
+        const int dtsRows = inverse ? 261121 : 260865;
+        const int maxRows = INT32_MAX / (2 * n);
+        for (int rows : {8192, 8193, dtsRows, maxRows}) {
+            require(fft1d::CommonMixedEligible(n, rows, 0, inverse, true, true, true));
+            OpParam::MixedCommonTiling t{};
+            require(OpParam::BuildMixedCommonTiling({n, rows, Pass::Complex, inverse, false, true}, t));
+            require(t.rows == rows && t.n == n && t.inverse == inverse);
+        }
+        require(!fft1d::CommonMixedEligible(n, maxRows + 1, 0, inverse, true, true, true));
+    }
     int count = 0;
     for (int k = 1; k <= 256; ++k)
         for (int pass = 0; pass < 3; ++pass) {
@@ -271,8 +282,22 @@ int main(int argc, char** argv)
             }
         }
     }
-    for (int batch : {0, 8193})
-        require(!OpParam::UseMixedCubeTail({2848, batch, OpParam::MixedCommonPass::Real, false, false, true}));
+    for (auto pass : {Pass::Real, Pass::Hermitian}) {
+        for (int n : {96, 2848}) {
+            const int maxRows = INT32_MAX / (n + 2);
+            OpParam::FftMixedCommon p{n, 8192, pass, pass == Pass::Hermitian, false, true};
+            for (int rows : {0, 8192, 8193, 260865, maxRows, maxRows + 1}) {
+                p.rows = rows;
+                const bool fits = rows > 0 && rows <= maxRows;
+                require(fft1d::CommonMixedEligible(n, rows, int(pass), p.inverse, true, true, true) == fits);
+                OpParam::MixedCommonTiling t{};
+                require(OpParam::BuildMixedCommonTiling(p, t) == fits);
+                require(OpParam::UseMixedCubeTail(p) == (fits && n == 2848));
+                if (fits)
+                    require(t.rows == rows && t.pass == int(pass) && t.tail == (n == 2848 ? 89 : 0));
+            }
+        }
+    }
     for (int n : {0, 514, 1024, 1057, 8193})
         require(!OpParam::UseMixedCubeTail({n, 8192, OpParam::MixedCommonPass::Real, false, false, true}));
     const TailCase realFallback[] = {{1424, 89}, {2096, 131}, {262, 0}, {1050, 0}, {4128, 129}, {928, 29}};

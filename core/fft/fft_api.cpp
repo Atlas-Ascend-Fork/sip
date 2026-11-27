@@ -729,7 +729,7 @@ void addFFTSteps(FFTPlan& plan, int dim, int64_t batchSize, asdFftType fftType)
                                               kindOf(plan.fftType), !plan.isForward(), ascend950, fftStride == 1);
     }
     const bool multirow1d = ascend950 && !UseOpsFftKernelBackend() && plan.fftSizes.size() == 1 && fftStride == 1 &&
-                            batchSize >= 1 && batchSize <= 8192 && fftSize >= 32 &&
+                            batchSize >= 1 && (kind != fft1d::Kind::C2C || batchSize <= 8192) && fftSize >= 32 &&
                             fftSize <= (kind == fft1d::Kind::C2C ? 4096 : 8192) && (fftSize & (fftSize - 1)) == 0 &&
                             (kind == fft1d::Kind::C2C || (kind == fft1d::Kind::R2C && plan.isForward()) ||
                              (kind == fft1d::Kind::C2R && !plan.isForward()));

@@ -13,7 +13,8 @@
 namespace fft::real {
 inline bool SupportsOptimized(int32_t n, int64_t batch, Kind kind, bool inverse, bool multirow = false)
 {
-    return n >= 32 && n <= 8192 && (n & (n - 1)) == 0 && (batch == n || (multirow && batch >= 1 && batch <= 8192)) &&
+    return n >= 32 && n <= 8192 && (n & (n - 1)) == 0 &&
+           (batch == n || (multirow && batch >= 1 && batch <= INT32_MAX)) &&
            ((kind == Kind::R2C && !inverse) || (kind == Kind::C2R && inverse));
 }
 inline int NormalizeOptimizedConfig(int n, int config)
