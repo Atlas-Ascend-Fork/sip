@@ -15,7 +15,19 @@ namespace AsdSip {
 AspbStatus asdBlasCreate(asdBlasHandle& handle)
 {
     std::lock_guard<std::mutex> lock(blas_mtx);
-    handle = BlasPlanCache::InitHandle();
+    // InitHandle 的 new/句柄注册可能因宿主内存不足抛 std::bad_alloc：在 API 边界统一
+    // 翻译为错误码，异常不逃逸 AspbStatus API（issue #563，对齐 cgemm 等入口的 #131 约定）
+    try {
+        handle = BlasPlanCache::InitHandle();
+    } catch (const std::exception& e) {
+        try {
+            ASDSIP_ELOG(ErrorType::ACL_ERROR_INTERNAL_ERROR) << "Create Blas Plan failed: " << e.what();
+        } catch (...) {
+            // 日志格式化自身在 OOM 下可能再抛 bad_alloc，不得逃出错误码翻译路径
+        }
+        handle = nullptr;
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
     ASDSIP_LOG(INFO) << "BlasHandle create success.";
     return ErrorType::ACL_SUCCESS;
 }

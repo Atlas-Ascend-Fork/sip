@@ -1047,7 +1047,20 @@ void recycleInterCaches(FFTPlan& plan, workspace::Workspace& wkspace)
 AspbStatus asdFftCreate(asdFftHandle& handle)
 {
     std::lock_guard<std::mutex> lock(fft_mtx);
-    handle = FFTPlanCache::makePlan();
+    // makePlan 的 new/哈希表插入可能因宿主内存不足抛 std::bad_alloc：在 API 边界统一
+    // 翻译为错误码，异常不逃逸 AspbStatus API（issue #563，对齐 MakePlan1D/addFFTSteps
+    // 等入口的 #131 约定）
+    try {
+        handle = FFTPlanCache::makePlan();
+    } catch (const std::exception& e) {
+        try {
+            ASDSIP_LOG(ERROR) << "asdFftCreate failed: " << e.what();
+        } catch (...) {
+            // 日志格式化自身在 OOM 下可能再抛 bad_alloc，不得逃出错误码翻译路径
+        }
+        handle = nullptr;
+        return ErrorType::ACL_ERROR_INTERNAL_ERROR;
+    }
     return AsdSip::ErrorType::ACL_SUCCESS;
 }
 
