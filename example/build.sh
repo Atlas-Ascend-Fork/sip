@@ -8,6 +8,9 @@
 # INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 # See LICENSE in the root of the software repository for the full text of the License.
 #
+# 编译或执行失败时以真实退出码结束脚本，退出前统一清理临时二进制
+set -e
+trap 'rm -f example' EXIT
 
 # 检查环境变量 ASDSIP_HOME_PATH 是否已设置
 if [ -z "$ASDSIP_HOME_PATH" ]; then
@@ -40,4 +43,3 @@ g++  example.cpp \
 
 echo "Execute the example, calculate the dot product of x and y:"
 ./example
-rm example
