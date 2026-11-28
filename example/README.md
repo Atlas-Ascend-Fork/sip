@@ -8,13 +8,16 @@
 
 ### 环境配置
 
- - 配置CANN环境变量
+ - 配置CANN与SiP环境变量（示例构建依赖SiP库的`ASDSIP_HOME_PATH`，仅source CANN无法通过`example/build.sh`的前置检查）
 
     ```sh
-    source [CANN安装路径]/set_env.sh
+    # CANN环境变量（默认路径安装；非root用户将/usr/local替换为${HOME}）
+    source /usr/local/Ascend/cann/set_env.sh
+    # SiP库环境变量（源码编译直接构建场景）
+    source output/set_env.sh
+    # 若使用run包安装，对应为（${install_path}为安装目录）
+    # source ${install_path}/asdsip/set_env.sh
     ```
-
-    默认：source /usr/local/Ascend/ascend-toolkit/set_env.sh
 
 ### SiP编译
 

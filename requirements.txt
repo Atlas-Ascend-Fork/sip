@@ -8,5 +8,6 @@
 
 numpy
 pyyaml
+pytest
 setuptools
 wheel

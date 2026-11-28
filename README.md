@@ -15,7 +15,8 @@
 
 ## <a id="study"></a>1.  学习资源
 
-- [编译与构建](./docs/compilation_build.md)：SiP库的编译命令说明。
+- [编译与构建](./docs/compilation_build.md)：SiP库的编译命令说明，含Python测试（pytest）入口。
+- [问题报告](https://gitcode.com/cann/sip/issues)：通过issue提交发现的问题。
 - [API文档](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/900/API/SiP/SIP_0000.html)：介绍了SiP库的接口和相关术语。
 - [问题报告](https://gitcode.com/cann/sip/issues)：通过issue提交发现的问题。
 
@@ -154,6 +155,17 @@ bash build.sh
 本节示例代码分别展示了如何通过C++调用算子。
 
 #### 4.2.1  C++
+
+运行示例前需先加载CANN与SiP两套环境变量（`example/build.sh`依赖SiP库的`ASDSIP_HOME_PATH`，未设置时会报`the env params ASDSIP_HOME_PATH is not set.`并退出）：
+
+```sh
+# CANN环境变量（默认路径安装；非root用户将/usr/local替换为${HOME}）
+source /usr/local/Ascend/cann/set_env.sh
+# SiP库环境变量（源码编译直接构建场景）
+source output/set_env.sh
+# 若使用run包安装，对应为（${install_path}为安装目录）
+# source ${install_path}/asdsip/set_env.sh
+```
 
 在SiP仓库的`example`目录下，存放了多个不依赖测试框架、即编可用的算子调用Demo示例。本节示例代码展示通过C++调用SiP asdBlasSdot算子实现向量点乘（内积）功能，代码完整内容可参考[example](example/example.cpp)，下面仅展示其核心内容：
 

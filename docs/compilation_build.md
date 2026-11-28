@@ -41,6 +41,24 @@ SiP的基本编译命令是`bash build.sh`，在默认构建模式下，该命�
   --ut                           编译执行单元测试用例.
 ```
 
+### Python测试
+
+仓内Host侧Python测试位于`tests/host/`、`tests/`顶层（如`test_build_util_opkey.py`）与`tests/standalone/`，基于pytest运行（`tests/host/`下为pytest参数化用例，顶层脚本为unittest风格，pytest可统一收集），覆盖FFT/BLAS全算子golden数据比对、PR文件清单冒烟等场景；C++ gtest单元测试由上节`bash build.sh --ut`一键执行，Python测试层独立运行：
+
+```sh
+# 安装pytest（如未安装，见requirements.txt）
+pip install pytest
+# 仓库根目录运行全部Python测试
+pytest tests -v
+# 仅运行Host侧比对测试
+pytest tests/host -v
+```
+
+说明：
+
+- `tests/host/test_comparison_array_counts.py`等脚本按`SCRIPTS`列表批量调用各算子`compare_data.py`比对脚本，覆盖空tensor、长度不一致等场景，无需NPU；
+- 运行依赖Python 3与numpy（依赖清单见[requirements.txt](../requirements.txt)）。
+
 ### 常见编译问题（Q&A）
 
 **Q：执行`bash build.sh`在编译ascend-boost-comm组件内核阶段报`fatal error: 'cstdint' file not found`（`sys_macros_impl.h:18`处`#include <cstdint>`），多个设备目标（如`ascend310p`/`ascend910b`）同时失败并以`make Error 2`中断，但系统`/usr/include/c++/<version>`目录下实际存在`cstdint`，如何处理？**
