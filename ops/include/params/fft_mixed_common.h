@@ -47,18 +47,16 @@ inline int LargestPrimeFactor(int value)
     }
     return value > 1 ? value : largest;
 }
+inline int RealFftSize(int n) { return n % 2 ? n : n / 2; }
 inline bool RealMixedLength(int64_t n)
 {
     // The measured mixed grid starts at 96. Shorter real transforms retain native dispatch.
-    if (n < 96 || n > 8192 || n % 2 || (n & (n - 1)) == 0)
-        return false;
-    return LargestPrimeFactor(int(n / 2)) <= 251;
+    return n >= 96 && n <= 8192 && (n & (n - 1)) != 0;
 }
-// Called after length validation. A standalone even-length real transform uses N
-// floats on the real side and N+2 floats on the half-spectrum side.
+// The half-spectrum has floor(N/2)+1 complex values per standalone row.
 inline bool RealMixedRowsFit(const FftMixedCommon& p)
 {
-    const int64_t stride = p.real2dAxis ? 2 * p.n : p.n + 2;
+    const int64_t stride = p.real2dAxis ? 2 * p.n : 2 * (p.n / 2 + 1);
     return p.rows >= 1 && p.rows <= INT32_MAX / stride;
 }
 inline int FixedRealTargetTail(const FftMixedCommon& p)
@@ -141,7 +139,7 @@ inline int CubeTailFactorForLength(int n)
 inline int RealCubeUbBytes(int n, int rows, int lanes, int width)
 {
     const int rootFloats = (2 * n + 511) / 512 * 512;
-    const int rowFloats = (n + 128 + 511) / 512 * 512;
+    const int rowFloats = n % 2 ? rootFloats : (n + 128 + 511) / 512 * 512;
     return 4 * (rootFloats + 2 * rows * rowFloats) + 48 * lanes * width;
 }
 inline bool UseRealCubePipeline(const FftMixedCommon& p, const CubeTailPlan& cube)
@@ -149,7 +147,7 @@ inline bool UseRealCubePipeline(const FftMixedCommon& p, const CubeTailPlan& cub
     if (!p.allowRealCubePipeline || p.pass == MixedCommonPass::Complex || !cube.tail || cube.kBlocks != 1 ||
         cube.outBlocks != 1)
         return false;
-    const int prefix = int(p.n / 2) / cube.tail;
+    const int prefix = RealFftSize(int(p.n)) / cube.tail;
     // A complete tile is sent to the AIC before its two FFT row buffers are reused.
     // Retain one complex prefix value per lane for each of the two in-flight tiles.
     return cube.rowsPerAivTile * prefix <= cube.lanes &&
@@ -157,7 +155,7 @@ inline bool UseRealCubePipeline(const FftMixedCommon& p, const CubeTailPlan& cub
 }
 inline CubeTailPlan PlanRealCubeLayout(const FftMixedCommon& p, int tail)
 {
-    const int n = static_cast<int>(p.n), size = n / 2;
+    const int n = static_cast<int>(p.n), size = RealFftSize(n);
     if (tail < 3 || tail >= 257 || tail % 2 == 0 || size % tail != 0)
         return {};
     const int prefix = size / tail, half = tail / 2, width = (half / 16 + 1) * 16;
@@ -169,13 +167,15 @@ inline CubeTailPlan PlanRealCubeLayout(const FftMixedCommon& p, int tail)
         if (rows == 2 && (prefix != 16 || p.rows < 8))
             continue;
         for (int j : {32, 16, 8}) {
-            if ((rows == 2 && j != 32) || (blocked && (rows * prefix) % j != 0))
+            // Odd prefixes end in a partial group. Pack zero-fills unused lanes
+            // and Restore writes only the valid lanes.
+            if ((rows == 2 && j != 32) || (blocked && n % 2 == 0 && (rows * prefix) % j != 0))
                 continue;
             for (int tile : {64, 48, 32, 16}) {
                 if ((blocked && tile == 16) || (!blocked && tile > width))
                     continue;
                 const int kb = (half + tile - 1) / tile, nb = (half + tile) / tile;
-                // One complete N-root table, two compact data regions per row, and six
+                // One complete N-root table, two data regions per row, and six
                 // half-matrix fragments. Both AIVs share the two-slot L1 input region.
                 if (RealCubeUbBytes(n, rows, j, tile) > 212 * 1024 || 64 * j * kb * tile > 128 * 1024)
                     continue;
@@ -212,7 +212,7 @@ inline bool PreferRealCubeFactor(int tail, int prefix, int largest)
 }
 inline CubeTailPlan SelectRealCubeCandidate(const FftMixedCommon& p, int fixed = -1)
 {
-    if (!p.cubeTailAllowed || !RealMixedLength(p.n) || !RealMixedRowsFit(p) ||
+    if (!p.cubeTailAllowed || !RealMixedLength(p.n) || (p.real2dAxis && p.n % 2) || !RealMixedRowsFit(p) ||
         (p.pass != MixedCommonPass::Real && p.pass != MixedCommonPass::Hermitian) ||
         (!p.real2dAxis && (p.pass == MixedCommonPass::Real ? p.inverse : !p.inverse)))
         return {};
@@ -220,7 +220,7 @@ inline CubeTailPlan SelectRealCubeCandidate(const FftMixedCommon& p, int fixed =
         return PlanRealCubeLayout(p, fixed);
 
     // Keep the hardest odd radix in the Cube tail. Try single-matrix sizes before blocked sizes.
-    const int size = int(p.n / 2), largest = LargestPrimeFactor(size);
+    const int size = RealFftSize(int(p.n)), largest = LargestPrimeFactor(size);
     for (int limit : {127, 255}) {
         const int lower = limit == 127 ? largest : 129;
         for (int tail = limit; tail >= lower; tail -= 2) {
@@ -293,13 +293,7 @@ inline bool ValidMixedCommon(const FftMixedCommon& p)
         if (p.pass != MixedCommonPass::Complex || p.n < 1 || p.n > 8192 || p.rows < 1 ||
             p.rows > 0x7fffffff / (2 * p.n))
             return false;
-        if (!p.complex2dAxis && (p.n & (p.n - 1)) == 0)
-            return false;
-        int64_t left = p.n;
-        for (int radix = 2; radix <= 251 && left > 1; ++radix)
-            while (left % radix == 0)
-                left /= radix;
-        return left == 1;
+        return p.complex2dAxis ? LargestPrimeFactor(static_cast<int>(p.n)) <= 251 : (p.n & (p.n - 1)) != 0;
     }
     const bool lengthOk = p.cubeTailAllowed && p.pass != MixedCommonPass::Complex ? RealMixedLength(p.n) :
                                                                                     MixedCommonLength(p.n);
@@ -371,7 +365,7 @@ inline bool BuildMixedCommonTiling(const FftMixedCommon& p, MixedCommonTiling& t
     const auto cube = SelectCubeTail(p);
     t.rowsPerAivTile = cube.rowsPerAivTile;
     t.realCubePipeline = UseRealCubePipeline(p, cube);
-    if (p.real2dAxis && t.n % 2) {
+    if (p.pass != MixedCommonPass::Complex && t.n % 2) {
         // Eight odd-length real output rows always end at a complete 32-byte block.
         t.rowGroup = 8;
     } else if (cube.tail && p.pass != MixedCommonPass::Complex) {
@@ -391,9 +385,11 @@ inline bool BuildMixedCommonTiling(const FftMixedCommon& p, MixedCommonTiling& t
         left /= 2;
         prev *= 2;
     }
-    for (int r = 3; left > 1; r += 2) {
+    for (int divisor = 3; left > 1; divisor += 2) {
+        // With smaller factors removed, the remaining length is prime once divisor exceeds its square root.
+        const int r = divisor * divisor > left ? left : divisor;
         while (left % r == 0) {
-            if (t.oddStages == 8 || r > 251)
+            if (t.oddStages == 8)
                 return false;
             t.radix[t.oddStages] = r;
             t.prev[t.oddStages++] = prev;

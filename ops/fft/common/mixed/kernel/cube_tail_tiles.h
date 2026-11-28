@@ -39,7 +39,7 @@ __simt_vf__ __launch_bounds__(256) inline void Pack(__ubuf__ float* y, __ubuf__ 
             const int row = rows == 1 ? 0 : lane / prefix, u = lane - row * prefix;
             auto* src = y + row * rowStride;
             int l = 2 * (p * prefix + u), m = 2 * ((Q - p) * prefix + u);
-            // Real passes retain the complete N-root table for their N/2 FFT.
+            // Packed even real rows use every second root; full-length FFTs use every root.
             int w = 2 * rootStep * p * u, v = 2 * rootStep * (Q - p) * u;
             float lr = src[l] * roots[w] - src[l + 1] * roots[w + 1];
             float li = src[l] * roots[w + 1] + src[l + 1] * roots[w];
@@ -104,11 +104,13 @@ template <int J, int T>
 __aicore__ inline void Cube(__gm__ float* wg, const __gm__ Tiling* t)
 {
     constexpr int MH = 2 * J, M = 2 * MH, fragment = MH * T;
-    const int N = t->n, Q = t->tail, fftSize = t->pass == 0 ? N : N / 2, prefix = fftSize / Q;
+    const int N = t->n, Q = t->tail;
+    const bool packedReal = t->pass != 0 && N % 2 == 0;
+    const int fftSize = packedReal ? N / 2 : N, prefix = fftSize / Q;
     const int tileRows = t->pass == 0 ? 1 : t->rowsPerAivTile, groups = (tileRows * prefix + J - 1) / J;
     const int KB = t->kBlocks, NB = t->outBlocks, batch = t->rows, rowGroup = t->rowGroup;
     const int rootFloats = (2 * N + 511) / 512 * 512;
-    const int rowFloats = t->pass == 0 ? rootFloats : (N + 128 + 511) / 512 * 512;
+    const int rowFloats = packedReal ? (N + 128 + 511) / 512 * 512 : rootFloats;
     const int resultBase = rootFloats + 2 * tileRows * rowFloats + 2 * fragment;
     GlobalTensor<float> weights;
     weights.SetGlobalBuffer(wg);
@@ -196,7 +198,12 @@ __aicore__ inline void WriteTile(__gm__ float* output, __ubuf__ float* data, __u
                                  __ubuf__ float* roots, const __gm__ Tiling* t, int row, int tileRows, int rowFloats,
                                  int outFloats)
 {
-    if (t->pass == 1) {
+    if (t->pass != 0 && t->n % 2) {
+        asc_vf_call<fft_mixed::OddRealBoundary<false>>(dim3(256), data, scratch, t->n, t->pass, tileRows, rowFloats);
+        PipeBarrier<PIPE_ALL>();
+        if (t->pass == 2)
+            data = scratch;
+    } else if (t->pass == 1) {
         // Restore every mirrored frequency before the real-spectrum conversion.
         const int n = t->n;
         asc_vf_call<fft_mixed::BatchedRealBoundary>(dim3(256), data, scratch, roots, n, false, tileRows, rowFloats);
@@ -227,14 +234,17 @@ template <int J, int T>
 __aicore__ inline void Vector(__gm__ float* xg, __gm__ float* rg, __gm__ float* yg, const __gm__ Tiling* t)
 {
     constexpr int MH = 2 * J, fragment = MH * T;
-    const int N = t->n, Q = t->tail, pass = t->pass, fftSize = pass == 0 ? N : N / 2, prefix = fftSize / Q;
+    const int N = t->n, Q = t->tail, pass = t->pass;
+    const bool packedReal = pass != 0 && N % 2 == 0, oddReal = pass != 0 && N % 2;
+    const int fftSize = packedReal ? N / 2 : N, prefix = fftSize / Q;
     const int tileRows = pass == 0 ? 1 : t->rowsPerAivTile, groups = (tileRows * prefix + J - 1) / J;
     const int KB = t->kBlocks, NB = t->outBlocks, batch = t->rows, rowGroup = t->rowGroup;
     const int rootFloats = (2 * N + 511) / 512 * 512;
-    const int rowFloats = pass == 0 ? rootFloats : (N + 128 + 511) / 512 * 512;
+    const int rowFloats = packedReal ? (N + 128 + 511) / 512 * 512 : rootFloats;
     const int resultBase = rootFloats + 2 * tileRows * rowFloats + 2 * fragment;
-    const int inFloats = pass == 1 ? N : pass == 2 ? N + 2 : 2 * N;
-    const int outFloats = pass == 1 ? N + 2 : pass == 2 ? N : 2 * N;
+    const int spectrumFloats = 2 * (N / 2 + 1);
+    const int inFloats = pass == 1 ? N : pass == 2 ? spectrumFloats : 2 * N;
+    const int outFloats = pass == 1 ? spectrumFloats : pass == 2 ? N : 2 * N;
     const bool pipeline = pass != 0 && KB == 1 && NB == 1 && groups == 1 && t->realCubePipeline;
     __ubuf__ float arena[212 * 1024 / sizeof(float)];
     auto* roots = arena;
@@ -258,14 +268,18 @@ __aicore__ inline void Vector(__gm__ float* xg, __gm__ float* rg, __gm__ float* 
             PipeBarrier<PIPE_ALL>();
             auto* source = x;
             auto* scratch = y;
-            if (pass == 2) {
-                asc_vf_call<fft_mixed::BatchedRealBoundary>(dim3(256), x, y, roots, N, true, tileRows, rowFloats);
+            if (oddReal || pass == 2) {
+                if (oddReal)
+                    asc_vf_call<fft_mixed::OddRealBoundary<true>>(dim3(256), x, y, N, pass, tileRows, rowFloats);
+                else
+                    asc_vf_call<fft_mixed::BatchedRealBoundary>(dim3(256), x, y, roots, N, true, tileRows, rowFloats);
                 PipeBarrier<PIPE_ALL>();
                 source = y;
                 scratch = x;
             }
             // The real boundary belongs outside the complete prefix + Cube FFT.
-            auto* transformed = fft_mixed::ComputeTileButterfly<false>(source, scratch, roots, t, tileRows, rowFloats);
+            auto* transformed = fft_mixed::ComputeTileButterfly<false, true>(source, scratch, roots, t, tileRows,
+                                                                             rowFloats);
             auto* result = transformed == x ? y : x;
             PipeBarrier<PIPE_ALL>();
             if (pipeline) {
@@ -275,7 +289,7 @@ __aicore__ inline void Vector(__gm__ float* xg, __gm__ float* rg, __gm__ float* 
                 auto* returns = arena + resultBase;
                 auto* origin = returns + 4 * fragment + 2 * slot * J;
                 asc_vf_call<Pack<J, T, true>>(dim3(256), transformed, roots, packed, 0, 0, prefix, Q, tileRows,
-                                              rowFloats, 2, origin);
+                                              rowFloats, packedReal ? 2 : 1, origin);
                 PipeBarrier<PIPE_ALL>();
                 SendPacked(packed, fragment, slot, 0, sub, 1);
                 CrossCoreSetFlag<2, PIPE_MTE3>(2 + slot);
@@ -291,7 +305,7 @@ __aicore__ inline void Vector(__gm__ float* xg, __gm__ float* rg, __gm__ float* 
                 if (i < groups) {
                     for (int k = 0; k < KB; ++k) {
                         asc_vf_call<Pack<J, T>>(dim3(256), transformed, roots, packed, i, k, prefix, Q, tileRows,
-                                                rowFloats, pass == 0 ? 1 : 2, packed);
+                                                rowFloats, packedReal ? 2 : 1, packed);
                         PipeBarrier<PIPE_ALL>();
                         SendPacked(packed, fragment, i % 2, k, sub, KB);
                     }

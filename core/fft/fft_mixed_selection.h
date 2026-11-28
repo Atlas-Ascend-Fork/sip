@@ -42,7 +42,8 @@ inline Real2dAxisRoute SelectReal2dAxis(int n, int64_t rows, OpParam::MixedCommo
     const bool standard = (pass == Pass::Hermitian) == inverse;
     const auto native = fft::a5::SelectReal(n, rows, pass == Pass::Hermitian);
     // Preserve already optimized square real passes. Qualify newly reached DFT axes separately.
-    const bool existingSquareFft = square && standard && OpParam::RealMixedLength(n);
+    const bool existingSquareFft = square && standard && n % 2 == 0 && OpParam::RealMixedLength(n) &&
+                                   OpParam::LargestPrimeFactor(n) <= 251;
     if (native == fft::a5::RealRoute::Dft && !existingSquareFft && !PreferFftToRealDft(n, rows))
         return Real2dAxisRoute::Native;
     if (power2 && n >= 32 && rows <= 8192 && standard)

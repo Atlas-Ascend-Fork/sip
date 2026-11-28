@@ -1,11 +1,11 @@
 # Ascend950 mixed FFT validation
 
 The common core serves contiguous FP32/complex64 1D transforms and the 1D passes
-of batch-one square 2D transforms. Standalone C2C supports non-power-of-two
-lengths up to 8192 with prime factors up to 251. Its row count must be positive
-and satisfy `2 * length * rows <= INT32_MAX` for complex64 indexing. For supported
-even-length standalone R2C and C2R mixed passes, the half-spectrum occupies
-`length + 2` floats per row, so `(length + 2) * rows <= INT32_MAX`.
+of batch-one square 2D transforms. Standalone mixed C2C supports all non-power-of-two
+lengths up to 8192. Standalone mixed forward R2C and inverse C2R support all non-power-of-two lengths
+from 96 to 8192. All three require a positive row count. C2C requires
+`2 * length * rows <= INT32_MAX`. R2C and C2R require `spectrumFloats * rows <= INT32_MAX`,
+where `spectrumFloats` per row is `length + 1` for odd lengths and `length + 2` for even lengths.
 Other platforms, strided
 passes, 3D transforms, external backends and out-of-range inputs retain their
 existing selection. Exact aliasing uses a temporary output and copy-back;

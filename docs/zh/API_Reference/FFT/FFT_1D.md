@@ -314,7 +314,7 @@ AspbStatus asdFftExecC2CSeparated(
 
 - asdFftMakePlan1D
   - 对横向FFT：
-      - fftSize需保证不超过$2^{27}$且分解质因数后不包含超过199的质因子。
+      - `fftSize` 不超过 $2^{27}$。在 Ascend 950 原生后端上，连续布局的 C2C 正逆向、R2C 正向和 C2R 逆向在 `1 ≤ fftSize ≤ 8192` 时支持任意质因数，其他情况的质因数上限为 199。
       - batchSize在存储允许范围内应无额外约束。
       - 输入的元素个数理论支持[1，$2^{30}$]。
       - 当前功能实现所限，横向FFT输入长度（fftSize）大于等于32768且为2的幂的时候，会修改输入数据，需提前做好备份。

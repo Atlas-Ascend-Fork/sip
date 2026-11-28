@@ -22,6 +22,7 @@ int main(int argc, char** argv)
 {
     using Pass = OpParam::MixedCommonPass;
     using Route = fft1d::Real2dAxisRoute;
+    require(fft1d::SelectReal2dAxis(251, 251, Pass::Real, false, true) == Route::Native);
     require(fft1d::SelectReal2dAxis(64, 6000, Pass::Complex, false) == Route::Native);
     require(fft1d::SelectReal2dAxis(58, 37, Pass::Real, false) == Route::Native);
     require(fft1d::SelectReal2dAxis(64, 128, Pass::Hermitian, true) == Route::RegBase);
@@ -51,12 +52,14 @@ int main(int argc, char** argv)
     require(fft1d::SelectReal2dAxis(32, 4097, Pass::Complex, true) == Route::Native);
     for (auto pass : {Pass::Real, Pass::Hermitian}) {
         for (bool inverse : {false, true}) {
-            for (int n : {100, 135, 928, 1573, 5400, 7007}) {
+            for (int n : {100, 135, 928, 1037, 1573, 5400, 7007}) {
                 OpParam::FftMixedCommon p{n, 8201, pass, inverse, false, true, true, true};
                 OpParam::MixedCommonTiling t{};
                 if (n > 1024)
                     require(fft1d::SelectReal2dAxis(n, p.rows, pass, inverse) == Route::Mixed);
                 require(OpParam::BuildMixedCommonTiling(p, t));
+                if (n % 2)
+                    require(t.tail == 0 && t.rowGroup == 8);
                 const int spectrum = 2 * (n / 2 + 1);
                 require(OpParam::MixedCommonFloats(p, pass == Pass::Real) == spectrum * p.rows);
                 require(OpParam::MixedCommonFloats(p, pass != Pass::Real) == n * p.rows);
@@ -129,7 +132,31 @@ int main(int argc, char** argv)
         OpParam::FftMixedCommon p{c.n, c.n, OpParam::MixedCommonPass::Complex, false, false, true};
         require(OpParam::SelectCubeTail(p).tail == c.tail);
     }
+    int hostCoverageCases = 0;
     for (int n = 1; n <= 8192; ++n) {
+        const bool power2 = (n & (n - 1)) == 0;
+        for (int batch : {1, 16, 256}) {
+            for (bool inverse : {false, true}) {
+                OpParam::FftMixedCommon axis{n, batch, Pass::Complex, inverse, false, true};
+                OpParam::MixedCommonTiling tiling{};
+                require(fft1d::CommonMixedEligible(n, batch, 0, inverse, true, true, true) == !power2);
+                require(OpParam::BuildMixedCommonTiling(axis, tiling) == !power2);
+                if (power2) {
+                    // A power-of-two length also has a native fallback when optimized RegBase is bypassed.
+                    const auto native = fft::a5::Select(n, batch);
+                    require(native == fft::a5::Route::Regbase || native == fft::a5::Route::Dft);
+                } else {
+                    int product = 1 << tiling.radix2Stages;
+                    for (int stage = 0; stage < tiling.oddStages; ++stage) {
+                        require(tiling.prev[stage] == product);
+                        product *= tiling.radix[stage];
+                    }
+                    require(product * (tiling.tail ? tiling.tail : 1) == n);
+                    require(OpParam::SelectMixedCommonTile(axis).rows > 0);
+                }
+                ++hostCoverageCases;
+            }
+        }
         OpParam::FftMixedCommon p{n, 17, OpParam::MixedCommonPass::Complex, false, false, true};
         const auto cube = OpParam::SelectCubeTail(p);
         if (n % 32 == 0) {
@@ -168,9 +195,9 @@ int main(int argc, char** argv)
             require(64 * cube.lanes * cube.kBlocks * cube.width <= 128 * 1024);
         }
     }
-    for (auto n : {393, 637})
+    for (auto n : {257, 393, 637, 514, 1799, 8191})
         require(fft1d::CommonMixedEligible(n, 17, 0, true, true, true, true));
-    for (auto n : {0, 128, 257, 8193})
+    for (auto n : {0, 128, 8193})
         require(!fft1d::CommonMixedEligible(n, 17, 0, false, true, true, true));
     require(!fft1d::CommonMixedEligible(465, 0, 0, false, true, true, true));
     for (int n : {511, 1023}) {
@@ -214,15 +241,13 @@ int main(int argc, char** argv)
     require(!fft1d::CommonMixedEligible(352, 1, 0, false, true, false));
     require(!fft1d::CommonMixedEligible(1536, 1, 1, true, true, true));
     require(!fft1d::CommonMixedEligible(1536, 1, 2, false, true, true));
-    int realCases = 0;
+    int realCases = 0, realScanCases = 0;
     for (int n = 1; n <= 8192; ++n) {
-        int left = n / 2;
-        for (int radix = 2; radix <= 251 && left > 1; ++radix)
-            while (left % radix == 0)
-                left /= radix;
-        const bool publicEligible = n >= 96 && n % 2 == 0 && (n & (n - 1)) != 0 && left == 1;
+        const bool odd = n % 2 != 0;
+        const int complexSize = odd ? n : n / 2;
+        const bool publicEligible = n >= 96 && (n & (n - 1)) != 0;
         require(OpParam::RealMixedLength(n) == publicEligible);
-        for (int batch : {1, 3, 7, 8, 193, 8192}) {
+        for (int batch : {1, 3, 7, 8, 16, 193, 256, 8192}) {
             for (auto pass : {OpParam::MixedCommonPass::Real, OpParam::MixedCommonPass::Hermitian}) {
                 const bool inverse = pass == OpParam::MixedCommonPass::Hermitian;
                 OpParam::FftMixedCommon p{n, batch, pass, inverse, false, true};
@@ -230,35 +255,46 @@ int main(int argc, char** argv)
                 OpParam::MixedCommonTiling t{};
                 const bool valid = OpParam::BuildMixedCommonTiling(p, t);
                 require(t.rowsPerAivTile >= 1);
-                require(fft1d::CommonMixedEligible(n, batch, int(pass), inverse, true, true, true) == publicEligible);
+                require(fft1d::CommonMixedEligible(n, batch, int(pass), inverse, true, true,
+                                                   OpParam::RealMixedLength(n)) == publicEligible);
                 require(valid == publicEligible);
+                ++realScanCases;
+                if (batch == 1 || batch == 16 || batch == 256)
+                    ++hostCoverageCases;
                 if (!valid) {
                     require(cube.tail == 0);
+                    const auto native = fft::a5::SelectReal(n, batch, inverse);
+                    require(native == fft::a5::RealRoute::Dft || native == fft::a5::RealRoute::Regbase);
                     continue;
                 }
-                const int outputFloats = inverse ? n : n + 2;
+                const int spectrumFloats = 2 * (n / 2 + 1);
+                const int outputFloats = inverse ? n : spectrumFloats;
+                require(OpParam::MixedCommonFloats(p, !inverse) == p.rows * spectrumFloats);
+                require(OpParam::MixedCommonFloats(p, inverse) == p.rows * n);
+                if (odd)
+                    require(t.rowGroup == 8 && t.rowsPerAivTile == 1);
                 if (OpParam::FixedRealTargetTail(p) < 0)
                     require((t.rowGroup * outputFloats) % 8 == 0);
                 int prefix = 1 << t.radix2Stages;
                 for (int s = 0; s < t.oddStages; ++s) {
-                    require(t.prev[s] == prefix && t.radix[s] <= 251);
+                    require(t.prev[s] == prefix && t.radix[s] >= 3 && t.radix[s] <= complexSize);
                     prefix *= t.radix[s];
                 }
-                require(prefix * (t.tail ? t.tail : 1) == n / 2);
+                require(prefix * (t.tail ? t.tail : 1) == complexSize);
                 require(t.tail == cube.tail);
                 const auto tile = OpParam::SelectMixedCommonTile(p);
-                const int stride = (n + 135) / 8 * 8;
+                const int stride = (2 * complexSize + 135) / 8 * 8;
                 require(tile.rows > 0 && tile.rows * stride <= tile.capacity);
                 require(tile.buffers * tile.capacity + 2 * n <= 54272);
                 if (!cube.tail) {
                     require(t.rowsPerAivTile == 1 && t.realCubePipeline == 0);
                     continue;
                 }
-                require(!cube.direct && t.rowGroup == 4);
+                require(!cube.direct && t.rowGroup == (odd ? 8 : 4));
                 require(cube.rowsPerAivTile == 1 || cube.rowsPerAivTile == 2);
                 require(t.rowsPerAivTile == cube.rowsPerAivTile);
                 const int rootFloats = (2 * n + 511) / 512 * 512;
-                const int rowFloats = (n + 128 + 511) / 512 * 512;
+                const int rowFloats = ((odd ? 2 * n : n + 128) + 511) / 512 * 512;
                 const int pipelineBytes = t.realCubePipeline ? 16 * cube.lanes : 0;
                 require(4 * (rootFloats + 2 * cube.rowsPerAivTile * rowFloats) + 48 * cube.lanes * cube.width +
                             pipelineBytes <=
@@ -283,8 +319,20 @@ int main(int argc, char** argv)
         }
     }
     for (auto pass : {Pass::Real, Pass::Hermitian}) {
-        for (int n : {96, 2848}) {
-            const int maxRows = INT32_MAX / (n + 2);
+        struct OddTileCase {
+            int n, buffers, rows;
+        };
+        const OddTileCase boundaries[] = {{2943, 4, 2}, {2945, 3, 2}, {3819, 3, 2},
+                                          {3825, 3, 1}, {6731, 3, 1}, {6741, 2, 1}};
+        for (const auto& c : boundaries) {
+            OpParam::FftMixedCommon p{c.n, 16, pass, pass == Pass::Hermitian, false, true};
+            const auto tile = OpParam::SelectMixedCommonTile(p);
+            require(tile.buffers == c.buffers && tile.rows == c.rows);
+        }
+        const TailCase batchBoundaries[] = {{96, 0}, {1037, 61}, {1081, 47}, {1215, 0}, {2848, 89}};
+        for (const auto& c : batchBoundaries) {
+            const int n = c.n;
+            const int maxRows = INT32_MAX / (2 * (n / 2 + 1));
             OpParam::FftMixedCommon p{n, 8192, pass, pass == Pass::Hermitian, false, true};
             for (int rows : {0, 8192, 8193, 260865, maxRows, maxRows + 1}) {
                 p.rows = rows;
@@ -292,15 +340,15 @@ int main(int argc, char** argv)
                 require(fft1d::CommonMixedEligible(n, rows, int(pass), p.inverse, true, true, true) == fits);
                 OpParam::MixedCommonTiling t{};
                 require(OpParam::BuildMixedCommonTiling(p, t) == fits);
-                require(OpParam::UseMixedCubeTail(p) == (fits && n == 2848));
+                require(OpParam::UseMixedCubeTail(p) == (fits && c.tail != 0));
                 if (fits)
-                    require(t.rows == rows && t.pass == int(pass) && t.tail == (n == 2848 ? 89 : 0));
+                    require(t.rows == rows && t.pass == int(pass) && t.tail == c.tail);
             }
         }
     }
-    for (int n : {0, 514, 1024, 1057, 8193})
+    for (int n : {0, 514, 1024, 8193})
         require(!OpParam::UseMixedCubeTail({n, 8192, OpParam::MixedCommonPass::Real, false, false, true}));
-    const TailCase realFallback[] = {{1424, 89}, {2096, 131}, {262, 0}, {1050, 0}, {4128, 129}, {928, 29}};
+    const TailCase realFallback[] = {{1424, 89}, {2096, 131}, {1057, 151}, {262, 0}, {1050, 0}, {4128, 129}, {928, 29}};
     for (const auto& c : realFallback) {
         for (auto pass : {OpParam::MixedCommonPass::Real, OpParam::MixedCommonPass::Hermitian}) {
             OpParam::FftMixedCommon p{c.n, 193, pass, pass == OpParam::MixedCommonPass::Hermitian, false, true};
@@ -309,7 +357,7 @@ int main(int argc, char** argv)
             require(!fft1d::CommonMixedEligible(c.n, p.rows, int(pass), !p.inverse, true, true, true));
         }
     }
-    for (int n : {58, 94, 514})
+    for (int n : {58, 94})
         require(!fft1d::CommonMixedEligible(n, 193, 1, false, true, true, true));
     // Validate the actual public entry, capacity and kernel schedule for both directional tables.
     for (int n = 32; n <= 8192; n += 32) {
@@ -371,6 +419,7 @@ int main(int argc, char** argv)
         }
         require(bool(scan));
     }
-    std::cout << "HOST_PASS positive_grid=" << count
-              << " cube_axis_lengths=8192 real_scan_cases=98304 real_cube_cases=" << realCases << '\n';
+    require(hostCoverageCases == 8192 * 3 * 4);
+    std::cout << "HOST_PASS positive_grid=" << count << " cube_axis_lengths=8192 real_scan_cases=" << realScanCases
+              << " real_cube_cases=" << realCases << " host_1d_route_cases=" << hostCoverageCases << '\n';
 }

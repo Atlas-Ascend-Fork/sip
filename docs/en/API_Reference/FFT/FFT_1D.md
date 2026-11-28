@@ -301,7 +301,7 @@ AspbStatus asdFftExecC2CSeparated(
 
 - `asdFftMakePlan1D`
   - For horizontal FFT:
-      - `fftSize` must not exceed $2^{27}$, and its prime factors must not contain any prime factor greater than 199.
+      - `fftSize` must not exceed $2^{27}$. On the Ascend 950 native backend, contiguous forward and inverse C2C, forward R2C, and inverse C2R support any prime factor for `1 ≤ fftSize ≤ 8192`. In other cases, the largest prime factor must not exceed 199.
       - `batchSize` has no additional constraints within the allowed storage range.
       - The number of input elements is theoretically supported in the range from 1 to $2^{30}$.
       - Due to current implementation limitations, when the horizontal FFT input length (`fftSize`) is greater than or equal to 32768 and is a power of 2, the input data will be modified. Back up the input data in advance.
