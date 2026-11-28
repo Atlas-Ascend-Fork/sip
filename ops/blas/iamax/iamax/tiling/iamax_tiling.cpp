@@ -11,6 +11,7 @@
 #include <mki/utils/assert/assert.h>
 #include <mki/utils/platform/platform_info.h>
 #include "log/log.h"
+#include "utils/assert.h"
 #include "iamax.h"
 #include "iamax_tiling_data.h"
 #include "iamax_tiling.h"
@@ -176,20 +177,23 @@ AsdSip::AspbStatus IamaxTiling(const LaunchParam& launchParam, KernelInfo& kerne
     tilingDataPtr->tailCount = minEleRepeatTail;
     tilingDataPtr->maxRepeatLen = maxRepeatLen;
     uint32_t copyLen = MAXVECTORNUM * sizeof(uint32_t);
-    memcpy_s(tilingDataPtr->startOffset, copyLen, startOffset, copyLen);
-    memcpy_s(tilingDataPtr->eleTotalEachCore, copyLen, eleTotalEachCore, copyLen);
-    memcpy_s(tilingDataPtr->dealTimesEachCore, copyLen, dealTimesEachCore, copyLen);
-    memcpy_s(tilingDataPtr->dealLenEachTime, copyLen, dealLenEachTime, copyLen);
-    memcpy_s(tilingDataPtr->reduceMaxRstsLenEachCore, copyLen, reduceMaxRstsLenEachCore, copyLen);
-    memcpy_s(tilingDataPtr->dealLenUpBlockEachTime, copyLen, dealLenUpBlockEachTime, copyLen);
-    memcpy_s(tilingDataPtr->totalRptCntNor, copyLen, totalRptCntNor, copyLen);
-    memcpy_s(tilingDataPtr->totalRptCntNorRemainder, copyLen, totalRptCntNorRemainder, copyLen);
-    memcpy_s(tilingDataPtr->rptBatchCntNor, copyLen, rptBatchCntNor, copyLen);
-    memcpy_s(tilingDataPtr->rptBatchCntNorRemainder, copyLen, rptBatchCntNorRemainder, copyLen);
-    memcpy_s(tilingDataPtr->rmdRptLenNor, copyLen, rmdRptLenNor, copyLen);
+    // 逐处记录拷贝结果（按位或保留首个非 EOK 失败码），释放 allMem 后统一判错返回，
+    // 避免中途 return 造成 allMem 泄漏
+    errno_t ret = memcpy_s(tilingDataPtr->startOffset, copyLen, startOffset, copyLen);
+    ret |= memcpy_s(tilingDataPtr->eleTotalEachCore, copyLen, eleTotalEachCore, copyLen);
+    ret |= memcpy_s(tilingDataPtr->dealTimesEachCore, copyLen, dealTimesEachCore, copyLen);
+    ret |= memcpy_s(tilingDataPtr->dealLenEachTime, copyLen, dealLenEachTime, copyLen);
+    ret |= memcpy_s(tilingDataPtr->reduceMaxRstsLenEachCore, copyLen, reduceMaxRstsLenEachCore, copyLen);
+    ret |= memcpy_s(tilingDataPtr->dealLenUpBlockEachTime, copyLen, dealLenUpBlockEachTime, copyLen);
+    ret |= memcpy_s(tilingDataPtr->totalRptCntNor, copyLen, totalRptCntNor, copyLen);
+    ret |= memcpy_s(tilingDataPtr->totalRptCntNorRemainder, copyLen, totalRptCntNorRemainder, copyLen);
+    ret |= memcpy_s(tilingDataPtr->rptBatchCntNor, copyLen, rptBatchCntNor, copyLen);
+    ret |= memcpy_s(tilingDataPtr->rptBatchCntNorRemainder, copyLen, rptBatchCntNorRemainder, copyLen);
+    ret |= memcpy_s(tilingDataPtr->rmdRptLenNor, copyLen, rmdRptLenNor, copyLen);
 
     delete[] allMem;
     allMem = nullptr;
+    ASDSIP_ECHECK(ret == EOK, "iamax tiling memcpy_s failed.", ErrorType::ACL_ERROR_INTERNAL_ERROR);
 
     // mix模式下，每个AICore会启动两个AIVcore,
     uint32_t mixCoreNum = CeilA2B(needVecCoreNum, 2);
