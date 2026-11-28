@@ -79,23 +79,24 @@ static bool RunOnce(int n, int batch, const std::vector<c64>& input, std::vector
     void* outDev = nullptr;
     AB_CHECK(aclrtMalloc(&inDev, (int64_t)bytes, ACL_MEM_MALLOC_HUGE_FIRST) == ::ACL_SUCCESS, "malloc input");
     AB_CHECK(aclrtMalloc(&outDev, (int64_t)bytes, ACL_MEM_MALLOC_HUGE_FIRST) == ::ACL_SUCCESS, "malloc output");
-    aclrtMemcpy(inDev, bytes, input.data(), bytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    AB_CHECK(aclrtMemcpy(inDev, bytes, input.data(), bytes, ACL_MEMCPY_HOST_TO_DEVICE) == ::ACL_SUCCESS, "memcpy H2D");
     aclTensor* inT = aclCreateTensor(shape, 2, ACL_COMPLEX64, strides, 0, ACL_FORMAT_ND, shape, 2, inDev);
     aclTensor* outT = aclCreateTensor(shape, 2, ACL_COMPLEX64, strides, 0, ACL_FORMAT_ND, shape, 2, outDev);
 
     for (int i = 0; i < warmup; i++) {
         asdFftExecC2C(handle, inT, outT);
     }
-    aclrtSynchronizeStream(stream);
+    AB_CHECK(aclrtSynchronizeStream(stream) == ::ACL_SUCCESS, "sync stream after warmup");
     auto t0 = std::chrono::steady_clock::now();
     for (int i = 0; i < loops; i++) {
         AB_CHECK(asdFftExecC2C(handle, inT, outT) == ErrorType::ACL_SUCCESS, "asdFftExecC2C");
     }
-    aclrtSynchronizeStream(stream);
+    AB_CHECK(aclrtSynchronizeStream(stream) == ::ACL_SUCCESS, "sync stream after timing");
     msPerExec = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count() / loops;
 
     output.resize(input.size());
-    aclrtMemcpy(output.data(), bytes, outDev, bytes, ACL_MEMCPY_DEVICE_TO_HOST);
+    AB_CHECK(aclrtMemcpy(output.data(), bytes, outDev, bytes, ACL_MEMCPY_DEVICE_TO_HOST) == ::ACL_SUCCESS,
+             "memcpy D2H");
 
     aclDestroyTensor(inT);
     aclDestroyTensor(outT);
